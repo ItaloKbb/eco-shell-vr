@@ -1,0 +1,267 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://car.gd" id="1_carro"]
+[ext_resource type="Script" path="res://eco_shell_casco.gd" id="2_casco"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/left_hand_low.tscn" id="3_mao_e"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/right_hand_low.tscn" id="4_mao_d"]
+
+[sub_resource type="Shader" id="Shader_vidro"]
+code = "shader_type spatial;
+render_mode cull_disabled, depth_draw_never;
+// Bolha de policarbonato: quase invisível de frente, reflexo azul nas bordas (fresnel)
+void fragment() {
+	float borda = pow(1.0 - abs(dot(NORMAL, VIEW)), 3.0);
+	ALBEDO = vec3(0.55, 0.75, 1.0);
+	ALPHA = 0.04 + 0.55 * borda;
+	METALLIC = 0.3;
+	ROUGHNESS = 0.03;
+	SPECULAR = 0.9;
+	EMISSION = vec3(0.18, 0.55, 1.0) * borda * 0.5;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="Mat_vidro"]
+shader = SubResource("Shader_vidro")
+
+[sub_resource type="StandardMaterial3D" id="Mat_detalhe"]
+albedo_color = Color(0.9216, 0.3608, 0.1804, 1)
+emission_enabled = true
+emission = Color(0.9216, 0.3608, 0.1804, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_interior"]
+albedo_color = Color(0.04, 0.04, 0.07, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="Mat_pneu"]
+albedo_color = Color(0.03, 0.03, 0.04, 1)
+roughness = 0.9
+
+[sub_resource type="SphereMesh" id="Mesh_bolha"]
+material = SubResource("Mat_vidro")
+radius = 1.0
+height = 1.0
+radial_segments = 48
+rings = 16
+is_hemisphere = true
+
+[sub_resource type="BoxMesh" id="Mesh_painel"]
+material = SubResource("Mat_interior")
+size = Vector3(0.28, 0.085, 0.03)
+
+[sub_resource type="Shader" id="Shader_horizonte"]
+code = "shader_type spatial;
+render_mode unshaded, cull_disabled;
+// Horizonte artificial: céu azul / chão laranja, girado pelo giro e deslocado pela inclinação
+uniform float inclinacao = 0.0;
+uniform float giro = 0.0;
+void fragment() {
+	vec2 p = vec2(UV.x * 2.0 - 1.0, 1.0 - UV.y * 2.0);
+	float r = length(p);
+	if (r > 1.0) discard;
+	float c = cos(giro), s = sin(giro);
+	vec2 q = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+	float h = q.y + inclinacao / 1.5708 * 0.85;
+	vec3 cor = mix(vec3(0.85, 0.32, 0.12), vec3(0.1, 0.35, 0.9), step(0.0, h));
+	// Escada de inclinação a cada 30° e linha do horizonte
+	float escada = (1.0 - smoothstep(0.0, 0.02, abs(fract(h / 0.2833 + 0.5) - 0.5) * 0.2833)) * step(abs(q.x), 0.25);
+	cor = mix(cor, vec3(0.9), escada * 0.6);
+	cor = mix(cor, vec3(1.0), 1.0 - smoothstep(0.0, 0.035, abs(h)));
+	// Símbolo fixo do carro e moldura
+	float asa = (1.0 - smoothstep(0.03, 0.05, abs(p.y))) * step(abs(p.x), 0.55) * step(0.15, abs(p.x));
+	cor = mix(cor, vec3(1.0, 0.85, 0.2), max(asa, step(r, 0.06)));
+	cor = mix(cor, vec3(0.03, 0.03, 0.07), smoothstep(0.86, 0.92, r));
+	ALBEDO = cor;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="Mat_horizonte"]
+shader = SubResource("Shader_horizonte")
+
+[sub_resource type="QuadMesh" id="Mesh_horizonte"]
+size = Vector2(0.068, 0.068)
+
+[sub_resource type="BoxMesh" id="Mesh_barra"]
+material = SubResource("Mat_interior")
+size = Vector3(0.26, 0.022, 0.022)
+
+[sub_resource type="BoxMesh" id="Mesh_manopla"]
+material = SubResource("Mat_detalhe")
+size = Vector3(0.024, 0.06, 0.03)
+
+[sub_resource type="CylinderMesh" id="Mesh_roda"]
+material = SubResource("Mat_pneu")
+top_radius = 0.245
+bottom_radius = 0.245
+height = 0.035
+radial_segments = 32
+rings = 0
+
+[sub_resource type="BoxMesh" id="Mesh_raio"]
+material = SubResource("Mat_detalhe")
+size = Vector3(0.42, 0.037, 0.02)
+
+[node name="Carro" type="RigidBody3D"]
+collision_layer = 4
+collision_mask = 3
+mass = 120.0
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, 0.25, -0.1)
+can_sleep = false
+continuous_cd = true
+angular_damp = 0.8
+script = ExtResource("1_carro")
+
+[node name="Forma" type="CollisionShape3D" parent="."]
+
+[node name="Casco" type="MeshInstance3D" parent="."]
+script = ExtResource("2_casco")
+cockpit = Vector3(-0.12, 0.21, 0.43)
+
+[node name="Bolha" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.24, 0, 0, 0, 0.22, 0, 0, 0, 0.45, 0, 0.58, -0.1)
+mesh = SubResource("Mesh_bolha")
+
+[node name="Painel" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9063, -0.4226, 0, 0.4226, 0.9063, 0, 0.6, -0.42)
+mesh = SubResource("Mesh_painel")
+
+[node name="Horizonte" type="MeshInstance3D" parent="Painel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.016)
+material_override = SubResource("Mat_horizonte")
+mesh = SubResource("Mesh_horizonte")
+
+[node name="InfoE" type="Label3D" parent="Painel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.094, 0, 0.016)
+pixel_size = 0.0003
+modulate = Color(0.55, 0.85, 1, 1)
+text = "INCL   +0°
+GIRO   +0°
+RUMO  000°"
+font_size = 32
+outline_size = 0
+horizontal_alignment = 0
+
+[node name="InfoD" type="Label3D" parent="Painel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.094, 0, 0.016)
+pixel_size = 0.0003
+modulate = Color(0.55, 0.85, 1, 1)
+text = "0 km/h
+ALT 0.0 m
+[E] ENERGIA"
+font_size = 32
+outline_size = 0
+horizontal_alignment = 2
+
+[node name="Guidao" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.58, -0.2)
+
+[node name="Barra" type="MeshInstance3D" parent="Guidao"]
+mesh = SubResource("Mesh_barra")
+
+[node name="ManoplaE" type="MeshInstance3D" parent="Guidao"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.13, 0.015, 0)
+mesh = SubResource("Mesh_manopla")
+
+[node name="ManoplaD" type="MeshInstance3D" parent="Guidao"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.13, 0.015, 0)
+mesh = SubResource("Mesh_manopla")
+
+[node name="RodaFE" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.22, 0.245, -0.75)
+
+[node name="Giro" type="Node3D" parent="RodaFE"]
+
+[node name="Pneu" type="MeshInstance3D" parent="RodaFE/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_roda")
+
+[node name="Raio" type="MeshInstance3D" parent="RodaFE/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_raio")
+
+[node name="RodaFD" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.22, 0.245, -0.75)
+
+[node name="Giro" type="Node3D" parent="RodaFD"]
+
+[node name="Pneu" type="MeshInstance3D" parent="RodaFD/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_roda")
+
+[node name="Raio" type="MeshInstance3D" parent="RodaFD/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_raio")
+
+[node name="RodaT" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.245, 0.7)
+
+[node name="Giro" type="Node3D" parent="RodaT"]
+
+[node name="Pneu" type="MeshInstance3D" parent="RodaT/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_roda")
+
+[node name="Raio" type="MeshInstance3D" parent="RodaT/Giro"]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("Mesh_raio")
+
+[node name="LetreiroE" type="Label3D" parent="."]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -0.363, 0.4, -0.5)
+pixel_size = 0.0015
+modulate = Color(0.95, 0.97, 1, 1)
+outline_modulate = Color(0.0784, 0.0784, 0.2353, 1)
+text = "SENAI"
+font_size = 64
+outline_size = 10
+
+[node name="LetreiroD" type="Label3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.363, 0.4, -0.5)
+pixel_size = 0.0015
+modulate = Color(0.95, 0.97, 1, 1)
+outline_modulate = Color(0.0784, 0.0784, 0.2353, 1)
+text = "SENAI"
+font_size = 64
+outline_size = 10
+
+[node name="FarolE" type="SpotLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9962, -0.0872, 0, 0.0872, 0.9962, -0.08, 0.3, -1.33)
+light_color = Color(1, 0.92, 0.78, 1)
+light_energy = 3.0
+spot_range = 30.0
+spot_angle = 28.0
+
+[node name="FarolD" type="SpotLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9962, -0.0872, 0, 0.0872, 0.9962, 0.08, 0.3, -1.33)
+light_color = Color(1, 0.92, 0.78, 1)
+light_energy = 3.0
+spot_range = 30.0
+spot_angle = 28.0
+
+[node name="LuzTraseira" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.31, 1.36)
+light_color = Color(1, 0.08, 0.05, 1)
+light_energy = 0.8
+omni_range = 1.6
+
+[node name="Cabeca" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9888, -0.1494, 0, 0.1494, 0.9888, 0, 0.68, 0.05)
+near = 0.02
+far = 150.0
+
+[node name="OrigemXR" type="XROrigin3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.68, 0.05)
+
+[node name="CameraXR" type="XRCamera3D" parent="OrigemXR"]
+near = 0.02
+far = 150.0
+
+[node name="MaoEsquerda" type="XRController3D" parent="OrigemXR"]
+tracker = &"left_hand"
+
+[node name="Mao" parent="OrigemXR/MaoEsquerda" instance=ExtResource("3_mao_e")]
+
+[node name="MaoDireita" type="XRController3D" parent="OrigemXR"]
+tracker = &"right_hand"
+
+[node name="Mao" parent="OrigemXR/MaoDireita" instance=ExtResource("4_mao_d")]

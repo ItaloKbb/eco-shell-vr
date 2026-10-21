@@ -5,8 +5,8 @@ const ARQUIVO := "user://piloto.cfg"
 const LETRAS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 const RESOLUCAO := Vector2i(800, 320)
 ## Paleta do painel e da esfera: ciano do jogador, âmbar da energia no limite
-const COR_CIANO := Color(0.35, 0.8, 1.0)
-const COR_QUENTE := Color(1.0, 0.62, 0.25)
+const COR_CIANO := PainelHolografico.COR_CIANO
+const COR_QUENTE := PainelHolografico.COR_QUENTE
 const COR_LUZ := Color(0.3, 0.6, 1.0)
 const SEGMENTOS := 20
 ## Lançamento no PC: a casca estilhaça e o carro atravessa o buraco
@@ -26,13 +26,11 @@ var _fase := 0.0
 var _tom: AudioStreamGeneratorPlayback
 var _som: AudioStreamPlayer
 var _tela: SubViewport
-var _painel: MeshInstance3D
+var _painel: PainelHolografico
 var _material: ShaderMaterial
 var _ruptura: Tween
 var _voo: Tween
-var _abertura: Tween
 ## Controles do painel (desenhados na SubViewport)
-var _cabecalho: Label
 var _etapa: Label
 var _caixa_nick: HBoxContainer
 var _slots: Array[Label] = []
@@ -42,9 +40,6 @@ var _legenda_carga: Label
 var _segmentos: Array[ColorRect] = []
 var _porcento: Label
 var _dicas: HBoxContainer
-var _dicas_atuais: Array = []
-var _fonte: FontVariation
-var _fonte_forte: FontVariation
 var _pronto := false
 var _reiniciando := false
 var _modo_vr := false
@@ -140,7 +135,7 @@ func _nova_vida():
 		_painel.reparent(carro.camera, false)
 		_painel.position = Vector3(0.0, 0.08, -1.2)
 	_atualizar_texto()
-	_mostrar_painel()
+	_painel.mostrar()
 	if _modo_vr:
 		await _fade_spawn.descobrir(0.25)
 	_pronto = true
@@ -312,54 +307,10 @@ func _montar_painel():
 	_slots.clear()
 	_estilos_slot.clear()
 	_segmentos.clear()
-	_dicas_atuais = []
-	_tela = SubViewport.new()
-	_tela.size = RESOLUCAO
-	_tela.transparent_bg = true
-	_tela.disable_3d = true
-	_tela.render_target_update_mode = SubViewport.UPDATE_ONCE
-	add_child(_tela)
-	var base := SystemFont.new()
-	base.font_names = PackedStringArray(["Consolas", "DejaVu Sans Mono", "monospace"])
-	_fonte = FontVariation.new()
-	_fonte.base_font = base
-	_fonte.spacing_glyph = 2
-	var negrito := SystemFont.new()
-	negrito.font_names = base.font_names
-	negrito.font_weight = 700
-	_fonte_forte = FontVariation.new()
-	_fonte_forte.base_font = negrito
-	_fonte_forte.spacing_glyph = 6
-
-	# Moldura: vidro escuro com borda ciano e cantos cortados
-	var moldura := PanelContainer.new()
-	moldura.size = Vector2(RESOLUCAO)
-	moldura.add_theme_stylebox_override("panel", _estilo(Color(0.02, 0.06, 0.12, 0.85), Color(COR_CIANO, 0.85), 2, 14))
-	_tela.add_child(moldura)
-	var margem := MarginContainer.new()
-	for lado in ["left", "right"]:
-		margem.add_theme_constant_override("margin_" + lado, 30)
-	for lado in ["top", "bottom"]:
-		margem.add_theme_constant_override("margin_" + lado, 20)
-	moldura.add_child(margem)
-	var coluna := VBoxContainer.new()
-	coluna.add_theme_constant_override("separation", 12)
-	margem.add_child(coluna)
-
-	# Cabeçalho: marca à esquerda, etapa à direita, filete embaixo
-	var topo := HBoxContainer.new()
-	coluna.add_child(topo)
-	_cabecalho = _rotulo("ECO SHELL", 22, COR_CIANO, _fonte_forte)
-	topo.add_child(_cabecalho)
-	var vao := Control.new()
-	vao.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	topo.add_child(vao)
-	_etapa = _rotulo("", 18, Color(COR_CIANO, 0.6))
-	topo.add_child(_etapa)
-	var filete := ColorRect.new()
-	filete.color = Color(COR_CIANO, 0.35)
-	filete.custom_minimum_size.y = 2
-	coluna.add_child(filete)
+	_painel = PainelHolografico.new(RESOLUCAO, Vector2(1.0, 0.4), _modo_vr)
+	_tela = _painel.tela
+	_etapa = _painel.etapa
+	var coluna := _painel.coluna
 
 	# Miolo: um dos dois blocos aparece por vez
 	var miolo := CenterContainer.new()
@@ -369,11 +320,11 @@ func _montar_painel():
 	_caixa_nick.add_theme_constant_override("separation", 10)
 	miolo.add_child(_caixa_nick)
 	for i in 8:
-		var estilo := _estilo(Color.TRANSPARENT, Color.TRANSPARENT, 2, 6)
+		var estilo := PainelHolografico.estilo(Color.TRANSPARENT, Color.TRANSPARENT, 2, 6)
 		var slot := PanelContainer.new()
 		slot.custom_minimum_size = Vector2(62, 84)
 		slot.add_theme_stylebox_override("panel", estilo)
-		var letra := _rotulo("", 46, Color.WHITE, _fonte_forte)
+		var letra := PainelHolografico.rotulo("", 46, Color.WHITE, true)
 		letra.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		letra.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		slot.add_child(letra)
@@ -384,7 +335,7 @@ func _montar_painel():
 	_caixa_carga = VBoxContainer.new()
 	_caixa_carga.add_theme_constant_override("separation", 12)
 	miolo.add_child(_caixa_carga)
-	_legenda_carga = _rotulo("", 26, Color.WHITE, _fonte_forte)
+	_legenda_carga = PainelHolografico.rotulo("", 26, Color.WHITE, true, 6)
 	_legenda_carga.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_caixa_carga.add_child(_legenda_carga)
 	var linha_barra := HBoxContainer.new()
@@ -398,86 +349,15 @@ func _montar_painel():
 		segmento.custom_minimum_size = Vector2(22, 40)
 		barra.add_child(segmento)
 		_segmentos.append(segmento)
-	_porcento = _rotulo("", 36, Color.WHITE, _fonte_forte)
+	_porcento = PainelHolografico.rotulo("", 36, Color.WHITE, true)
 	_porcento.custom_minimum_size.x = 110
 	_porcento.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	linha_barra.add_child(_porcento)
 
 	# Rodapé: dicas com o botão desenhado como uma tecla
-	_dicas = HBoxContainer.new()
-	_dicas.alignment = BoxContainer.ALIGNMENT_CENTER
-	_dicas.add_theme_constant_override("separation", 26)
+	_dicas = PainelHolografico.caixa_dicas()
 	coluna.add_child(_dicas)
-
-	var material := ShaderMaterial.new()
-	material.shader = preload("res://visor_holografico.gdshader")
-	material.set_shader_parameter("tela", _tela.get_texture())
-	material.set_shader_parameter("resolucao", Vector2(RESOLUCAO))
-	material.set_shader_parameter("intensidade", 1.6)
-	material.render_priority = 127
-	_painel = MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.0, 0.4)
-	_painel.mesh = quad
-	_painel.material_override = material
-	if _modo_vr:
-		# Texto sem grade de LEDs, varredura, cintilação ou halos aditivos no Link.
-		var simples := StandardMaterial3D.new()
-		simples.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		simples.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		simples.albedo_texture = _tela.get_texture()
-		simples.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		_painel.material_override = simples
-	_painel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_painel)
-
-func _estilo(fundo: Color, borda: Color, espessura: int, canto: int) -> StyleBoxFlat:
-	var estilo := StyleBoxFlat.new()
-	estilo.bg_color = fundo
-	estilo.border_color = borda
-	estilo.set_border_width_all(espessura)
-	estilo.set_corner_radius_all(canto)
-	estilo.corner_detail = 1
-	return estilo
-
-func _rotulo(texto: String, tamanho: int, cor: Color, fonte: Font = null) -> Label:
-	var rotulo := Label.new()
-	rotulo.text = texto
-	rotulo.add_theme_font_override("font", fonte if fonte else _fonte)
-	rotulo.add_theme_font_size_override("font_size", tamanho)
-	rotulo.add_theme_color_override("font_color", cor)
-	return rotulo
-
-## Painel liga como um tubo de imagem: abre de uma linha fina até o tamanho cheio
-func _mostrar_painel():
-	if _abertura and _abertura.is_valid():
-		_abertura.kill()
-	_painel.visible = true
-	_painel.scale = Vector3(1.0, 0.04, 1.0)
-	_abertura = create_tween()
-	_abertura.tween_property(_painel, "scale", Vector3.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-## Dicas do rodapé: [[tecla, texto], ...]; só remonta quando mudam
-func _definir_dicas(dicas: Array):
-	if dicas == _dicas_atuais:
-		return
-	_dicas_atuais = dicas
-	for filho in _dicas.get_children():
-		filho.queue_free()
-	for dica in dicas:
-		var item := HBoxContainer.new()
-		item.add_theme_constant_override("separation", 8)
-		var tecla := PanelContainer.new()
-		var estilo := _estilo(Color(COR_CIANO, 0.18), Color(COR_CIANO, 0.9), 2, 5)
-		estilo.content_margin_left = 8
-		estilo.content_margin_right = 8
-		tecla.add_theme_stylebox_override("panel", estilo)
-		tecla.add_child(_rotulo(dica[0], 20, Color.WHITE, _fonte_forte))
-		item.add_child(tecla)
-		var texto := _rotulo(dica[1], 20, Color(COR_CIANO, 0.9))
-		texto.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		item.add_child(texto)
-		_dicas.add_child(item)
 
 func _atualizar_texto():
 	var agora := Time.get_ticks_msec() * 0.001
@@ -504,11 +384,11 @@ func _atualizar_texto():
 				estilo.border_color = Color(COR_CIANO, 0.3)
 				estilo.set_border_width_all(2)
 		if _modo_vr:
-			_definir_dicas([["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"]])
+			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"]])
 		elif _usando_controle:
-			_definir_dicas([["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["B", "APAGAR"], ["A", "CONFIRMAR"]])
+			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["B", "APAGAR"], ["A", "CONFIRMAR"]])
 		else:
-			_definir_dicas([["A-Z", "DIGITE SEU NICK"], ["⌫", "APAGAR"], ["ENTER", "CONFIRMAR"]])
+			_painel.definir_dicas(_dicas, [["A-Z", "DIGITE SEU NICK"], ["⌫", "APAGAR"], ["ENTER", "CONFIRMAR"]])
 	else:
 		_etapa.text = "LANÇAMENTO"
 		_legenda_carga.text = "%s  ·  PRONTO PARA NASCER" % nick
@@ -523,12 +403,8 @@ func _atualizar_texto():
 			var cor := COR_CIANO.lerp(COR_QUENTE, float(i) / (SEGMENTOS - 1))
 			_segmentos[i].color = Color(COR_CIANO, 0.12).lerp(Color(cor, pulso), preenchido)
 		var tecla := "GATILHO" if _modo_vr else ("RT" if _usando_controle else "W")
-		_definir_dicas([[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]])
-	# Monitor: redesenha sempre (pisca/pulsa); VR: só quando o conteúdo muda
-	var assinatura := "%d|%s|%d|%s|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle)]
-	if not _modo_vr or assinatura != _tela.get_meta("assinatura", ""):
-		_tela.set_meta("assinatura", assinatura)
-		_tela.render_target_update_mode = SubViewport.UPDATE_ONCE
+		_painel.definir_dicas(_dicas, [[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]])
+	_painel.redesenhar("%d|%s|%d|%s|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle)])
 
 func _montar_som():
 	_som = AudioStreamPlayer.new()

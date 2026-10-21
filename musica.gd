@@ -18,6 +18,10 @@ var _players: Array[AudioStreamPlayer] = []
 var _atual := 0
 var _trocando := false
 var _ultima: AudioStream
+var _troca: Tween
+## Corrida: uma faixa fixa, sempre do começo e em loop, no lugar da fila aleatória
+@export_file("*.mp3", "*.ogg", "*.wav") var faixa_corrida := "res://musicas/musica_1.mp3"
+var em_corrida := false
 
 func _ready():
 	if AudioServer.get_bus_index(BARRAMENTO) < 0:
@@ -46,6 +50,10 @@ func _process(delta):
 	AudioServer.set_bus_volume_db(bus, move_toward(AudioServer.get_bus_volume_db(bus), alvo, 12.0 * delta))
 
 	var p := _players[_atual]
+	if em_corrida:
+		if not p.playing:
+			p.play(0.0)
+		return
 	if _trocando or p.stream == null:
 		return
 	# Acabou sem dar tempo de cruzar (um travamento, por exemplo): segue a fila
@@ -67,6 +75,8 @@ func _proxima() -> AudioStream:
 	return _ultima
 
 func _tocar_proxima(duracao: float):
+	if _troca and _troca.is_valid():
+		_troca.kill()
 	_trocando = true
 	var sai := _players[_atual]
 	_atual = 1 - _atual
@@ -75,11 +85,37 @@ func _tocar_proxima(duracao: float):
 	entra.volume_db = -80.0
 	entra.play()
 	# Curva de volume em escala linear (soa uniforme); quem sai some no mesmo tempo
-	var tw := create_tween().set_parallel()
-	tw.tween_method(func(v: float): entra.volume_db = linear_to_db(v) + volume_db, 0.0001, 1.0, duracao)
+	_troca = create_tween().set_parallel()
+	_troca.tween_method(func(v: float): entra.volume_db = linear_to_db(v) + volume_db, 0.0001, 1.0, duracao)
 	if sai.playing:
 		var inicio := db_to_linear(sai.volume_db - volume_db)
-		tw.tween_method(func(v: float): sai.volume_db = linear_to_db(v) + volume_db, inicio, 0.0001, duracao)
-	tw.chain().tween_callback(func():
+		_troca.tween_method(func(v: float): sai.volume_db = linear_to_db(v) + volume_db, inicio, 0.0001, duracao)
+	_troca.chain().tween_callback(func():
 		sai.stop()
 		_trocando = false)
+
+## Largada: a música da corrida entra do começo, cheia; a que tocava some rápido
+func tocar_corrida():
+	if _troca and _troca.is_valid():
+		_troca.kill()
+	em_corrida = true
+	_trocando = false
+	var sai := _players[_atual]
+	_atual = 1 - _atual
+	var entra := _players[_atual]
+	entra.stream = load(faixa_corrida)
+	entra.volume_db = volume_db
+	entra.play(0.0)
+	if sai.playing:
+		_troca = create_tween()
+		var inicio := db_to_linear(sai.volume_db - volume_db)
+		_troca.tween_method(func(v: float): sai.volume_db = linear_to_db(v) + volume_db, inicio, 0.0001, 0.3)
+		_troca.tween_callback(sai.stop)
+
+## Fim da corrida: volta à fila aleatória com a transição cruzada de sempre
+func voltar_playlist():
+	if not em_corrida:
+		return
+	em_corrida = false
+	if not _faixas.is_empty():
+		_tocar_proxima(2.0)

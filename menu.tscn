@@ -116,7 +116,7 @@ hex_world = NodePath("../HexWorld")
 script = ExtResource("8_portais")
 hex_world = NodePath("../HexWorld")
 
-[node name="Mundos" type="Node" parent="." unique_id=1697575004 node_paths=PackedStringArray("carro", "hex_world", "atmosfera", "portais", "inimigos", "ambiente", "sol")]
+[node name="Mundos" type="Node" parent="." unique_id=1697575004 node_paths=PackedStringArray("carro", "hex_world", "atmosfera", "portais", "inimigos", "ambiente", "sol", "musica")]
 script = ExtResource("9_mundos")
 carro = NodePath("../Carro")
 hex_world = NodePath("../HexWorld")
@@ -125,6 +125,7 @@ portais = NodePath("../Portais")
 inimigos = NodePath("../Inimigos")
 ambiente = NodePath("../WorldEnvironment")
 sol = NodePath("../DirectionalLight3D")
+musica = NodePath("../Musica")
 
 [node name="Musica" type="Node" parent="." unique_id=217090610]
 script = ExtResource("7_musica")

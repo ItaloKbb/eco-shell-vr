@@ -25,6 +25,11 @@ const T_LARGADA := 5.162
 ## Meia largura (em parâmetro) do topo plano do viaduto e das rampas
 const VIADUTO_TOPO := 0.2
 const VIADUTO_RAMPA := 0.68
+## Grid de largada: distância entre fileiras e afastamento do centro (m)
+const GRID_FILEIRA := 6.5
+const GRID_LADO := 3.0
+## Amostra da primeira fileira, alguns metros depois da linha
+const GRID_FRENTE := 10
 
 var pontos := PackedVector3Array()
 var lados := PackedVector3Array()
@@ -32,7 +37,11 @@ var cimas := PackedVector3Array()
 var frentes := PackedVector3Array()
 var distancias := PackedFloat32Array()
 var inclinacoes := PackedFloat32Array()
+## Curvatura no plano (1/m, positiva = curva para a direita), suavizada; a IA usa
+## para frear antes das curvas e escolher a linha de corrida
+var curvaturas := PackedFloat32Array()
 var comprimento := 0.0
+var _lampadas: Array[StandardMaterial3D] = []
 
 func _ready():
 	_calcular()
@@ -81,6 +90,7 @@ func _calcular():
 			lisa[i] = soma / 25.0
 		crua = lisa
 	inclinacoes = crua
+	_calcular_curvaturas(brutos)
 
 	pontos.resize(n)
 	lados.resize(n)
@@ -259,6 +269,20 @@ func _portico():
 	viga.mesh = caixa
 	viga.transform = Transform3D(base, p + Vector3.UP * 7.5)
 	add_child(viga)
+	# Semáforo: três lâmpadas embaixo da viga, visíveis dos dois lados
+	var bola := SphereMesh.new()
+	bola.radius = 0.32
+	bola.height = 0.64
+	for k in 3:
+		var material := StandardMaterial3D.new()
+		_lampadas.append(material)
+		for face: float in [-1.0, 1.0]:
+			var lampada := MeshInstance3D.new()
+			lampada.mesh = bola
+			lampada.material_override = material
+			lampada.position = p + Vector3.UP * 6.5 + lado * (k - 1) * 1.2 + base.z * 0.2 * face
+			add_child(lampada)
+	semaforo(-1)
 	# Um letreiro de cada lado da viga, cada um só visível pela frente
 	for virado: bool in [false, true]:
 		var nome := Label3D.new()
@@ -272,7 +296,136 @@ func _portico():
 		nome.transform = Transform3D(b, p + Vector3.UP * 9.0 + b.z * 0.3)
 		add_child(nome)
 
-## Onde o carro começa: alguns metros antes da linha, virado para a frente
-func largada() -> Transform3D:
-	var i := AMOSTRAS - 10
-	return Transform3D(Basis.looking_at(frentes[i], cimas[i]), pontos[i] + cimas[i] * 0.3)
+## Vaga do grid (0 = pole) sobre a pista, sem folga de altura: fileiras de dois,
+## a primeira embaixo do pórtico (o grid inteiro fica longe do viaduto),
+## alternadas como na F1 (a da direita meia fileira atrás) e recuando
+func grid(posicao: int) -> Transform3D:
+	var vaga := grid_sd(posicao)
+	var pose := quadro(vaga.x)
+	pose.origin += pose.basis.x * vaga.y
+	return pose
+
+## Amostra que fica `metros` antes da amostra `inicio`, andando pela pista
+func _amostra_atras(inicio: int, metros: float) -> int:
+	var j := inicio
+	var andado := 0.0
+	while andado < metros:
+		var anterior := (j - 1 + AMOSTRAS) % AMOSTRAS
+		andado += pontos[j].distance_to(pontos[anterior])
+		j = anterior
+	return j
+
+## Amostra da pista mais perto do ponto (local da pista). `dica` é a última resposta:
+## procura primeiro em volta dela e só varre tudo se o ponto saiu de perto
+func amostra_perto(p: Vector3, dica := -1) -> int:
+	var melhor := -1
+	var menor := INF
+	if dica >= 0:
+		for d in range(-24, 25):
+			var i := (dica + d + AMOSTRAS) % AMOSTRAS
+			var dist := p.distance_squared_to(pontos[i])
+			if dist < menor:
+				menor = dist
+				melhor = i
+		if menor < LARGURA * LARGURA:
+			return melhor
+	for i in AMOSTRAS:
+		var dist := p.distance_squared_to(pontos[i])
+		if dist < menor:
+			menor = dist
+			melhor = i
+	return melhor
+
+## Semáforo do pórtico: -1 apagado, 1 a 3 acende as vermelhas, 4 todas verdes
+func semaforo(estado: int):
+	for k in _lampadas.size():
+		var m: StandardMaterial3D = _lampadas[k]
+		var acesa := estado == 4 or k < estado
+		m.emission_enabled = acesa
+		m.emission = Color(0.2, 1.0, 0.35) if estado == 4 else Color(1.0, 0.12, 0.08)
+		m.emission_energy_multiplier = 4.0
+		m.albedo_color = m.emission if acesa else Color(0.08, 0.08, 0.09)
+
+# --- Navegação (IA dos adversários) -------------------------------------------
+
+## Meia largura onde o centro de um carro ainda cabe sem raspar no muro (m)
+const MEIA_UTIL := LARGURA * 0.5 - 0.9
+
+func _calcular_curvaturas(brutos: PackedVector3Array):
+	var n := AMOSTRAS
+	var k := PackedFloat32Array()
+	k.resize(n)
+	for i in n:
+		var a := brutos[(i - 1 + n) % n]
+		var b := brutos[i]
+		var c := brutos[(i + 1) % n]
+		var f1 := Vector2(b.x - a.x, b.z - a.z)
+		var f2 := Vector2(c.x - b.x, c.z - b.z)
+		var lado := -f1.y * f2.x + f1.x * f2.y
+		k[i] = 2.0 * lado / maxf(f1.length() * f2.length() * Vector2(c.x - a.x, c.z - a.z).length(), 0.0001)
+	for passada in 2:
+		var lisa := PackedFloat32Array()
+		lisa.resize(n)
+		for i in n:
+			var soma := 0.0
+			for j in range(-8, 9):
+				soma += k[(i + j + n) % n]
+			lisa[i] = soma / 17.0
+		k = lisa
+	curvaturas = k
+
+## Amostra e fração (0 a 1) até a próxima para a distância s ao longo da volta
+func _indice(s: float) -> Vector2:
+	s = fposmod(s, comprimento)
+	var baixo := 0
+	var alto := AMOSTRAS
+	while alto - baixo > 1:
+		var meio := (baixo + alto) / 2
+		if distancias[meio] <= s:
+			baixo = meio
+		else:
+			alto = meio
+	var trecho := maxf(distancias[baixo + 1] - distancias[baixo], 0.0001)
+	return Vector2(baixo, (s - distancias[baixo]) / trecho)
+
+## Pose no centro da pista à distância s (local da pista): -Z = frente, X = direita,
+## Y = normal da pista (já inclinada nas curvas)
+func quadro(s: float) -> Transform3D:
+	var ix := _indice(s)
+	var i := int(ix.x)
+	var j := (i + 1) % AMOSTRAS
+	var frente := frentes[i].lerp(frentes[j], ix.y).normalized()
+	var cima := cimas[i].lerp(cimas[j], ix.y).normalized()
+	return Transform3D(Basis.looking_at(frente, cima), pontos[i].lerp(pontos[j], ix.y))
+
+func curvatura(s: float) -> float:
+	var ix := _indice(s)
+	var i := int(ix.x)
+	return lerpf(curvaturas[i], curvaturas[(i + 1) % AMOSTRAS], ix.y)
+
+## Ponto (local da pista) em coordenadas da pista: x = distância s, y = desvio lateral d
+## (positivo à direita), z = amostra mais próxima (para usar de dica na próxima vez)
+func projetar(p: Vector3, dica := -1) -> Vector3:
+	var i := amostra_perto(p, dica)
+	var rel := p - pontos[i]
+	var s := distancias[i] + rel.dot(frentes[i])
+	return Vector3(fposmod(s, comprimento), rel.dot(lados[i]), i)
+
+## Maior velocidade com que dá para estar em s e ainda frear a tempo para as curvas
+## dos próximos `olhar` metros, com aceleração lateral `lateral` e frenagem `frenagem`
+func velocidade_segura(s: float, lateral: float, frenagem: float, olhar := 60.0) -> float:
+	var limite := INF
+	var x := 0.0
+	while x <= olhar:
+		var k := absf(curvatura(s + x))
+		if k > 0.0001:
+			var na_curva := sqrt(lateral / k)
+			limite = minf(limite, sqrt(na_curva * na_curva + 2.0 * frenagem * x))
+		x += 5.0
+	return limite
+
+## Vaga do grid em coordenadas da pista (s, d), a mesma de grid()
+func grid_sd(posicao: int) -> Vector2:
+	var recuo := (posicao / 2) * GRID_FILEIRA + (posicao % 2) * GRID_FILEIRA * 0.5
+	var i := _amostra_atras(GRID_FRENTE, recuo)
+	return Vector2(distancias[i], -GRID_LADO if posicao % 2 == 0 else GRID_LADO)

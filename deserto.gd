@@ -12,6 +12,10 @@ const DIVISOES := 128
 var pista: PistaCorrida
 var corrida: Corrida
 var portal_volta: Portal
+var rivais: Array[CarroRival] = []
+var trafego: TrafegoCorrida
+## Vagas do grid: os adversários nas primeiras, o jogador na última
+const ADVERSARIOS := 10
 var ambiente := Environment.new()
 var construcao_progressiva := false
 signal etapa_carregamento(texto: String)
@@ -45,8 +49,23 @@ func construir():
 func _montar_circuito():
 	pista = PistaCorrida.new()
 	add_child(pista)
+	# Adversários nas primeiras vagas do grid, cada um com sua personalidade
+	CarroRival.preparar(self)
+	var elenco := PerfilPiloto.elenco()
+	for i in ADVERSARIOS:
+		var rival := CarroRival.new(i + 1, elenco[i % elenco.size()])
+		rival.pista = pista
+		add_child(rival)
+		rivais.append(rival)
+	trafego = TrafegoCorrida.new()
+	trafego.pista = pista
+	trafego.rivais = rivais
+	add_child(trafego)
+	trafego.preparar()
 	corrida = Corrida.new()
 	corrida.pista = pista
+	corrida.rivais = rivais
+	corrida.trafego = trafego
 	add_child(corrida)
 	# Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
 	portal_volta = Portal.new()
@@ -201,6 +220,9 @@ func _cactos():
 	no.multimesh = mm
 	add_child(no)
 
-## Transform da largada no mundo
-func largada() -> Transform3D:
-	return global_transform * pista.largada()
+## Vaga do grid no mundo, com folga de altura para o carro assentar nas rodas
+## (por padrão a última, a do jogador)
+func largada(posicao := ADVERSARIOS) -> Transform3D:
+	var vaga := pista.grid(posicao)
+	vaga.origin += vaga.basis.y * 0.3
+	return global_transform * vaga

@@ -14,6 +14,7 @@ const ORIGEM_DESERTO := Vector3(4000.0, 0.0, 0.0)
 @export var inimigos: Node3D
 @export var ambiente: WorldEnvironment
 @export var sol: DirectionalLight3D
+@export var musica: Node
 
 var deserto: Deserto
 var no_deserto := false
@@ -78,7 +79,6 @@ func entrar_deserto(portal: Portal):
 	await get_tree().process_frame
 	deserto.visible = true
 	deserto.process_mode = Node.PROCESS_MODE_INHERIT
-	deserto.corrida.reiniciar()
 
 	_ambiente_hex = ambiente.environment
 	ambiente.environment = deserto.ambiente
@@ -90,12 +90,17 @@ func entrar_deserto(portal: Portal):
 
 	carro.hex_world = deserto
 	carro.pode_voar = false
-	carro.teleportar(deserto.largada())
+	# No grid o carro já fica assentado nas rodas: desconta a folga que teleportar põe
+	carro.teleportar(deserto.largada().translated(Vector3.DOWN * 0.3))
+	carro.segurar()
 	carro.atualizar_ambiente_traseira()
 	no_deserto = true
 	await get_tree().physics_frame
 	await _transicao.descobrir()
 	carro.terminar_transicao()
+	deserto.corrida.iniciar()
+	if musica:
+		musica.tocar_corrida()
 	_trocando = false
 
 func voltar():
@@ -109,7 +114,9 @@ func voltar():
 
 	deserto.visible = false
 	deserto.process_mode = Node.PROCESS_MODE_DISABLED
-	carro.painel_corrida = ""
+	deserto.corrida.abortar()
+	if musica:
+		musica.voltar_playlist()
 	ambiente.environment = _ambiente_hex
 	sol.transform = _sol_hex["transform"]
 	sol.light_color = _sol_hex["cor"]

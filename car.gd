@@ -196,6 +196,8 @@ var vida := VIDA_MAX
 var explodindo := false
 var em_ritual := false
 var em_transicao := false
+## Parado no grid esperando a largada (corrida.gd): comandos lidos, carro preso
+var segurado := false
 var nickname := "PILOTO"
 ## Nos circuitos não tem voo de energia (só derrapagem e dash)
 var pode_voar := true
@@ -479,6 +481,11 @@ func _physics_process(delta):
 	_recarga = max(_recarga - delta, 0.0)
 	_aviso_tempo -= delta
 
+	# Na largada: lê os comandos (o motor ronca) e mantém o visor, mas não anda
+	if segurado:
+		_animar(delta)
+		_atualizar_painel()
+		return
 	if gerando:
 		_andar_na_energia(delta, acel, vira, sobe)
 	else:
@@ -599,7 +606,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 # --- Pista de energia: trilho cinemático ------------------------------------
 
 func _alternar_energia():
-	if pista == null or explodindo or em_ritual or em_transicao:
+	if pista == null or explodindo or em_ritual or em_transicao or segurado:
 		return
 	if not gerando and not pode_voar:
 		_avisar("SEM VOO AQUI", 1.5)
@@ -826,7 +833,7 @@ func _vibrar_ambas(forca: float, tempo: float):
 # --- Habilidades e utilidades -----------------------------------------------
 
 func _dash():
-	if _recarga > 0.0 or explodindo or em_ritual or em_transicao:
+	if _recarga > 0.0 or explodindo or em_ritual or em_transicao or segurado:
 		return
 	_recarga = dash_recarga
 	if gerando:
@@ -904,7 +911,7 @@ func _mostrar_carro(sim: bool):
 	_faiscas.emitting = false
 
 func _desvirar():
-	if gerando or explodindo or em_ritual or em_transicao:
+	if gerando or explodindo or em_ritual or em_transicao or segurado:
 		return
 	var f := -global_basis.z
 	f.y = 0.0
@@ -1036,6 +1043,7 @@ func _atualizar_painel():
 ## Preparação de cada vida, controlada pelo ritual de partida.
 func preparar_vida(t: Transform3D):
 	em_ritual = true
+	segurado = false
 	if gerando:
 		_sair_da_energia(false)
 	freeze = true
@@ -1094,4 +1102,20 @@ func iniciar_transicao():
 
 func terminar_transicao():
 	em_transicao = false
-	freeze = em_ritual or explodindo or _esperando_chao
+	freeze = em_ritual or explodindo or _esperando_chao or segurado
+
+## Prende o carro no grid até a largada (a física para, o motor e o visor não)
+func segurar():
+	if gerando:
+		_sair_da_energia(false)
+	segurado = true
+	freeze = true
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	velocidade = 0.0
+
+## Solta na largada, sem impulso: quem acelerar sai
+func soltar():
+	segurado = false
+	freeze = em_ritual or em_transicao or explodindo or _esperando_chao
+	sleeping = false

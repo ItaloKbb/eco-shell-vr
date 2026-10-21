@@ -22,6 +22,11 @@ extends RigidBody3D
 ## esquerdo recentraliza a visão. Segurando o guidão com o grip (ou fechando a mão, com
 ## rastreamento de mãos), dá para esterçar girando o guidão com as próprias mãos.
 ## O teclado continua funcionando junto.
+##
+## Gamepad (Xbox, ROG Ally, Steam Deck...) segue o mesmo esquema do Quest: RT acelera,
+## LT freia/ré, analógico esquerdo esterça, analógico direito inclina na energia (cima/
+## baixo) e olha para os lados, A liga a energia, B ou dois toques no RT fazem o dash,
+## X é o freio de mão, Y desvira, clique no analógico direito recentraliza o olhar.
 
 ## Para o som (som_carro.gd): o carro tocou o chão pela primeira vez, usou o dash,
 ## ligou/desligou a energia, ou bateu (roda pousando, degrau, casco contra algo)
@@ -132,6 +137,10 @@ const FOLGA_RODA := 0.35
 @export var giro_guidao_max := 0.6
 @export var vibracao := true
 
+@export_group("Gamepad")
+## Velocidade de giro da cabeça com o analógico direito (rad/s)
+@export var giro_olhar_controle := 2.5
+
 ## Cores do texto no visor do capacete
 const HUD_AZUL := Color(0.3, 0.7, 1.0)
 const HUD_ENERGIA := Color(0.6, 0.95, 1.0)
@@ -215,7 +224,10 @@ var _aviso := ""
 var _aviso_tempo := 0.0
 var _fov := 75.0
 var _olhar := Vector2.ZERO
+var _olhar_repouso := Vector2.ZERO
 var _ultimo_gatilho := -10.0
+var _ultimo_rt := -10.0
+var _rt_apertado := false
 var _energia_visual := 0.0
 var _esperando_chao := false
 ## Mãos segurando o guidão: [esquerda, direita]
@@ -254,6 +266,7 @@ func _ready():
 	_esperando_chao = true
 	_fov = camera.fov
 	_olhar = Vector2(camera.rotation.x, camera.rotation.y)
+	_olhar_repouso = _olhar
 	mao_esquerda.button_pressed.connect(_botao_esquerdo)
 	mao_direita.button_pressed.connect(_botao_direito)
 	# Choques do casco: lidos em _integrate_forces pelo impulso de cada contato
@@ -356,6 +369,17 @@ func _input(event):
 			KEY_E: _alternar_energia()
 			KEY_R: _desvirar()
 			KEY_W: _ultimo_w = _toque_duplo(_ultimo_w)
+	if not em_ritual and not em_transicao and event is InputEventJoypadButton and event.pressed:
+		match event.button_index:
+			JOY_BUTTON_A: _alternar_energia()
+			JOY_BUTTON_B: _dash()
+			JOY_BUTTON_Y: _desvirar()
+			JOY_BUTTON_LEFT_STICK, JOY_BUTTON_BACK:
+				if get_viewport().use_xr:
+					recentralizar()
+			JOY_BUTTON_RIGHT_STICK:
+				_olhar = _olhar_repouso
+				camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 	if get_viewport().use_xr:
 		return
 	# Esc libera o cursor; um clique volta a capturá-lo.
@@ -424,6 +448,22 @@ func _physics_process(delta):
 			sobe += 1.0
 			freio_mao = true
 		if Input.is_key_pressed(KEY_SHIFT): sobe -= 1.0
+		var rt := eixo_controle(JOY_AXIS_TRIGGER_RIGHT)
+		acel += _analogico(rt) - _analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT))
+		vira -= _analogico(eixo_controle(JOY_AXIS_LEFT_X))
+		# No Godot o eixo Y dos analógicos é positivo para baixo
+		sobe -= _analogico(eixo_controle(JOY_AXIS_RIGHT_Y))
+		freio_mao = freio_mao or botao_controle(JOY_BUTTON_X)
+		# Dois toques no RT: dash (com histerese para não contar tremidas do gatilho)
+		if not _rt_apertado and rt > 0.6:
+			_rt_apertado = true
+			_ultimo_rt = _toque_duplo(_ultimo_rt)
+		elif _rt_apertado and rt < 0.3:
+			_rt_apertado = false
+		var olhar_x := _analogico(eixo_controle(JOY_AXIS_RIGHT_X))
+		if olhar_x != 0.0 and not get_viewport().use_xr:
+			_olhar.y = clamp(_olhar.y - olhar_x * giro_olhar_controle * delta, -1.9, 1.9)
+			camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 	if get_viewport().use_xr:
 		acel += _analogico(mao_direita.get_float("trigger")) - _analogico(mao_esquerda.get_float("trigger"))
 		vira -= _analogico(mao_esquerda.get_vector2("primary").x)
@@ -754,8 +794,30 @@ func _esterco_manual():
 	return clamp(angulo / giro_guidao_max, -1.0, 1.0)
 
 func _vibrar(mao: XRController3D, forca: float, tempo: float):
-	if vibracao and get_viewport().use_xr:
+	if not vibracao:
+		return
+	if get_viewport().use_xr:
 		mao.trigger_haptic_pulse("haptic", 0.0, forca, tempo, 0.0)
+	for pad in Input.get_connected_joypads():
+		Input.start_joy_vibration(pad, forca, forca, tempo)
+
+# --- Gamepad ------------------------------------------------------------------
+
+## Eixo de maior amplitude entre todos os gamepads conectados (sem zona morta)
+func eixo_controle(eixo: JoyAxis) -> float:
+	var maior := 0.0
+	for pad in Input.get_connected_joypads():
+		var v := Input.get_joy_axis(pad, eixo)
+		if absf(v) > absf(maior):
+			maior = v
+	return maior
+
+## Botão apertado em qualquer gamepad conectado
+func botao_controle(botao_pad: JoyButton) -> bool:
+	for pad in Input.get_connected_joypads():
+		if Input.is_joy_button_pressed(pad, botao_pad):
+			return true
+	return false
 
 func _vibrar_ambas(forca: float, tempo: float):
 	_vibrar(mao_esquerda, forca, tempo)

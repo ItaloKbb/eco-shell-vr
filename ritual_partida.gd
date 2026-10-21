@@ -4,6 +4,11 @@ enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE }
 const ARQUIVO := "user://piloto.cfg"
 const LETRAS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 const RESOLUCAO := Vector2i(800, 320)
+## No headset o painel precisa ocupar uma parte maior do campo de visão. A
+## resolução continua igual para não aumentar o custo da SubViewport no Quest.
+const TAMANHO_PAINEL_MONITOR := Vector2(1.0, 0.4)
+const TAMANHO_PAINEL_VR := Vector2(1.18, 0.472)
+const DISTANCIA_PAINEL_VR := 1.25
 ## Paleta do painel e da esfera: ciano do jogador, âmbar da energia no limite
 const COR_CIANO := PainelHolografico.COR_CIANO
 const COR_QUENTE := PainelHolografico.COR_QUENTE
@@ -56,6 +61,7 @@ func _ready():
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
 	carro.retorno_solicitado.connect(_nova_vida)
+	carro.visao_recentralizada.connect(_visao_recentralizada)
 	carro.mao_direita.button_pressed.connect(_botao_vr)
 	var config := ConfigFile.new()
 	if config.load(arquivo_perfil) == OK:
@@ -67,6 +73,7 @@ func _ready():
 	if _modo_vr:
 		_material.set_shader_parameter("intensidade", 0.6)
 		_material.set_shader_parameter("cintilar", 0.0)
+		_material.set_shader_parameter("simplificar_vr", 1.0)
 		_fade_spawn = Transicao.new()
 		add_child(_fade_spawn)
 	esfera.set_surface_override_material(0, _material)
@@ -121,16 +128,13 @@ func _nova_vida():
 	else:
 		carro.camera.make_current()
 	if _modo_vr:
+		if get_viewport().use_xr:
+			await carro.recentralizar()
 		await get_tree().process_frame
 		await get_tree().process_frame
-		# Painel ancorado no mundo: a cabeça pode olhar e se mover livremente.
+		# Painel ancorado no mundo e alinhado ao carro, não ao olhar momentâneo.
 		_painel.reparent(mapa, false)
-		var frente: Vector3 = -carro.camera_xr.global_basis.z
-		frente.y = 0.0
-		if frente.length_squared() < 0.01:
-			frente = Vector3.FORWARD
-		_painel.global_position = carro.camera_xr.global_position + frente.normalized() * 1.5
-		_painel.look_at(carro.camera_xr.global_position, Vector3.UP, true)
+		_posicionar_painel_vr()
 	else:
 		_painel.reparent(carro.camera, false)
 		_painel.position = Vector3(0.0, 0.08, -1.2)
@@ -185,8 +189,25 @@ func _input(event: InputEvent):
 		get_viewport().set_input_as_handled()
 
 func _botao_vr(nome: String):
+	if nome in ["primary_click", "menu_button"]:
+		carro.recentralizar()
+		return
 	if _pronto and estado == Estado.ESCOLHA and nome == "ax_button":
 		_confirmar()
+
+func _visao_recentralizada():
+	if _modo_vr and is_instance_valid(_painel) and _painel.is_inside_tree():
+		_posicionar_painel_vr()
+
+func _posicionar_painel_vr():
+	var frente: Vector3 = -carro.global_basis.z
+	frente.y = 0.0
+	if frente.length_squared() < 0.01:
+		frente = Vector3.FORWARD
+	frente = frente.normalized()
+	var ancora: Vector3 = carro.global_transform * carro.ANCORA_CABECA_LOCAL
+	_painel.global_position = ancora + frente * DISTANCIA_PAINEL_VR
+	_painel.look_at(ancora, Vector3.UP, true)
 
 func _confirmar():
 	var limpo := _sanitizar(nick)
@@ -293,7 +314,7 @@ func _lancar(destino: Transform3D):
 	_voo.tween_property(carro.camera, "fov", fov, 0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 func _sair_vr(destino: Transform3D):
-	await _fade_spawn.cobrir(Color(0.05, 0.1, 0.2), 0.15, "Saída da esfera")
+	await _fade_spawn.cobrir(Color(0.05, 0.1, 0.2), 0.15, "Saída da esfera", false)
 	# Evita transparência de tela inteira, expansão sobre os olhos e salto visível.
 	esfera.hide()
 	carro.teleportar(destino)
@@ -307,7 +328,8 @@ func _montar_painel():
 	_slots.clear()
 	_estilos_slot.clear()
 	_segmentos.clear()
-	_painel = PainelHolografico.new(RESOLUCAO, Vector2(1.0, 0.4), _modo_vr)
+	var tamanho_painel := TAMANHO_PAINEL_VR if _modo_vr else TAMANHO_PAINEL_MONITOR
+	_painel = PainelHolografico.new(RESOLUCAO, tamanho_painel, _modo_vr)
 	_tela = _painel.tela
 	_etapa = _painel.etapa
 	var coluna := _painel.coluna
@@ -384,7 +406,7 @@ func _atualizar_texto():
 				estilo.border_color = Color(COR_CIANO, 0.3)
 				estilo.set_border_width_all(2)
 		if _modo_vr:
-			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"]])
+			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"], ["L3/R3", "CENTRALIZAR"]])
 		elif _usando_controle:
 			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["B", "APAGAR"], ["A", "CONFIRMAR"]])
 		else:
@@ -403,7 +425,10 @@ func _atualizar_texto():
 			var cor := COR_CIANO.lerp(COR_QUENTE, float(i) / (SEGMENTOS - 1))
 			_segmentos[i].color = Color(COR_CIANO, 0.12).lerp(Color(cor, pulso), preenchido)
 		var tecla := "GATILHO" if _modo_vr else ("RT" if _usando_controle else "W")
-		_painel.definir_dicas(_dicas, [[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]])
+		var dicas_carga: Array = [[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]]
+		if _modo_vr:
+			dicas_carga.append(["L3/R3", "CENTRALIZAR"])
+		_painel.definir_dicas(_dicas, dicas_carga)
 	_painel.redesenhar("%d|%s|%d|%s|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle)])
 
 func _montar_som():

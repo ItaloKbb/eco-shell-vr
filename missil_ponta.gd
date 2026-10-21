@@ -17,6 +17,7 @@ var malha: Mesh
 var material: Material
 
 var _vida := COMBUSTIVEL
+var _som: AudioStreamPlayer3D
 
 func _ready():
 	add_to_group("misseis")
@@ -37,10 +38,11 @@ func _ready():
 	m.scale_curve = Explosao._curva(1.0, 0.1)
 	m.color_ramp = Explosao._rampa([Color(1.4, 0.4, 0.5, 0.9), Color(0.6, 0.1, 0.25, 0.5), Color(0.1, 0.05, 0.08, 0.0)])
 	add_child(rastro)
-	var som := SomGerador.fonte("missil")
-	add_child(som)
-	if som.stream:
-		som.play()
+	_som = SomGerador.fonte("missil")
+	_som.unit_size = 4.0
+	add_child(_som)
+	if _som.stream:
+		_som.play()
 
 ## Segundos até acertar o carro, pela distância e pela velocidade de aproximação
 func tempo_para_impacto() -> float:
@@ -62,6 +64,10 @@ func _physics_process(delta: float):
 	# Mira um pouco à frente do carro, onde ele vai estar
 	var alvo_pos := _ponto_alvo()
 	var falta := minf(tempo_para_impacto(), 1.5)
+	# Chegando perto, o assobio sobe e encorpa (além do doppler)
+	var perigo := 1.0 - clampf(falta / 1.5, 0.0, 1.0)
+	_som.pitch_scale = 1.0 + 0.45 * perigo
+	_som.volume_db = lerpf(-4.0, 2.0, perigo)
 	var v_alvo: Vector3 = alvo.velocidade_mundo()
 	var mira := alvo_pos + v_alvo * falta * 0.5
 	var atual := velocidade.normalized()
@@ -90,6 +96,9 @@ func _physics_process(delta: float):
 		_estourar()
 
 func _estourar():
+	# A ponta é de cristal: estilhaça, com cacos rosados e um estalo de energia
+	SomGerador.tocar_em(get_parent(), global_position, "estouro_cristal", 0.0, randf_range(0.9, 1.1), 8.0)
+	Explosao.estilhacos(get_parent(), global_position, Color(1.0, 0.3, 0.55))
 	var explosao := Explosao.new()
 	explosao.escala = 0.35
 	explosao.com_pedacos = false

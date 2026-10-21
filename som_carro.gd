@@ -9,7 +9,9 @@ extends Node3D
 ## - velocidade: rotação pelo variador, limitador, vento, rolamento, assobio elétrico
 ## - frenagem e freio de mão: atrito do disco e guincho
 ## - escorregamento dos pneus: pneu cantando
-## - pousos, degraus e batidas: baques no casco
+## - pousos, degraus e batidas: baques no casco em camadas (estalo, corpo sub-grave, o
+##   material atingido: clangor de carro, zap de parede de luz) e, com dano, o casco
+##   amassando e pedacinhos caindo; pancada de 2+ barras abafa tudo e zune o ouvido
 ## - energia ligada/desligada/caiu, pouca aderência, dash: efeitos elétricos e estouros
 ## - dano: vidro trincando; explosão: estrondo e o motor apaga até o carro renascer
 
@@ -31,6 +33,10 @@ var _rpm_dash := 0.0
 var _bip: AudioStreamPlayer
 var _bip_continuo: AudioStreamPlayer
 var _proximo_bip := 0.0
+## Zumbido no ouvido da concussão (fora dos barramentos abafados, "dentro da cabeça")
+var _zumbido_ouvido: AudioStreamPlayer
+var _abafando: Tween
+var _ponto_impacto := Vector3.ZERO
 
 func _ready():
 	_criar_barramento()
@@ -43,7 +49,7 @@ func _ready():
 	carro.energia_mudou.connect(_energia_mudou)
 	carro.impacto.connect(_impacto)
 	carro.botao_apertado.connect(func(ponto: Vector3): _efeito("clique", 0.5, 1.0, to_local(ponto)))
-	carro.dano.connect(func(_barras: int): _efeito("trinca", 0.45, randf_range(0.9, 1.1)))
+	carro.dano.connect(_dano)
 	carro.explodiu.connect(_explodiu)
 	# Barra de energia cheia: bip agudo com faísca; sem energia para voar: bip grave
 	carro.energia_carregada.connect(func(_barras: int):
@@ -55,6 +61,7 @@ func _ready():
 	_tarefa = WorkerThreadPool.add_task(func(): _sons = SomGerador.new().gerar())
 
 func _criar_barramento():
+	SomGerador.garantir_barramento_mundo()
 	if AudioServer.get_bus_index(BARRAMENTO) >= 0:
 		return
 	var i := AudioServer.bus_count
@@ -106,6 +113,7 @@ func _montar():
 		"rolamento": Vector3(0.0, 0.15, 0.0),
 		"chiado": Vector3(0.0, 0.15, 0.2),
 		"freio": Vector3(0.0, 0.25, -0.75),
+		"raspagem": Vector3(0.0, 0.15, 0.0),
 		"zumbido": Vector3(0.0, 0.1, 0.3),
 		"assobio": Vector3(0.0, 0.2, 0.6),
 	}
@@ -115,7 +123,8 @@ func _montar():
 		p.play()
 		_loops[nome] = p
 		_volumes[nome] = 0.0
-	for nome in ["arrancada", "impacto", "batida", "carga", "descarga", "faisca", "clique", "trinca"]:
+	for nome in ["arrancada", "impacto", "batida", "carga", "descarga", "faisca", "clique", "trinca",
+			"corpo", "amassado", "detritos", "clang", "zap"]:
 		_efeitos[nome] = _fonte(nome, Vector3(0.0, 0.3, 0.2), 4)
 	_efeitos["arrancada"].position = Vector3(0.0, 0.4, 0.9)
 	# Alarme sai do painel, sem posição 3D: é o sistema do carro avisando o piloto
@@ -130,6 +139,10 @@ func _montar():
 	_bip_continuo.bus = BARRAMENTO
 	_bip_continuo.volume_db = -8.0
 	add_child(_bip_continuo)
+	_zumbido_ouvido = AudioStreamPlayer.new()
+	_zumbido_ouvido.stream = _sons["zumbido_ouvido"]
+	_zumbido_ouvido.bus = "Master"
+	add_child(_zumbido_ouvido)
 
 func _process(delta: float):
 	if _tarefa >= 0 and WorkerThreadPool.is_task_completed(_tarefa):
@@ -162,6 +175,9 @@ func _process(delta: float):
 	_tocar("rolamento", (pow(clampf(v / 10.0, 0.0, 1.0), 0.8) * 0.4 if no_chao else 0.0), 0.6 + v / 16.0, delta)
 	_tocar("chiado", derrapa * 0.35 if no_chao else 0.0, 0.85 + clampf(carro.derrapagem / 12.0, 0.0, 1.0) * 0.35, delta)
 	_tocar("freio", (carro.freio * clampf(v / 5.0, 0.0, 1.0) * 0.3 if no_chao else 0.0), 0.8 + v / 30.0, delta)
+	var pode_raspar: bool = not carro.explodindo and not carro.em_ritual and not carro.em_transicao and not carro.segurado
+	var raspa := smoothstep(1.5, 8.0, carro.raspagem) if pode_raspar else 0.0
+	_tocar("raspagem", raspa * 0.65, 0.75 + minf(carro.raspagem / 14.0, 0.7), delta)
 	# Elétrico ao fundo: zumbido do gerador e assobio do motor elétrico pela velocidade;
 	# frear na pista (regeneração) derruba o tom e deixa o assobio mais alto
 	var regenera := maxf(-acel, 0.0) if gerando else 0.0
@@ -238,9 +254,57 @@ func _energia_mudou(ligada: bool, caiu: bool):
 	if caiu:
 		_efeito("faisca", 0.5, 0.8)
 
-func _impacto(forca: float, ponto: Vector3):
+func _impacto(forca: float, ponto: Vector3, material: StringName):
 	var onde := to_local(ponto)
+	_ponto_impacto = onde
+	# Material atingido, por cima do baque
+	match material:
+		&"rival":
+			_efeito("clang", clampf(forca / 8.0, 0.2, 0.8), randf_range(0.85, 1.15), onde)
+		&"luz":
+			_efeito("zap", clampf(forca / 10.0, 0.35, 0.8), randf_range(0.9, 1.1), onde)
+	# Peso: o sub-grave entra a partir de um choque médio
+	if forca > 6.0:
+		_efeito("corpo", clampf((forca - 6.0) / 9.0, 0.3, 1.0), randf_range(0.9, 1.05), onde)
 	if forca > 3.5:
 		_efeito("batida", clampf(forca / 12.0, 0.25, 0.7), randf_range(0.85, 1.1), onde)
+		_efeito("faisca", clampf((forca - 3.5) / 16.0, 0.08, 0.32), randf_range(0.75, 1.25), onde)
 	else:
 		_efeito("impacto", clampf((forca - 0.6) / 4.0, 0.05, 0.6), randf_range(0.85, 1.15), onde)
+
+## Dano: o casco amassa (mais forte quanto mais barras), o vidro trinca e pedacinhos
+## caem logo depois. Duas barras ou mais: concussão
+func _dano(barras: int):
+	var onde := _ponto_impacto
+	_efeito("trinca", 0.45, randf_range(0.9, 1.1))
+	_efeito("amassado", clampf(0.35 + 0.2 * barras, 0.35, 0.9), randf_range(0.85, 1.1), onde)
+	get_tree().create_timer(0.12).timeout.connect(func():
+		_efeito("detritos", 0.25 + 0.1 * barras, randf_range(0.9, 1.2), onde))
+	if barras >= 2:
+		_concussao(0.6 + 0.2 * barras)
+
+## Pancada forte: cabine e mundo abafam de repente e voltam aos poucos, com um zumbido
+## fino no ouvido. A música e a voz da Yui não abafam (não estão "no ar" do carro)
+func _concussao(intensidade: float):
+	var corte := lerpf(2200.0, 500.0, clampf(intensidade - 0.6, 0.0, 1.0))
+	var filtros: Array[AudioEffectLowPassFilter] = []
+	var normais: Array[float] = []
+	for nome in [BARRAMENTO, SomGerador.BARRAMENTO_MUNDO]:
+		var bus := AudioServer.get_bus_index(nome)
+		for i in AudioServer.get_bus_effect_count(bus):
+			var efeito := AudioServer.get_bus_effect(bus, i)
+			if efeito is AudioEffectLowPassFilter:
+				filtros.append(efeito)
+				normais.append(7000.0 if nome == BARRAMENTO else 20000.0)
+				break
+	if _abafando and _abafando.is_valid():
+		_abafando.kill()
+	var abrir := func(k: float):
+		for i in filtros.size():
+			filtros[i].cutoff_hz = lerpf(corte, normais[i], k * k)
+	abrir.call(0.0)
+	_abafando = create_tween()
+	_abafando.tween_method(abrir, 0.0, 1.0, 1.6).set_delay(0.05)
+	if _zumbido_ouvido:
+		_zumbido_ouvido.volume_db = linear_to_db(clampf(intensidade * 0.12, 0.05, 0.2))
+		_zumbido_ouvido.play()

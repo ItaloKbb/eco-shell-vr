@@ -11,6 +11,10 @@ const BARRAMENTO := "Musica"
 @export var transicao := 5.0
 ## Quanto a música abaixa durante o alarme de míssil, para os bipes aparecerem (dB)
 @export var abaixa_alarme := 6.0
+## Quanto a música abaixa enquanto a assistente Yui fala (dB)
+@export var abaixa_voz := 8.0
+## Ligado pela Yui (assistente_yui.gd) durante as falas
+var voz_falando := false
 
 var _faixas: Array[AudioStream] = []
 var _fila: Array[AudioStream] = []
@@ -43,9 +47,9 @@ func _ready():
 		_tocar_proxima(2.0)
 
 func _process(delta):
-	# Abaixa um pouco enquanto há míssil no ar
+	# Abaixa um pouco enquanto há míssil no ar ou a Yui está falando
 	var alarme := not get_tree().get_nodes_in_group("misseis").is_empty()
-	var alvo := -abaixa_alarme if alarme else 0.0
+	var alvo := minf(-abaixa_alarme if alarme else 0.0, -abaixa_voz if voz_falando else 0.0)
 	var bus := AudioServer.get_bus_index(BARRAMENTO)
 	AudioServer.set_bus_volume_db(bus, move_toward(AudioServer.get_bus_volume_db(bus), alvo, 12.0 * delta))
 

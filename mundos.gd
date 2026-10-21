@@ -1,7 +1,7 @@
 extends Node
-## Troca de mapa pelos portais. O mapa hexagonal e o deserto ficam na mesma cena: o
+## Troca de mapa pelos portais. O mundo neon e o deserto ficam na mesma cena: o
 ## deserto é montado longe (ORIGEM_DESERTO) na primeira visita. Atravessar o portal
-## âmbar cobre a visão, desliga o mundo hexagonal (chão, névoa, portais, pirâmides),
+## âmbar cobre a visão, desliga o mundo neon (chão, névoa, portais, pirâmides),
 ## troca céu e sol, e leva o carro para a largada do circuito; o portal de volta faz o
 ## caminho contrário, deixando o carro perto do portal âmbar, de costas para ele.
 
@@ -55,7 +55,7 @@ func entrar_deserto(portal: Portal):
 	carro.iniciar_transicao()
 	await _transicao.cobrir(portal.cor, 0.5, "Corrida / Deserto")
 
-	# Desliga o mundo hexagonal (e tira os inimigos de cena)
+	# Desliga o mundo neon (e tira os inimigos de cena)
 	hex_world.desligar()
 	atmosfera.visible = false
 	for no in [portais, inimigos]:
@@ -99,6 +99,9 @@ func entrar_deserto(portal: Portal):
 	await _transicao.descobrir()
 	carro.terminar_transicao()
 	deserto.corrida.iniciar()
+	var yui := get_tree().get_first_node_in_group("yui")
+	if yui:
+		yui.falar_corrida()
 	if musica:
 		musica.tocar_corrida()
 	_trocando = false
@@ -108,8 +111,8 @@ func voltar():
 		return
 	_trocando = true
 	carro.iniciar_transicao()
-	await _transicao.cobrir(deserto.portal_volta.cor, 0.5, "Mundo hexagonal")
-	_transicao.atualizar_loading("Mundo hexagonal", "Restaurando ambiente")
+	await _transicao.cobrir(deserto.portal_volta.cor, 0.5, "Mundo Neon")
+	_transicao.atualizar_loading("Mundo Neon", "Restaurando ambiente")
 	await get_tree().process_frame
 
 	deserto.visible = false
@@ -141,9 +144,8 @@ func voltar():
 	carro.teleportar(Transform3D(Basis.looking_at(fora.normalized(), Vector3.UP), pos), true)
 	carro.atualizar_ambiente_traseira()
 	no_deserto = false
-	_transicao.atualizar_loading("Mundo hexagonal", "Gerando terreno ao redor da saída")
-	# O mapa gera chunks ao redor da câmera já teleportada. Só revela depois
-	# de concluir essa fila, mantendo o carro suspenso durante a geração.
+	_transicao.atualizar_loading("Mundo Neon", "Estabilizando o piso de energia")
+	# Aguarda um frame de física para reativar a colisão antes de revelar o mundo.
 	await get_tree().process_frame
 	while hex_world.carregando():
 		await get_tree().process_frame

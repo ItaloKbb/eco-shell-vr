@@ -39,6 +39,8 @@ func _testar():
 	assert(corrida.fase == Corrida.Fase.CONTROLES)
 	assert(carro.segurado and carro.freeze)
 	assert(corrida._painel.visible)
+	assert(corrida._painel.tela.size == Vector2i(1024, 512), "O painel da corrida deve ter alta densidade no VR")
+	assert(corrida._painel._grade.get_child_count() == 8, "Cada comando deve ocupar um cartão")
 	assert(deserto.rivais.size() == 10)
 	var frente: Vector3 = -carro.global_basis.z
 	for i in deserto.rivais.size():

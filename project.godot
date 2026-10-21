@@ -47,3 +47,5 @@ openxr/startup_alert=false
 openxr/extensions/hand_tracking=true
 openxr/extensions/hand_interaction_profile=true
 shaders/enabled=true
+openxr/extensions/meta/render_model=true
+openxr/extensions/meta/hand_tracking_mesh=true

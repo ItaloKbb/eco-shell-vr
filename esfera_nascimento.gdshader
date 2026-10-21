@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, fog_disabled, shadows_disabled;
-// Casca da esfera de nascimento, vista por dentro: grade hexagonal escura (a mesma
-// linguagem do mundo) com ondas de energia correndo para a saída, que brilha como uma
+// Casca da esfera de nascimento, vista por dentro: grade hexagonal escura contrastando
+// com o piso neon externo, com ondas de energia correndo para a saída, que brilha como uma
 // porta. `carga` (0 a 1) acelera as ondas e esquenta as linhas de ciano para âmbar a
 // partir da saída. `ruptura` (0 a 1) estilhaça a casca célula por célula, abrindo da
 // saída para trás, com as bordas em brasa.
@@ -11,6 +11,7 @@ uniform float ruptura : hint_range(0.0, 1.0) = 0.0;
 // VR: menos brilho e sem cintilação rápida
 uniform float intensidade = 1.0;
 uniform float cintilar = 1.0;
+uniform float simplificar_vr : hint_range(0.0, 1.0) = 0.0;
 uniform vec3 cor_fundo : source_color = vec3(0.012, 0.025, 0.07);
 uniform vec3 cor_linha : source_color = vec3(0.15, 0.62, 1.0);
 uniform vec3 cor_quente : source_color = vec3(1.0, 0.6, 0.22);
@@ -56,14 +57,25 @@ void fragment() {
 	float linha = (1.0 - smoothstep(0.012, 0.035 + w, ate_borda)) * polo;
 	float sorte = sorteio(id);
 
-	float ate_saida = acos(clamp(dot(p, s), -1.0, 1.0));
-	float celula_saida = acos(clamp(dot(direcao(id), s), -1.0, 1.0));
+	float produto_saida = clamp(dot(p, s), -1.0, 1.0);
+	// No VR a saída usa fade e nunca rompe a malha. Esta aproximação evita um
+	// acos e a reconstrução trigonométrica por fragmento no lobby.
+	float ate_saida;
+	if (simplificar_vr > 0.5) {
+		ate_saida = sqrt(max(2.0 * (1.0 - produto_saida), 0.0));
+	} else {
+		ate_saida = acos(produto_saida);
+	}
+	float celula_saida = ate_saida;
+	if (simplificar_vr < 0.5) {
+		celula_saida = acos(clamp(dot(direcao(id), s), -1.0, 1.0));
+	}
 
 	// Fundo: mais claro no horizonte, dá volume à casca
 	float horizonte = 1.0 - abs(p.y);
 	vec3 cor = cor_fundo * (0.5 + 0.9 * horizonte * horizonte);
 	// Algumas células acendem devagar, ao acaso
-	float acesa = smoothstep(0.93, 1.0, 0.5 + 0.5 * sin(t * 0.6 + sorte * 60.0)) * polo;
+	float acesa = smoothstep(0.93, 1.0, 0.5 + 0.5 * sin(t * 0.6 + sorte * 60.0)) * polo * (1.0 - simplificar_vr);
 	cor += cor_linha * acesa * 0.06 * (1.0 - smoothstep(0.0, 1.0, ate_borda * 4.0) * 0.5);
 
 	// Ondas viajando para a saída (fase cresce com o tempo: a frente anda até ela)

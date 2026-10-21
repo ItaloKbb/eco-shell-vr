@@ -38,6 +38,14 @@ enum Estilo {
 ## Quanto o ritmo se ajusta à distância do jogador (corrida mais disputada)
 @export_range(0.0, 1.0) var elastico := 0.5
 
+@export_group("Dash")
+## Probabilidade de aproveitar uma oportunidade de dash encontrada pelo cérebro.
+@export_range(0.0, 1.0) var uso_dash := 0.6
+## Intervalo mínimo entre dois dashes deste piloto.
+@export var recarga_dash := 5.0
+## Velocidade instantânea acrescentada pelo dash (m/s).
+@export var forca_dash := 4.5
+
 @export_group("Comportamento")
 ## Vontade de ultrapassar quem está devagar na frente (0 = fica atrás)
 @export_range(0.0, 1.0) var ousadia := 0.6
@@ -56,6 +64,23 @@ static func criar(nome_: String, estilo_: Estilo, valores: Dictionary) -> Perfil
 	var perfil := PerfilPiloto.new()
 	perfil.nome = nome_
 	perfil.estilo = estilo_
+	match estilo_:
+		Estilo.CORREDOR:
+			perfil.uso_dash = 0.85
+			perfil.recarga_dash = 4.2
+			perfil.forca_dash = 5.2
+		Estilo.BRIGAO:
+			perfil.uso_dash = 0.95
+			perfil.recarga_dash = 3.6
+			perfil.forca_dash = 5.8
+		Estilo.BLOQUEADOR:
+			perfil.uso_dash = 0.55
+			perfil.recarga_dash = 5.2
+			perfil.forca_dash = 4.5
+		Estilo.CAUTELOSO:
+			perfil.uso_dash = 0.2
+			perfil.recarga_dash = 7.0
+			perfil.forca_dash = 3.5
 	for chave in valores:
 		perfil.set(chave, valores[chave])
 	return perfil

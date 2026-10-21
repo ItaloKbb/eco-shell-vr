@@ -127,6 +127,121 @@ static func faiscas(explosao := false) -> GPUParticles3D:
 	m.color_ramp = Explosao._rampa([Color(1.6, 1.1, 0.5, 1.0), Color(1.3, 0.5, 0.1, 1.0), Color(0.6, 0.1, 0.02, 0.0)])
 	return p
 
+## Rajada curta usada no ponto de uma batida. Menor que a explosão e rápida o
+## bastante para comunicar o contato sem encher a visão no headset.
+static func faiscas_impacto(forca: float) -> GPUParticles3D:
+	var quantidade := clampi(roundi(forca * 3.0), 10, 42)
+	var p := Explosao._particulas(quantidade, 0.6, Vector2(0.012, 0.03), true)
+	p.local_coords = false
+	p.emitting = false
+	var m: ParticleProcessMaterial = p.process_material
+	m.direction = Vector3.UP
+	m.spread = 150.0
+	m.initial_velocity_min = 2.0
+	m.initial_velocity_max = clampf(forca * 0.75, 4.0, 10.0)
+	m.gravity = Vector3(0, -9.8, 0)
+	m.damping_min = 1.0
+	m.damping_max = 2.5
+	m.color_ramp = Explosao._rampa([Color(2.0, 1.4, 0.65, 1.0), Color(1.4, 0.45, 0.08, 1.0), Color(0.5, 0.05, 0.01, 0.0)])
+	return p
+
+## Faíscas contínuas de atrito; local_coords=false deixa um rastro no mundo.
+static func faiscas_atrito() -> GPUParticles3D:
+	var p := Explosao._particulas(24, 0.38, Vector2(0.009, 0.024), false)
+	p.local_coords = false
+	p.emitting = false
+	var m: ParticleProcessMaterial = p.process_material
+	m.direction = Vector3.UP
+	m.spread = 105.0
+	m.initial_velocity_min = 1.0
+	m.initial_velocity_max = 4.5
+	m.gravity = Vector3(0, -9.8, 0)
+	m.color_ramp = Explosao._rampa([Color(1.8, 1.2, 0.45, 1.0), Color(1.1, 0.3, 0.04, 0.9), Color(0.4, 0.03, 0.01, 0.0)])
+	return p
+
+## Clarão rápido no ponto de uma batida forte (luz que some em ~0,25 s)
+static func clarao_impacto(pai: Node, ponto: Vector3, cor: Color, forca := 1.0):
+	if pai == null or not pai.is_inside_tree():
+		return
+	var luz := OmniLight3D.new()
+	luz.light_color = cor
+	luz.light_energy = 4.0 * forca
+	luz.omni_range = 4.0 + 2.0 * forca
+	luz.shadow_enabled = false
+	pai.add_child(luz)
+	luz.global_position = ponto
+	var tw := luz.create_tween()
+	tw.tween_property(luz, "light_energy", 0.0, 0.25).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_EXPO)
+	tw.tween_callback(luz.queue_free)
+
+## Pouso forte no piso neon: um anel de energia se abre no chão e apaga
+static func anel_choque(pai: Node, ponto: Vector3, cor: Color, tamanho := 1.0):
+	if pai == null or not pai.is_inside_tree():
+		return
+	var anel := MeshInstance3D.new()
+	var toro := TorusMesh.new()
+	toro.inner_radius = 0.92
+	toro.outer_radius = 1.0
+	toro.rings = 32
+	toro.ring_segments = 4
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(cor.r * 2.0, cor.g * 2.0, cor.b * 2.0, 1.0)
+	toro.material = mat
+	anel.mesh = toro
+	anel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pai.add_child(anel)
+	anel.global_position = Vector3(ponto.x, ponto.y + 0.04, ponto.z)
+	anel.scale = Vector3(0.3, 0.05, 0.3)
+	var tw := anel.create_tween().set_parallel(true)
+	tw.tween_property(anel, "scale", Vector3(2.4, 0.05, 2.4) * tamanho, 0.45).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.45).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(anel.queue_free)
+
+## Pouso forte na areia: nuvem de poeira baixa se espalhando
+static func poeira(pai: Node, ponto: Vector3, forca := 1.0):
+	var p := Explosao._particulas(clampi(roundi(18 * forca), 8, 30), 1.4, Vector2(0.4, 0.9) * forca, true)
+	var m: ParticleProcessMaterial = p.process_material
+	m.direction = Vector3.UP
+	m.spread = 80.0
+	m.flatness = 0.6
+	m.initial_velocity_min = 1.0
+	m.initial_velocity_max = 3.0 * forca
+	m.gravity = Vector3(0, 0.3, 0)
+	m.damping_min = 2.0
+	m.damping_max = 3.0
+	m.scale_curve = Explosao._curva(0.5, 1.8)
+	m.color_ramp = Explosao._rampa([Color(0.75, 0.62, 0.45, 0.0), Color(0.72, 0.6, 0.44, 0.55), Color(0.6, 0.5, 0.38, 0.0)])
+	Explosao._soltar(pai, p, ponto, 1.6)
+
+## Ponta de pirâmide estourando: cacos de cristal rosados voando e caindo
+static func estilhacos(pai: Node, ponto: Vector3, cor: Color):
+	var p := Explosao._particulas(36, 0.9, Vector2(0.03, 0.08), true)
+	var m: ParticleProcessMaterial = p.process_material
+	m.direction = Vector3.UP
+	m.spread = 180.0
+	m.initial_velocity_min = 3.0
+	m.initial_velocity_max = 9.0
+	m.gravity = Vector3(0, -9.8, 0)
+	m.angular_velocity_min = -720.0
+	m.angular_velocity_max = 720.0
+	m.color_ramp = Explosao._rampa([Color(cor.r * 2.5, cor.g * 2.5, cor.b * 2.5, 1.0), Color(cor, 0.9), Color(cor * 0.4, 0.0)])
+	Explosao._soltar(pai, p, ponto, 1.2)
+
+## Põe um efeito de uma vez só no mundo e apaga depois de `vida` segundos
+static func _soltar(pai: Node, p: GPUParticles3D, ponto: Vector3, vida: float):
+	if pai == null or not pai.is_inside_tree():
+		p.free()
+		return
+	p.local_coords = false
+	p.emitting = false
+	pai.add_child(p)
+	p.global_position = ponto
+	p.emitting = true
+	p.get_tree().create_timer(vida).timeout.connect(p.queue_free)
+
 static func _particulas(quantidade: int, vida: float, tamanho: Vector2, uma_vez: bool) -> GPUParticles3D:
 	var p := GPUParticles3D.new()
 	p.amount = quantidade

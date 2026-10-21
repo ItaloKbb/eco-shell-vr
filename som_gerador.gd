@@ -6,6 +6,8 @@ extends RefCounted
 
 ## Sons já gerados (preenchida pelo som_carro.gd), para os inimigos usarem também
 static var biblioteca := {}
+## Barramento dos sons de fora da cabine
+const BARRAMENTO_MUNDO := "Mundo"
 
 var taxa := 22050
 var _sem := 987654
@@ -24,6 +26,7 @@ func gerar() -> Dictionary:
 		"rolamento": rolamento(),
 		"chiado": chiado_pneu(),
 		"freio": freio(),
+		"raspagem": raspagem(),
 		"zumbido": zumbido(),
 		"assobio": assobio(),
 		"arrancada": arrancada(),
@@ -42,6 +45,17 @@ func gerar() -> Dictionary:
 		"lancamento": lancamento(),
 		"portal": portal(),
 		"volta": volta(),
+		"corpo": corpo(),
+		"amassado": amassado(),
+		"detritos": detritos(),
+		"clang": clang(),
+		"zap": zap(),
+		"zumbido_ouvido": zumbido_ouvido(),
+		"acordar": acordar(),
+		"carga_mira": carga_mira(),
+		"estouro_cristal": estouro_cristal(),
+		"motor_rival": motor_rival(),
+		"passagem": passagem(),
 	}
 
 # --- Loops ---------------------------------------------------------------------
@@ -65,7 +79,7 @@ func vento() -> AudioStreamWAV:
 		a[i] = lp
 	return _loop(a, n, f)
 
-## Pneus rodando sobre os hexágonos: ronco grave e o "grão" da banda de rodagem
+## Pneus rodando sobre o piso neon: ronco grave e o "grão" da banda de rodagem
 func rolamento() -> AudioStreamWAV:
 	var n := int(taxa * 2.0)
 	var f := int(taxa * 0.3)
@@ -123,6 +137,35 @@ func freio() -> AudioStreamWAV:
 		marrom = (marrom + 0.04 * _ruido()) * 0.99
 		var guincho := pow(0.5 + 0.5 * sin(TAU * 0.5 * t), 6.0) * sin(TAU * 2900.0 * t)
 		a[i] = (lp - lp2) * 0.35 + marrom * 1.5 + guincho * 0.1
+	return _loop(a, n, f)
+
+## Casco deslizando no chão ou numa parede: metal/fibra áspero com pequenas
+## ressonâncias. É um loop controlado pela velocidade tangencial do contato.
+func raspagem() -> AudioStreamWAV:
+	var n := int(taxa * 2.0)
+	var f := int(taxa * 0.25)
+	var a := PackedFloat32Array()
+	a.resize(n + f)
+	var grave := 0.0
+	var medio := 0.0
+	var ra := _ressonador(1250.0, 0.975)
+	var rb := _ressonador(3100.0, 0.955)
+	var a1 := 0.0
+	var a2 := 0.0
+	var b1 := 0.0
+	var b2 := 0.0
+	for i in n + f:
+		var w := _ruido()
+		grave += (w - grave) * 0.06
+		medio += (w - medio) * 0.35
+		var grao := (medio - grave) * (0.35 if _sorteio() > 0.025 else 2.0)
+		var ya := ra.z * grao + ra.x * a1 - ra.y * a2
+		a2 = a1
+		a1 = ya
+		var yb := rb.z * grao + rb.x * b1 - rb.y * b2
+		b2 = b1
+		b1 = yb
+		a[i] = grave * 0.7 + ya * 0.8 + yb * 0.35
 	return _loop(a, n, f)
 
 ## Gerador da pista de energia: zumbido de 100 Hz com harmônicos e um zunido áspero
@@ -443,17 +486,284 @@ func volta() -> AudioStreamWAV:
 		a[i] = (nota1 + nota2) * minf(t / 0.004, 1.0)
 	return _wav(_normalizar(a, 0.7), false)
 
-## Fonte 3D de um som da biblioteca, configurada como as do carro (vazia se ainda
-## não foi gerado)
+# --- Impactos em camadas -------------------------------------------------------
+
+## Corpo do choque: sub-grave curto (sente-se mais do que se ouve; no headset dá peso)
+func corpo() -> AudioStreamWAV:
+	var n := int(taxa * 0.55)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fase := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		fase += TAU * (32.0 + 26.0 * exp(-t / 0.06)) / taxa
+		var env := (1.0 - exp(-t / 0.004)) * exp(-t / 0.16)
+		a[i] = (sin(fase) + 0.25 * sin(2.0 * fase)) * env
+	return _wav(_normalizar(a, 0.95), false)
+
+## Casco amassando: rajadas de ruído em ressonâncias metálicas (fibra e alumínio
+## dobrando), com o ranger diminuindo
+func amassado() -> AudioStreamWAV:
+	var n := int(taxa * 0.7)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var res: Array[Vector3] = []
+	for f in [430.0, 760.0, 1180.0, 1730.0, 2450.0]:
+		res.append(_ressonador(f, 0.985))
+	var y1 := PackedFloat32Array([0, 0, 0, 0, 0])
+	var y2 := PackedFloat32Array([0, 0, 0, 0, 0])
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var chance := 0.05 * exp(-t / 0.18)
+		var estalo := _ruido() * (2.0 if _sorteio() < chance else 0.12) * exp(-t / 0.25)
+		var soma := 0.0
+		for k in res.size():
+			var r: Vector3 = res[k]
+			var y := r.z * estalo + r.x * y1[k] - r.y * y2[k]
+			y2[k] = y1[k]
+			y1[k] = y
+			soma += y / (1.0 + k * 0.4)
+		lp += (_ruido() - lp) * 0.08
+		a[i] = soma + lp * exp(-t / 0.05) * 0.8
+	return _wav(_normalizar(a, 0.85), false)
+
+## Pedacinhos caindo e quicando depois de uma batida forte
+func detritos() -> AudioStreamWAV:
+	var n := int(taxa * 1.1)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var res: Array[Vector3] = [_ressonador(2300.0, 0.97), _ressonador(3900.0, 0.96), _ressonador(1500.0, 0.975)]
+	var pesos := [1.0, 0.6, 0.8]
+	var y1 := PackedFloat32Array([0, 0, 0])
+	var y2 := PackedFloat32Array([0, 0, 0])
+	for i in n:
+		var t := float(i) / taxa
+		var chance := 0.004 * exp(-t / 0.4) * (1.0 if t > 0.05 else 0.0)
+		var imp := _ruido() * exp(-t / 0.6) if _sorteio() < chance else 0.0
+		var soma := 0.0
+		for k in 3:
+			var r: Vector3 = res[k]
+			var y := r.z * imp + r.x * y1[k] - r.y * y2[k]
+			y2[k] = y1[k]
+			y1[k] = y
+			soma += y * pesos[k]
+		a[i] = soma
+	return _wav(_normalizar(a, 0.6), false)
+
+## Carro contra carro: parciais inarmônicas de casco (sino abafado) sobre um baque
+func clang() -> AudioStreamWAV:
+	var n := int(taxa * 0.9)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	# [frequência, decaimento, ganho]
+	var parciais := [[310.0, 0.18, 1.0], [742.0, 0.12, 0.6], [1287.0, 0.08, 0.45], [2013.0, 0.05, 0.3], [3140.0, 0.03, 0.2]]
+	for i in n:
+		var t := float(i) / taxa
+		var s := 0.0
+		for p in parciais:
+			s += sin(TAU * p[0] * t * (1.0 + 0.002 * sin(TAU * 6.0 * t))) * exp(-t / p[1]) * p[2]
+		var baque := sin(TAU * (70.0 + 40.0 * exp(-t / 0.03)) * t) * exp(-t / 0.07)
+		var estalo := _ruido() * exp(-t / 0.003)
+		a[i] = (s * 0.6 + baque * 0.9 + estalo * 0.3) * (1.0 - exp(-t / 0.0015))
+	return _wav(_normalizar(a, 0.85), false)
+
+## Parede de luz: estalo elétrico, zumbido de 100 Hz e um tom despencando
+func zap() -> AudioStreamWAV:
+	var n := int(taxa * 0.6)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fase := 0.0
+	var ra := _ressonador(3600.0, 0.95)
+	var r1 := 0.0
+	var r2 := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		fase += TAU * (2200.0 * exp(-t / 0.09) + 90.0) / taxa
+		var tom := (1.0 if sin(fase) > 0.0 else -1.0) * exp(-t / 0.12) * 0.35
+		var chance := 0.25 * exp(-t / 0.05)
+		var imp := _ruido() if _sorteio() < chance else 0.0
+		var y := ra.z * imp + ra.x * r1 - ra.y * r2
+		r2 = r1
+		r1 = y
+		var zumbido := (sin(TAU * 100.0 * t) + 0.5 * sin(TAU * 200.0 * t)) * exp(-t / 0.2) * 0.5
+		a[i] = tom + y * 1.2 + zumbido + _ruido() * exp(-t / 0.006) * 0.5
+	return _wav(_normalizar(a, 0.85), false)
+
+## Zumbido no ouvido depois de uma pancada forte (tom puro, entra e some devagar)
+func zumbido_ouvido() -> AudioStreamWAV:
+	var n := int(taxa * 2.4)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	for i in n:
+		var t := float(i) / taxa
+		var env := minf(t / 0.08, 1.0) * pow(1.0 - t / 2.4, 2.0)
+		a[i] = (sin(TAU * 3400.0 * t) + 0.15 * sin(TAU * 3412.0 * t)) * env
+	return _wav(_normalizar(a, 0.5), false)
+
+# --- Inimigos --------------------------------------------------------------------
+
+## Pirâmide acordando: acorde desafinado subindo com um rosnado embaixo
+func acordar() -> AudioStreamWAV:
+	var n := int(taxa * 1.3)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fases := PackedFloat32Array([0.0, 0.0, 0.0])
+	var base := [110.0, 164.0, 221.0]
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var x := t / 1.3
+		var sobe := pow(2.0, 0.6 * smoothstep(0.0, 0.6, x))
+		var s := 0.0
+		for k in 3:
+			fases[k] += TAU * base[k] * sobe / taxa
+			# Dente de serra suave (poucos harmônicos): áspero sem chiar
+			s += sin(fases[k]) + 0.5 * sin(2.0 * fases[k]) + 0.33 * sin(3.0 * fases[k])
+		lp += (_ruido() - lp) * 0.02
+		var rosnado := lp * 6.0 * (0.6 + 0.4 * sin(TAU * 23.0 * t))
+		var env := minf(t / 0.15, 1.0) * pow(1.0 - x, 1.3)
+		a[i] = (s * 0.3 + rosnado) * env
+	return _wav(_normalizar(a, 0.8), false)
+
+## Mira travando: tom subindo com trêmulo cada vez mais rápido (dura o tempo da mira)
+func carga_mira() -> AudioStreamWAV:
+	var n := int(taxa * 1.1)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fase := 0.0
+	var trem := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var x := t / 1.1
+		fase += TAU * (300.0 * pow(4.0, x)) / taxa
+		trem += TAU * lerpf(6.0, 40.0, x * x) / taxa
+		var env := minf(t / 0.05, 1.0) * (0.4 + 0.6 * x) * clampf((1.1 - t) / 0.02, 0.0, 1.0)
+		a[i] = (sin(fase) + 0.3 * sin(2.0 * fase + 0.5)) * (0.65 + 0.35 * sin(trem)) * env
+	return _wav(_normalizar(a, 0.7), false)
+
+## Ponta de pirâmide estourando: cristal estilhaçando (muitos "pings" agudos) e um estalo
+func estouro_cristal() -> AudioStreamWAV:
+	var n := int(taxa * 1.0)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var res: Array[Vector3] = []
+	for f in [2900.0, 3700.0, 4600.0, 5900.0, 7100.0]:
+		res.append(_ressonador(f, 0.993))
+	var y1 := PackedFloat32Array([0, 0, 0, 0, 0])
+	var y2 := PackedFloat32Array([0, 0, 0, 0, 0])
+	for i in n:
+		var t := float(i) / taxa
+		var chance := 0.03 * exp(-t / 0.12)
+		var soma := 0.0
+		for k in res.size():
+			var imp := _ruido() if _sorteio() < chance / (k + 1) else 0.0
+			var r: Vector3 = res[k]
+			var y := r.z * imp + r.x * y1[k] - r.y * y2[k]
+			y2[k] = y1[k]
+			y1[k] = y
+			soma += y
+		var estalo := _ruido() * exp(-t / 0.01)
+		var baque := sin(TAU * 90.0 * t) * exp(-t / 0.05)
+		a[i] = soma * 1.4 + estalo * 0.5 + baque * 0.4
+	return _wav(_normalizar(a, 0.8), false)
+
+# --- Adversários -------------------------------------------------------------------
+
+## Motor elétrico dos adversários: assobio mais áspero que o do jogador (inversor
+## barato) com ronco embaixo. Cada carro toca com um tom base diferente
+func motor_rival() -> AudioStreamWAV:
+	var n := taxa
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var p := TAU * 440.0 * t
+		var pwm := 1.0 if sin(TAU * 1320.0 * t) > 0.6 else 0.0
+		lp += (_ruido() - lp) * 0.05
+		a[i] = sin(p) * 0.5 + sin(2.0 * p) * 0.3 + sin(3.0 * p + 0.3) * 0.15 + pwm * 0.08 \
+			+ sin(TAU * 110.0 * t) * 0.25 + lp * 0.6
+	return _wav(_normalizar(a, 0.8), true)
+
+## Passagem rente: ar rasgando, sobe e desce (o doppler da fonte 3D completa o efeito)
+func passagem() -> AudioStreamWAV:
+	var n := int(taxa * 1.0)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var low := 0.0
+	var band := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var pico := exp(-pow((t - 0.4) / 0.18, 2.0))
+		var fk := 2.0 * sin(PI * (400.0 + 2200.0 * pico) / taxa)
+		var high := _ruido() - low - 0.5 * band
+		band += fk * high
+		low += fk * band
+		a[i] = (band + low * 0.15) * pico
+	return _wav(_normalizar(a, 0.8), false)
+
+## Fonte 3D de um som da biblioteca para o que acontece fora da cabine (inimigos,
+## adversários, explosões), no barramento "Mundo". Longe, o ar abafa os agudos.
+## Vazia se a biblioteca ainda não foi gerada
 static func fonte(nome: String) -> AudioStreamPlayer3D:
+	garantir_barramento_mundo()
 	var p := AudioStreamPlayer3D.new()
 	p.stream = biblioteca.get(nome)
-	p.bus = "Carro"
+	p.bus = BARRAMENTO_MUNDO
 	p.unit_size = 6.0
-	p.attenuation_filter_db = 0.0
+	p.attenuation_filter_cutoff_hz = 6000.0
+	p.attenuation_filter_db = -14.0
 	p.panning_strength = 0.8
 	p.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
 	return p
+
+## Som pontual solto no mundo: toca uma vez em `onde` e se apaga sozinho
+static func tocar_em(pai: Node, onde: Vector3, nome: String, volume_db := 0.0, pitch := 1.0, unidade := 6.0) -> AudioStreamPlayer3D:
+	if not biblioteca.has(nome) or pai == null or not pai.is_inside_tree():
+		return null
+	var p := fonte(nome)
+	p.volume_db = volume_db
+	p.pitch_scale = pitch
+	p.unit_size = unidade
+	p.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
+	pai.add_child(p)
+	p.global_position = onde
+	p.play()
+	p.finished.connect(p.queue_free)
+	return p
+
+## Barramento dos sons de fora: compressão leve, ar livre (reverb curto e aberto) e
+## limitador. Separado do "Carro" para a cabine e o mundo terem cada um o seu espaço
+static func garantir_barramento_mundo():
+	if AudioServer.get_bus_index(BARRAMENTO_MUNDO) >= 0:
+		return
+	var i := AudioServer.bus_count
+	AudioServer.add_bus(i)
+	AudioServer.set_bus_name(i, BARRAMENTO_MUNDO)
+	AudioServer.set_bus_send(i, "Master")
+	var compressor := AudioEffectCompressor.new()
+	compressor.threshold = -14.0
+	compressor.ratio = 3.0
+	compressor.attack_us = 2000.0
+	compressor.release_ms = 220.0
+	AudioServer.add_bus_effect(i, compressor)
+	# Abafamento (concussão depois de batida forte): o som_carro.gd mexe no corte
+	var abafa := AudioEffectLowPassFilter.new()
+	abafa.cutoff_hz = 20000.0
+	AudioServer.add_bus_effect(i, abafa)
+	var ar := AudioEffectReverb.new()
+	ar.room_size = 0.55
+	ar.damping = 0.5
+	ar.spread = 1.0
+	ar.hipass = 0.3
+	ar.predelay_msec = 40.0
+	ar.wet = 0.12
+	ar.dry = 1.0
+	AudioServer.add_bus_effect(i, ar)
+	var limitador := AudioEffectHardLimiter.new()
+	limitador.ceiling_db = -0.5
+	AudioServer.add_bus_effect(i, limitador)
 
 # --- Utilidades ---------------------------------------------------------------
 

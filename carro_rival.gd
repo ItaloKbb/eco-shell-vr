@@ -26,6 +26,7 @@ const RAIO_RODA := 0.245
 ## Tamanho do carro em coordenadas da pista, para contatos (m)
 const COMPRIMENTO := 2.7
 const LARGURA := 0.85
+const DURACAO_DASH := 0.55
 
 static var _malha: Mesh
 static var _tinta_base: ShaderMaterial
@@ -43,6 +44,10 @@ var d := 0.0
 var v := 0.0
 var progresso := 0.0
 var terminou := false
+## Telemetria e estado do dash, usados pela IA e pelos testes de equilíbrio.
+var dashes_usados := 0
+var _recarga_dash := 0.0
+var _tempo_dash := 0.0
 ## Alvos do cérebro
 var v_alvo := 0.0
 var d_alvo := 0.0
@@ -53,8 +58,21 @@ var _vel_lateral := 0.0
 ## Empurrão lateral de batidas (m/s), que vai sumindo
 var _empurrao := 0.0
 var _giros: Array[Node3D] = []
-var _zumbido: AudioStreamPlayer3D
+## Som: motor (tom próprio de cada carro), rolamento e raspagem no muro, em loop;
+## batida e clangor nos contatos
+var _motor: AudioStreamPlayer3D
+var _rolamento: AudioStreamPlayer3D
+var _raspagem: AudioStreamPlayer3D
 var _batida: AudioStreamPlayer3D
+var _clang: AudioStreamPlayer3D
+var _faiscas_muro: GPUParticles3D
+## Segundos raspando no muro (vai a zero quando solta) e lado do muro
+var _no_muro := 0.0
+var _lado_muro := 1.0
+## Passagem rente pelo jogador: lado em que ele estava no passo anterior e espera
+var _lado_jogador := 0.0
+var _espera_passagem := 0.0
+var _trilhas_dash := Node3D.new()
 
 ## Gera o casco uma única vez, num CascoEcoShell temporário (ele só constrói na árvore)
 static func preparar(pai: Node):
@@ -114,6 +132,26 @@ func _ready():
 	placa.double_sided = false
 	placa.position = Vector3(0.0, 0.5, 1.33)
 	add_child(placa)
+
+	# Dois filetes simples deixam o dash legível sem partículas ou pós-processamento.
+	_trilhas_dash.name = "TrilhasDash"
+	_trilhas_dash.visible = false
+	var rastro := BoxMesh.new()
+	rastro.size = Vector3(0.055, 0.045, 1.8)
+	var brilho := StandardMaterial3D.new()
+	brilho.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	brilho.albedo_color = pintura[1]
+	brilho.emission_enabled = true
+	brilho.emission = pintura[1]
+	brilho.emission_energy_multiplier = 4.0
+	rastro.material = brilho
+	for x in [-0.23, 0.23]:
+		var filete := MeshInstance3D.new()
+		filete.mesh = rastro
+		filete.position = Vector3(x, 0.27, 1.75)
+		filete.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_trilhas_dash.add_child(filete)
+	add_child(_trilhas_dash)
 	# Nome flutuando em cima, sempre virado para quem olha
 	var nome := Label3D.new()
 	nome.text = perfil.nome
@@ -136,6 +174,11 @@ func _ready():
 
 	_batida = SomGerador.fonte("batida")
 	add_child(_batida)
+	_clang = SomGerador.fonte("clang")
+	add_child(_clang)
+	_faiscas_muro = Explosao.faiscas_atrito()
+	_faiscas_muro.position = Vector3(0.0, 0.25, 0.3)
+	add_child(_faiscas_muro)
 
 ## Para na posição (s, d) da pista, sem velocidade (grid ou fim da corrida)
 func estacionar(s_: float, d_: float):
@@ -148,6 +191,10 @@ func estacionar(s_: float, d_: float):
 	_empurrao = 0.0
 	agilidade_extra = 1.0
 	terminou = false
+	dashes_usados = 0
+	_recarga_dash = 0.0
+	_tempo_dash = 0.0
+	_trilhas_dash.visible = false
 	# Atrás da linha conta como negativo: ainda não começou a primeira volta
 	progresso = s - pista.comprimento if s > pista.comprimento * 0.5 else s
 	ia.parar()
@@ -156,7 +203,12 @@ func estacionar(s_: float, d_: float):
 
 ## Um passo de física: velocidade e faixa indo para os alvos, dentro dos limites
 func mover(dt: float):
-	v += clampf(v_alvo - v, -perfil.frenagem * dt, perfil.aceleracao * dt)
+	_recarga_dash = maxf(_recarga_dash - dt, 0.0)
+	_tempo_dash = maxf(_tempo_dash - dt, 0.0)
+	_trilhas_dash.visible = _tempo_dash > 0.0
+	var alvo_movimento := maxf(v_alvo, perfil.velocidade_max * 1.12) if _tempo_dash > 0.0 else v_alvo
+	var freio_dash := perfil.frenagem * (0.25 if _tempo_dash > 0.0 else 1.0)
+	v += clampf(alvo_movimento - v, -freio_dash * dt, perfil.aceleracao * dt)
 	v = maxf(v, 0.0)
 	var agil := perfil.agilidade * agilidade_extra
 	var desejada := clampf((d_alvo - d) * 2.5, -agil, agil)
@@ -167,6 +219,9 @@ func mover(dt: float):
 	var limite := PistaCorrida.MEIA_UTIL
 	if absf(d) > limite:
 		d = signf(d) * limite
+		if v > 2.0:
+			_no_muro = 0.25
+			_lado_muro = signf(d)
 		_empurrao = 0.0
 		_vel_lateral = 0.0
 		v *= 1.0 - 0.6 * dt
@@ -179,8 +234,35 @@ func mover(dt: float):
 	var esterco := clampf(-(_vel_lateral + _empurrao) / maxf(v, 2.0), -0.5, 0.5)
 	_giros[0].rotation.y = esterco
 	_giros[1].rotation.y = esterco
+	_no_muro = maxf(_no_muro - dt, 0.0)
+	_espera_passagem = maxf(_espera_passagem - dt, 0.0)
 	_som()
 	_sincronizar()
+
+func pode_usar_dash() -> bool:
+	return _recarga_dash <= 0.0 and _tempo_dash <= 0.0 and not terminou and v > 5.0
+
+func usar_dash() -> bool:
+	if not pode_usar_dash():
+		return false
+	_recarga_dash = perfil.recarga_dash
+	_tempo_dash = DURACAO_DASH
+	v = minf(v + perfil.forca_dash, perfil.velocidade_max + perfil.forca_dash)
+	dashes_usados += 1
+	# Rajada de faíscas na traseira, da cor do filete
+	var rajada := Explosao.faiscas_impacto(6.0)
+	Explosao._soltar(get_parent(), rajada, global_transform * Vector3(0.0, 0.3, 1.4), 0.8)
+	var som := SomGerador.fonte("arrancada")
+	som.volume_db = -8.0
+	som.pitch_scale = randf_range(0.9, 1.08)
+	som.max_distance = 45.0
+	add_child(som)
+	if som.stream:
+		som.play()
+		som.finished.connect(som.queue_free)
+	else:
+		som.queue_free()
+	return true
 
 ## Batida vinda do tráfego: empurrão lateral (m/s, positivo = para a direita) e
 ## mudança de velocidade
@@ -188,10 +270,22 @@ func levar_batida(lateral: float, dv: float, forca: float, outro: CarroNaPista, 
 	_empurrao = clampf(_empurrao + lateral, -4.0, 4.0)
 	v = maxf(v + dv, 0.0)
 	ia.notificar_batida(forca, outro, culpado)
-	if forca > 0.8 and _batida.stream and not _batida.playing:
+	if forca <= 0.8:
+		return
+	if _batida.stream and not _batida.playing:
 		_batida.volume_db = linear_to_db(clampf(forca / 5.0, 0.15, 1.0)) - 4.0
 		_batida.pitch_scale = randf_range(0.9, 1.15)
 		_batida.play()
+	# Casco contra casco: clangor e faíscas do lado que bateu (empurrado para a
+	# direita = bateu do lado esquerdo)
+	if _clang.stream and forca > 1.5:
+		_clang.volume_db = linear_to_db(clampf(forca / 6.0, 0.15, 0.9)) - 3.0
+		_clang.pitch_scale = randf_range(0.85, 1.2)
+		_clang.play()
+	if forca > 1.5:
+		var lado := -signf(lateral) if lateral != 0.0 else 1.0
+		var ponto := global_transform * Vector3(lado * 0.45, 0.35, 0.0)
+		Explosao._soltar(get_parent(), Explosao.faiscas_impacto(forca * 2.5), ponto, 1.0)
 
 func _posar():
 	var q := pista.quadro(s)
@@ -206,18 +300,59 @@ func _sincronizar():
 	info.v = v
 	info.progresso = progresso
 
-## Zumbido do motor elétrico, mais agudo com a velocidade (a biblioteca de sons é
-## gerada em segundo plano: entra quando estiver pronta)
+## Motor elétrico (cada carro num tom: o pelotão soa como um enxame, não como um
+## carro só), rolamento e raspagem no muro. A biblioteca de sons é gerada em segundo
+## plano: entra quando estiver pronta
 func _som():
-	if _zumbido == null:
-		if not SomGerador.biblioteca.has("zumbido"):
+	if _motor == null:
+		if not SomGerador.biblioteca.has("motor_rival"):
 			return
-		_zumbido = SomGerador.fonte("zumbido")
-		_zumbido.volume_db = -14.0
-		_zumbido.max_distance = 60.0
-		add_child(_zumbido)
-		_zumbido.play()
-		if _batida.stream == null:
-			_batida.stream = SomGerador.biblioteca.get("batida")
-	_zumbido.pitch_scale = 0.55 + v / 12.0 * 0.9
-	_zumbido.volume_db = lerpf(-30.0, -12.0, clampf(v / 12.0, 0.0, 1.0))
+		_motor = _loop("motor_rival", 70.0)
+		_rolamento = _loop("rolamento", 30.0)
+		_raspagem = _loop("raspagem", 40.0)
+		for p in [_batida, _clang]:
+			if p.stream == null:
+				p.stream = SomGerador.biblioteca.get("batida" if p == _batida else "clang")
+	var rapidez := clampf(v / 12.0, 0.0, 1.4)
+	var tom := 0.86 + 0.045 * (numero % 7)
+	# Dash: o motor grita mais agudo enquanto dura
+	var grito := 0.25 if _tempo_dash > 0.0 else 0.0
+	_motor.pitch_scale = tom * (0.45 + 0.8 * rapidez + grito)
+	_motor.volume_db = lerpf(-28.0, -9.0, minf(rapidez, 1.0)) + (3.0 if grito > 0.0 else 0.0)
+	_rolamento.pitch_scale = 0.6 + rapidez * 0.7
+	_rolamento.volume_db = lerpf(-40.0, -14.0, minf(rapidez, 1.0))
+	var raspa := minf(_no_muro / 0.25, 1.0) * minf(rapidez, 1.0)
+	_raspagem.volume_db = linear_to_db(maxf(raspa * 0.5, 0.0001))
+	_raspagem.pitch_scale = 0.8 + rapidez * 0.4
+	_faiscas_muro.emitting = raspa > 0.3
+	_faiscas_muro.position.x = _lado_muro * 0.42
+	_passagem()
+
+## Passou rente pelo jogador (de frente para trás ou de trás para a frente) com
+## diferença de velocidade: o ar rasgando, vindo deste carro
+func _passagem():
+	var jogador := get_tree().get_first_node_in_group("carro") as RigidBody3D
+	if jogador == null or _espera_passagem > 0.0:
+		return
+	var rel := global_position - jogador.global_position
+	if rel.length() > 8.0:
+		_lado_jogador = 0.0
+		return
+	var frente := -jogador.global_basis.z
+	var lado := signf(rel.dot(frente))
+	var lateral := absf(rel.dot(jogador.global_basis.x))
+	var diferenca := absf(v - jogador.linear_velocity.dot(frente))
+	if _lado_jogador != 0.0 and lado != _lado_jogador and lateral < 3.5 and diferenca > 2.5:
+		_espera_passagem = 1.5
+		var som := SomGerador.tocar_em(self, global_position, "passagem", lerpf(-10.0, -2.0, clampf(diferenca / 10.0, 0.0, 1.0)), randf_range(0.9, 1.1), 4.0)
+		if som:
+			som.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_PHYSICS_STEP
+	_lado_jogador = lado
+
+func _loop(nome: String, alcance: float) -> AudioStreamPlayer3D:
+	var p := SomGerador.fonte(nome)
+	p.volume_db = -80.0
+	p.max_distance = alcance
+	add_child(p)
+	p.play()
+	return p

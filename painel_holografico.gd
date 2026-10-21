@@ -35,7 +35,11 @@ func _init(resolucao: Vector2i, tamanho: Vector2, vr: bool, titulo := "ECO SHELL
 	# Moldura: vidro escuro com borda ciano e cantos cortados
 	var moldura := PanelContainer.new()
 	moldura.size = Vector2(resolucao)
-	_fundo = estilo(Color(0.02, 0.06, 0.12, 0.85), Color(COR_CIANO, 0.85), 2, 14)
+	# Transparência sobre uma cena estereoscópica movimentada reduz muito o
+	# contraste aparente. No VR o painel é quase opaco e a borda é mais forte.
+	var alfa_fundo := 0.97 if modo_vr else 0.85
+	var alfa_borda := 1.0 if modo_vr else 0.85
+	_fundo = estilo(Color(0.012, 0.035, 0.075, alfa_fundo), Color(COR_CIANO, alfa_borda), 3 if modo_vr else 2, 14)
 	moldura.add_theme_stylebox_override("panel", _fundo)
 	tela.add_child(moldura)
 	var margem := MarginContainer.new()
@@ -76,7 +80,9 @@ func _ready():
 		simples.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		simples.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		simples.albedo_texture = tela.get_texture()
-		simples.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		# Sem mipmaps: a UI já está na resolução adequada e o nível menor deixava
+		# letras finas borradas no headset.
+		simples.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
 		if opaco:
 			_fundo.bg_color.a = 1.0
 			# Preso ao carro: nunca fica escondido atrás do bico ou do vidro
@@ -128,6 +134,9 @@ static func rotulo(texto: String, tamanho: int, cor: Color, forte := false, espa
 	r.add_theme_font_override("font", fonte(forte, espaco))
 	r.add_theme_font_size_override("font_size", tamanho)
 	r.add_theme_color_override("font_color", cor)
+	# Contorno mínimo evita que hastes finas desapareçam após a projeção no quad.
+	r.add_theme_constant_override("outline_size", 2 if tamanho >= 20 else 1)
+	r.add_theme_color_override("font_outline_color", Color(0.0, 0.01, 0.025, 0.9))
 	return r
 
 ## Tecla desenhada como um "chip" (borda ciano, fundo translúcido)
@@ -154,6 +163,7 @@ func definir_dicas(caixa: HBoxContainer, dicas: Array):
 		return
 	caixa.set_meta("dicas", dicas)
 	for filho in caixa.get_children():
+		caixa.remove_child(filho)
 		filho.queue_free()
 	for dica in dicas:
 		var item := HBoxContainer.new()

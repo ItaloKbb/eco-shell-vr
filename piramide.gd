@@ -51,6 +51,10 @@ var _luz: OmniLight3D
 ## Só um míssil desta pirâmide no ar de cada vez
 var _missil: MissilPonta
 var _zumbido: AudioStreamPlayer3D
+## Som da mira travando (sai da própria pirâmide: dá para ouvir de onde vem)
+var _carga: AudioStreamPlayer3D
+## Pulso de luz ao acordar e ao disparar (decai sozinho)
+var _pulso := 0.0
 
 func _ready():
 	add_to_group("piramides")
@@ -105,6 +109,7 @@ func _physics_process(delta: float):
 			if distancia < raio_alerta:
 				estado = PERSEGUINDO
 				_tiro = 1.0
+				_acordar()
 			_mover_para(_casa + Vector3.UP * sin(Time.get_ticks_msec() / 1000.0) * 0.4, 4.0, delta)
 		PERSEGUINDO:
 			if distancia > raio_desiste:
@@ -114,7 +119,14 @@ func _physics_process(delta: float):
 				_cacar(delta, distancia)
 	_furia = move_toward(_furia, 1.0 if estado == PERSEGUINDO else 0.0, delta)
 	_material_nucleo.set_shader_parameter("furia", _furia)
-	_luz.light_energy = 1.5 + 2.0 * _furia
+	_pulso = maxf(_pulso - 2.5 * delta, 0.0)
+	_luz.light_energy = 1.5 + 2.0 * _furia + 6.0 * _pulso
+	# Zumbido: mais alto e mais agudo com a fúria; a biblioteca pode chegar depois
+	if _zumbido.stream == null and SomGerador.biblioteca.has("zumbido_inimigo"):
+		_zumbido.stream = SomGerador.biblioteca["zumbido_inimigo"]
+		_zumbido.play()
+	_zumbido.pitch_scale = 1.0 + 0.3 * _furia + 0.15 * (1.0 - _mira / tempo_mira if _mirando >= 0 else 0.0)
+	_zumbido.volume_db = lerpf(-6.0, 0.0, _furia)
 	_animar_pontas(delta)
 
 func _cacar(delta: float, distancia: float):
@@ -134,6 +146,7 @@ func _cacar(delta: float, distancia: float):
 			_mirando = livre
 			_mira = tempo_mira
 			travando = true
+			_tocar_carga()
 			_pontas[livre].material_override = _material_mira
 	if _mirando >= 0:
 		_mira -= delta
@@ -160,6 +173,8 @@ func _lancar(i: int):
 	get_parent().add_child(missil)
 	missil.global_transform = ponta.global_transform
 	_missil = missil
+	_parar_carga()
+	_pulso = 1.0
 	var som := SomGerador.fonte("lancamento")
 	add_child(som)
 	if som.stream:
@@ -173,10 +188,26 @@ func _lancar(i: int):
 	_tiro = intervalo_tiro
 
 func _cancelar_mira():
+	_parar_carga()
 	if _mirando >= 0:
 		_pontas[_mirando].material_override = _material_ponta
 	_mirando = -1
 	travando = false
+
+## Acordou: rosnado subindo e um pulso de luz no núcleo
+func _acordar():
+	_pulso = 1.0
+	SomGerador.tocar_em(self, global_position, "acordar", 0.0, randf_range(0.92, 1.05), 8.0)
+
+## Carga da mira: o tom sobe junto com o tempo de mira (o som dura exatamente isso)
+func _tocar_carga():
+	_parar_carga()
+	_carga = SomGerador.tocar_em(self, global_position, "carga_mira", -3.0, 1.1 / tempo_mira, 7.0)
+
+func _parar_carga():
+	if is_instance_valid(_carga):
+		_carga.queue_free()
+	_carga = null
 
 ## Formação girando e balançando; a ponta que mira sai para fora e aponta para o
 ## carro; as lançadas voltam crescendo no lugar

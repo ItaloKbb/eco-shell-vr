@@ -66,6 +66,10 @@ func _lugar_livre(centro: Vector3, quem: Portal) -> Vector3:
 		p = centro + Vector3(cos(a), 0.0, sin(a)) * d
 		if Vector2(p.x, p.z).length() < raio_praca:
 			continue
+		# Nem no abismo nem em cima das estruturas (com folga para o retorno do deserto,
+		# que deixa o carro fora do alcance do puxão)
+		if hex_world and hex_world.has_method("area_livre") and not hex_world.area_livre(p, Portal.ALCANCE_PUXAO + 12.0):
+			continue
 		var longe := true
 		for outro in _portais:
 			if outro != quem and outro.is_inside_tree() and Vector2(outro.global_position.x - p.x, outro.global_position.z - p.z).length() < separacao:

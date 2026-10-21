@@ -36,7 +36,7 @@ void fragment() {
 
 	// Faixa neon na borda superior das laterais (em unidades do mundo)
 	float dist_top = (1.0 - local_pos.y) * scale_y;
-	float rim = side * (1.0 - smoothstep(0.05, 0.14, dist_top));
+	float rim = side * (1.0 - smoothstep(0.02, 0.05, dist_top));
 
 	// Contorno hexagonal interno na face de cima
 	vec2 p = local_pos.xz;

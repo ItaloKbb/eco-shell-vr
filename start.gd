@@ -7,6 +7,8 @@ extends Node3D
 @onready var camera_carro: Camera3D = $Carro/Cabeca
 
 var _xr: XRInterface
+var ritual: Node
+var _perfil_spawn := {}
 
 func _ready():
 	if OS.has_feature("android"):
@@ -20,11 +22,36 @@ func _ready():
 		$Carro/OrigemXR.current = true
 		$Carro/OrigemXR/CameraXR.make_current()
 		_xr.session_begun.connect(_sessao_iniciada)
+		_sincronizar_fisica(_xr.display_refresh_rate)
 	else:
 		print("Sem headset: dirigindo o carro em primeira pessoa")
 		camera_carro.make_current()
 		# Sem rastreamento, as mãos VR ficariam paradas na frente da câmera
 		$Carro/OrigemXR.visible = false
+	# O ritual precisa conhecer o modo real antes de criar o painel.
+	ritual = preload("res://ritual_partida.gd").new()
+	add_child(ritual)
+
+## Só durante o nascimento: evita renderizar tempestade e pós-processamento
+## atrás da casca fechada. Restaura o perfil anterior antes de revelar a saída.
+func ajustar_spawn_vr(ativo: bool):
+	var env: Environment = $WorldEnvironment.environment
+	if ativo:
+		if not _perfil_spawn.is_empty():
+			return
+		for propriedade in ["volumetric_fog_enabled", "glow_enabled", "ssr_enabled", "ssao_enabled", "ssil_enabled", "sdfgi_enabled"]:
+			_perfil_spawn[propriedade] = env.get(propriedade)
+			env.set(propriedade, false)
+		_perfil_spawn["atmosfera"] = $Atmosfera.visible
+		_perfil_spawn["chunks"] = $HexWorld.chunks_per_frame
+		$Atmosfera.hide()
+		$HexWorld.chunks_per_frame = 1
+	elif not _perfil_spawn.is_empty():
+		for propriedade in ["volumetric_fog_enabled", "glow_enabled", "ssr_enabled", "ssao_enabled", "ssil_enabled", "sdfgi_enabled"]:
+			env.set(propriedade, _perfil_spawn[propriedade])
+		$Atmosfera.visible = _perfil_spawn["atmosfera"]
+		$HexWorld.chunks_per_frame = _perfil_spawn["chunks"]
+		_perfil_spawn.clear()
 
 ## Rodando direto no Quest (APK): GPU de celular desenhando duas vezes (um olho cada),
 ## então troca a névoa volumétrica (que o renderizador Mobile nem suporta) por névoa
@@ -44,7 +71,8 @@ func _ajustar_para_quest():
 
 func _sessao_iniciada():
 	_sincronizar_fisica(_xr.display_refresh_rate)
-	_xr.refresh_rate_changed.connect(_sincronizar_fisica)
+	if not _xr.refresh_rate_changed.is_connected(_sincronizar_fisica):
+		_xr.refresh_rate_changed.connect(_sincronizar_fisica)
 	# Quest 2/3 começam em 72 Hz; pede 90 se o headset oferecer
 	if OS.has_feature("android") and 90.0 in _xr.get_available_display_refresh_rates():
 		_xr.display_refresh_rate = 90.0
@@ -66,7 +94,7 @@ func _unhandled_input(event):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Tab alterna entre o carro e a câmera livre de debug
-	elif event.keycode == KEY_TAB and not get_viewport().use_xr:
+	elif event.keycode == KEY_TAB and not get_viewport().use_xr and not carro.em_ritual and not carro.em_transicao:
 		if camera_carro.current:
 			camera_debug.global_transform = camera_carro.global_transform
 			camera_debug.set("rot_x", camera_debug.rotation.x)

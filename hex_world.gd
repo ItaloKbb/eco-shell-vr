@@ -14,8 +14,9 @@ const GLOW_WARM := [
 ]
 const GLOW_COLD := [Color("#2F8DFF"), Color("#26459E")]
 
-@export var hex_size := 1.2
-@export var chunk_hexes := 8
+@export var hex_size := 0.4
+## Chunks pequenos: cada um é gerado em ~1 ms, sem engasgar o frame no VR
+@export var chunk_hexes := 12
 ## Mantenha alinhado com fog_depth_end do WorldEnvironment para esconder a borda
 @export var view_distance := 45.0
 @export var chunks_per_frame := 2
@@ -23,7 +24,7 @@ const GLOW_COLD := [Color("#2F8DFF"), Color("#26459E")]
 ## Variação total do relevo (em metros) ao longo de grandes distâncias
 @export var terrain_amplitude := 0.6
 ## Desnível aleatório máximo de cada hexágono em relação ao relevo
-@export var step_jitter := 0.05
+@export var step_jitter := 0.02
 @export_range(0.0, 0.2) var hole_chance := 0.02
 @export var world_seed := 1337
 @export_flags_3d_physics var collision_layer := 1
@@ -47,6 +48,22 @@ func _ready():
 	var material := ShaderMaterial.new()
 	material.shader = HEX_SHADER
 	_mesh.material = material
+
+## Saindo para outro mapa: apaga todos os pedaços (e a colisão deles) e para de gerar
+func desligar():
+	for c in _chunks:
+		_chunks[c].queue_free()
+	_chunks.clear()
+	_pending.clear()
+	_last_center = Vector2i(2147483647, 0)
+	set_process(false)
+
+## Voltando: gera de novo em volta da câmera
+func ligar():
+	set_process(true)
+
+func carregando() -> bool:
+	return not _pending.is_empty()
 
 func _process(_delta):
 	var cam := get_viewport().get_camera_3d()

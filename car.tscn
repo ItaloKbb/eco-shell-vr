@@ -4,50 +4,88 @@
 [ext_resource type="Script" path="res://eco_shell_casco.gd" id="2_casco"]
 [ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/left_hand_low.tscn" id="3_mao_e"]
 [ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/right_hand_low.tscn" id="4_mao_d"]
-
-[sub_resource type="Shader" id="Shader_vidro"]
-code = "shader_type spatial;
-render_mode cull_disabled, depth_draw_never;
-// Bolha de policarbonato: quase invisível de frente, reflexo azul nas bordas (fresnel)
-void fragment() {
-	float borda = pow(1.0 - abs(dot(NORMAL, VIEW)), 3.0);
-	ALBEDO = vec3(0.55, 0.75, 1.0);
-	ALPHA = 0.04 + 0.55 * borda;
-	METALLIC = 0.3;
-	ROUGHNESS = 0.03;
-	SPECULAR = 0.9;
-	EMISSION = vec3(0.18, 0.55, 1.0) * borda * 0.5;
-}
-"
-
-[sub_resource type="ShaderMaterial" id="Mat_vidro"]
-shader = SubResource("Shader_vidro")
+[ext_resource type="Script" path="res://capacete_hud.gd" id="5_capacete"]
+[ext_resource type="Script" path="res://eco_shell_adesivos.gd" id="6_adesivos"]
+[ext_resource type="Shader" path="res://roda.gdshader" id="7_roda"]
+[ext_resource type="Script" path="res://som_carro.gd" id="8_som"]
+[ext_resource type="Shader" path="res://asa.gdshader" id="9_asa"]
+[ext_resource type="Shader" path="res://retrovisor.gdshader" id="10_retrovisor"]
 
 [sub_resource type="StandardMaterial3D" id="Mat_detalhe"]
-albedo_color = Color(0.9216, 0.3608, 0.1804, 1)
-emission_enabled = true
-emission = Color(0.9216, 0.3608, 0.1804, 1)
-emission_energy_multiplier = 3.0
+albedo_color = Color(0.95, 0.75, 0.1, 1)
+roughness = 0.6
 
 [sub_resource type="StandardMaterial3D" id="Mat_interior"]
 albedo_color = Color(0.04, 0.04, 0.07, 1)
 roughness = 0.8
 
-[sub_resource type="StandardMaterial3D" id="Mat_pneu"]
-albedo_color = Color(0.03, 0.03, 0.04, 1)
-roughness = 0.9
+[sub_resource type="ShaderMaterial" id="Mat_roda"]
+shader = ExtResource("7_roda")
 
-[sub_resource type="SphereMesh" id="Mesh_bolha"]
-material = SubResource("Mat_vidro")
-radius = 1.0
-height = 1.0
-radial_segments = 48
-rings = 16
-is_hemisphere = true
+[sub_resource type="ShaderMaterial" id="Mat_asa"]
+shader = ExtResource("9_asa")
+
+[sub_resource type="PlaneMesh" id="Mesh_asa"]
+material = SubResource("Mat_asa")
+size = Vector2(1.1, 0.45)
+
+[sub_resource type="StandardMaterial3D" id="Mat_alca"]
+albedo_color = Color(0.8, 0.82, 0.85, 1)
+metallic = 0.9
+roughness = 0.25
+
+[sub_resource type="StandardMaterial3D" id="Mat_cinta"]
+albedo_color = Color(0.95, 0.4, 0.1, 1)
+roughness = 0.85
+
+[sub_resource type="TorusMesh" id="Mesh_alca"]
+material = SubResource("Mat_alca")
+inner_radius = 0.05
+outer_radius = 0.062
+rings = 24
+ring_segments = 8
+
+[sub_resource type="BoxMesh" id="Mesh_cinta"]
+material = SubResource("Mat_cinta")
+size = Vector3(0.16, 0.012, 0.045)
 
 [sub_resource type="BoxMesh" id="Mesh_painel"]
 material = SubResource("Mat_interior")
-size = Vector3(0.28, 0.085, 0.03)
+size = Vector3(0.36, 0.09, 0.03)
+
+[sub_resource type="ShaderMaterial" id="Mat_retrovisor"]
+shader = ExtResource("10_retrovisor")
+
+[sub_resource type="QuadMesh" id="Mesh_retrovisor"]
+size = Vector2(0.11, 0.062)
+
+[sub_resource type="StandardMaterial3D" id="Mat_botao_base"]
+albedo_color = Color(0.08, 0.08, 0.1, 1)
+metallic = 0.8
+roughness = 0.35
+
+[sub_resource type="CylinderMesh" id="Mesh_botao_base"]
+material = SubResource("Mat_botao_base")
+top_radius = 0.022
+bottom_radius = 0.022
+height = 0.006
+radial_segments = 24
+rings = 0
+
+[sub_resource type="StandardMaterial3D" id="Mat_botao"]
+albedo_color = Color(0.05, 0.15, 0.3, 1)
+roughness = 0.3
+emission_enabled = true
+emission = Color(0.1843, 0.5529, 1, 1)
+emission_energy_multiplier = 0.6
+
+[sub_resource type="CylinderMesh" id="Mesh_botao"]
+material = SubResource("Mat_botao")
+top_radius = 0.016
+bottom_radius = 0.017
+height = 0.012
+radial_segments = 24
+rings = 0
 
 [sub_resource type="Shader" id="Shader_horizonte"]
 code = "shader_type spatial;
@@ -90,23 +128,19 @@ material = SubResource("Mat_detalhe")
 size = Vector3(0.024, 0.06, 0.03)
 
 [sub_resource type="CylinderMesh" id="Mesh_roda"]
-material = SubResource("Mat_pneu")
+material = SubResource("Mat_roda")
 top_radius = 0.245
 bottom_radius = 0.245
 height = 0.035
 radial_segments = 32
 rings = 0
 
-[sub_resource type="BoxMesh" id="Mesh_raio"]
-material = SubResource("Mat_detalhe")
-size = Vector3(0.42, 0.037, 0.02)
-
 [node name="Carro" type="RigidBody3D"]
 collision_layer = 4
 collision_mask = 3
 mass = 120.0
 center_of_mass_mode = 1
-center_of_mass = Vector3(0, 0.25, -0.1)
+center_of_mass = Vector3(0, -0.12, -0.25)
 can_sleep = false
 continuous_cd = true
 angular_damp = 0.8
@@ -116,11 +150,19 @@ script = ExtResource("1_carro")
 
 [node name="Casco" type="MeshInstance3D" parent="."]
 script = ExtResource("2_casco")
-cockpit = Vector3(-0.12, 0.21, 0.43)
 
-[node name="Bolha" type="MeshInstance3D" parent="."]
-transform = Transform3D(0.24, 0, 0, 0, 0.22, 0, 0, 0, 0.45, 0, 0.58, -0.1)
-mesh = SubResource("Mesh_bolha")
+[node name="Adesivos" type="Node" parent="Casco"]
+script = ExtResource("6_adesivos")
+
+[node name="Alca" type="MeshInstance3D" parent="Casco"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0.8, 0.5)
+mesh = SubResource("Mesh_alca")
+metadata/no_teto = true
+
+[node name="Cinta" type="MeshInstance3D" parent="Casco"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.84, 0.3)
+mesh = SubResource("Mesh_cinta")
+metadata/no_teto = true
 
 [node name="Painel" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.9063, -0.4226, 0, 0.4226, 0.9063, 0, 0.6, -0.42)
@@ -131,27 +173,29 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.016)
 material_override = SubResource("Mat_horizonte")
 mesh = SubResource("Mesh_horizonte")
 
-[node name="InfoE" type="Label3D" parent="Painel"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.094, 0, 0.016)
-pixel_size = 0.0003
-modulate = Color(0.55, 0.85, 1, 1)
-text = "INCL   +0°
-GIRO   +0°
-RUMO  000°"
-font_size = 32
-outline_size = 0
-horizontal_alignment = 0
+[node name="Retrovisor" type="MeshInstance3D" parent="Painel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11, 0, 0.016)
+material_override = SubResource("Mat_retrovisor")
+mesh = SubResource("Mesh_retrovisor")
 
-[node name="InfoD" type="Label3D" parent="Painel"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.094, 0, 0.016)
-pixel_size = 0.0003
+[node name="BotaoEnergia" type="Node3D" parent="Painel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11, 0.006, 0.015)
+
+[node name="Base" type="MeshInstance3D" parent="Painel/BotaoEnergia"]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, 0.003)
+mesh = SubResource("Mesh_botao_base")
+
+[node name="Tampa" type="MeshInstance3D" parent="Painel/BotaoEnergia"]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, 0.008)
+mesh = SubResource("Mesh_botao")
+
+[node name="Rotulo" type="Label3D" parent="Painel/BotaoEnergia"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.031, 0.001)
+pixel_size = 0.0002
 modulate = Color(0.55, 0.85, 1, 1)
-text = "0 km/h
-ALT 0.0 m
-[E] ENERGIA"
-font_size = 32
+text = "ENERGIA"
+font_size = 40
 outline_size = 0
-horizontal_alignment = 2
 
 [node name="Guidao" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.58, -0.2)
@@ -168,7 +212,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.13, 0.015, 0)
 mesh = SubResource("Mesh_manopla")
 
 [node name="RodaFE" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.22, 0.245, -0.75)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.27, 0.245, -0.75)
 
 [node name="Giro" type="Node3D" parent="RodaFE"]
 
@@ -176,22 +220,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.22, 0.245, -0.75)
 transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
 mesh = SubResource("Mesh_roda")
 
-[node name="Raio" type="MeshInstance3D" parent="RodaFE/Giro"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_raio")
-
 [node name="RodaFD" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.22, 0.245, -0.75)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.27, 0.245, -0.75)
 
 [node name="Giro" type="Node3D" parent="RodaFD"]
 
 [node name="Pneu" type="MeshInstance3D" parent="RodaFD/Giro"]
 transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
 mesh = SubResource("Mesh_roda")
-
-[node name="Raio" type="MeshInstance3D" parent="RodaFD/Giro"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_raio")
 
 [node name="RodaT" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.245, 0.7)
@@ -201,28 +237,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.245, 0.7)
 [node name="Pneu" type="MeshInstance3D" parent="RodaT/Giro"]
 transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
 mesh = SubResource("Mesh_roda")
-
-[node name="Raio" type="MeshInstance3D" parent="RodaT/Giro"]
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = SubResource("Mesh_raio")
-
-[node name="LetreiroE" type="Label3D" parent="."]
-transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -0.363, 0.4, -0.5)
-pixel_size = 0.0015
-modulate = Color(0.95, 0.97, 1, 1)
-outline_modulate = Color(0.0784, 0.0784, 0.2353, 1)
-text = "SENAI"
-font_size = 64
-outline_size = 10
-
-[node name="LetreiroD" type="Label3D" parent="."]
-transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.363, 0.4, -0.5)
-pixel_size = 0.0015
-modulate = Color(0.95, 0.97, 1, 1)
-outline_modulate = Color(0.0784, 0.0784, 0.2353, 1)
-text = "SENAI"
-font_size = 64
-outline_size = 10
 
 [node name="FarolE" type="SpotLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.9962, -0.0872, 0, 0.0872, 0.9962, -0.08, 0.3, -1.33)
@@ -244,17 +258,66 @@ light_color = Color(1, 0.08, 0.05, 1)
 light_energy = 0.8
 omni_range = 1.6
 
+[node name="AsaE" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28, 0.4, 0.15)
+visible = false
+
+[node name="Malha" type="MeshInstance3D" parent="AsaE"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 0, 0)
+mesh = SubResource("Mesh_asa")
+instance_shader_parameters/lado = -1.0
+
+[node name="Ponta" type="Marker3D" parent="AsaE/Malha"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.55, 0, 0.02)
+
+[node name="AsaD" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.28, 0.4, 0.15)
+visible = false
+
+[node name="Malha" type="MeshInstance3D" parent="AsaD"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0, 0)
+mesh = SubResource("Mesh_asa")
+instance_shader_parameters/lado = 1.0
+
+[node name="Ponta" type="Marker3D" parent="AsaD/Malha"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0, 0.02)
+
+[node name="LuzInferior" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, -0.1)
+light_color = Color(0.1843, 0.5529, 1, 1)
+light_energy = 0.0
+omni_range = 2.5
+
+[node name="TelaTraseira" type="SubViewport" parent="."]
+size = Vector2i(384, 216)
+render_target_update_mode = 1
+
+[node name="CameraTraseira" type="Camera3D" parent="TelaTraseira"]
+fov = 70.0
+near = 0.05
+far = 80.0
+
+[node name="MiraTraseira" type="RemoteTransform3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 1.34)
+remote_path = NodePath("../TelaTraseira/CameraTraseira")
+
+[node name="Som" type="Node3D" parent="."]
+script = ExtResource("8_som")
+
+[node name="Capacete" type="Node3D" parent="."]
+script = ExtResource("5_capacete")
+
 [node name="Cabeca" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.9888, -0.1494, 0, 0.1494, 0.9888, 0, 0.68, 0.05)
+transform = Transform3D(1, 0, 0, 0, 0.9888, -0.1494, 0, 0.1494, 0.9888, 0, 0.8, 0.05)
 near = 0.02
-far = 150.0
+far = 600.0
 
 [node name="OrigemXR" type="XROrigin3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.68, 0.05)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0.05)
 
 [node name="CameraXR" type="XRCamera3D" parent="OrigemXR"]
 near = 0.02
-far = 150.0
+far = 600.0
 
 [node name="MaoEsquerda" type="XRController3D" parent="OrigemXR"]
 tracker = &"left_hand"

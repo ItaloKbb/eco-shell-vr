@@ -2,10 +2,14 @@
 
 [ext_resource type="Script" uid="uid://t3etlwfr7034" path="res://camera_3d.gd" id="1_lti8b"]
 [ext_resource type="Script" uid="uid://cr0642cm4bubl" path="res://start.gd" id="1_ouk20"]
-[ext_resource type="Script" path="res://hex_world.gd" id="2_hexw"]
-[ext_resource type="Script" path="res://atmosphere.gd" id="3_hrzn"]
+[ext_resource type="Script" uid="uid://cbiyiweda5hwv" path="res://hex_world.gd" id="2_hexw"]
+[ext_resource type="Script" uid="uid://bop8mb3hdho0o" path="res://atmosphere.gd" id="3_hrzn"]
 [ext_resource type="PackedScene" path="res://car.tscn" id="4_carro"]
-[ext_resource type="Script" path="res://energy_track.gd" id="5_pista"]
+[ext_resource type="Script" uid="uid://y01hu1dvwr6i" path="res://energy_track.gd" id="5_pista"]
+[ext_resource type="Script" uid="uid://3n1syf36qap2" path="res://inimigos.gd" id="6_inimigos"]
+[ext_resource type="Script" uid="uid://20wgthdtrxj2" path="res://musica.gd" id="7_musica"]
+[ext_resource type="Script" uid="uid://c5ggon447ubws" path="res://portais.gd" id="8_portais"]
+[ext_resource type="Script" uid="uid://c5cbknsfcrgjt" path="res://mundos.gd" id="9_mundos"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -21,17 +25,16 @@ glow_hdr_threshold = 0.8
 fog_enabled = true
 fog_mode = 1
 fog_light_color = Color(0.0745, 0.0902, 0.2078, 1)
-fog_depth_begin = 10.0
-fog_depth_end = 42.0
+fog_density = 1.0
 fog_sky_affect = 0.0
+fog_depth_end = 42.0
 volumetric_fog_enabled = true
 volumetric_fog_density = 0.012
 volumetric_fog_albedo = Color(0.45, 0.5, 0.8, 1)
 volumetric_fog_emission = Color(0.03, 0.035, 0.1, 1)
-volumetric_fog_ambient_inject = 0.3
 volumetric_fog_anisotropy = 0.6
 volumetric_fog_length = 60.0
-volumetric_fog_sky_affect = 1.0
+volumetric_fog_ambient_inject = 0.3
 
 [sub_resource type="SphereMesh" id="SphereMesh_spawn"]
 radius = 3.0
@@ -47,19 +50,18 @@ emission_enabled = true
 emission = Color(0.1843, 0.5529, 1, 1)
 emission_energy_multiplier = 0.25
 
-[sub_resource type="SphereShape3D" id="SphereShape_esfera"]
-radius = 3.2
-
 [sub_resource type="TorusMesh" id="TorusMesh_anel"]
 inner_radius = 3.05
 outer_radius = 3.25
-rings = 64
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_anel"]
 albedo_color = Color(0.9216, 0.3608, 0.1804, 1)
 emission_enabled = true
 emission = Color(0.9216, 0.3608, 0.1804, 1)
 emission_energy_multiplier = 4.0
+
+[sub_resource type="SphereShape3D" id="SphereShape_esfera"]
+radius = 3.2
 
 [node name="Mapa" type="Node3D" unique_id=2018028173]
 script = ExtResource("1_ouk20")
@@ -82,9 +84,9 @@ surface_material_override/0 = SubResource("StandardMaterial3D_esfera")
 mesh = SubResource("TorusMesh_anel")
 surface_material_override/0 = SubResource("StandardMaterial3D_anel")
 
-[node name="Colisao" type="StaticBody3D" parent="EsferaInicial"]
+[node name="Colisao" type="StaticBody3D" parent="EsferaInicial" unique_id=746872028]
 
-[node name="Forma" type="CollisionShape3D" parent="EsferaInicial/Colisao"]
+[node name="Forma" type="CollisionShape3D" parent="EsferaInicial/Colisao" unique_id=1555835373]
 shape = SubResource("SphereShape_esfera")
 
 [node name="LuzEsfera" type="OmniLight3D" parent="EsferaInicial" unique_id=273927083]
@@ -98,15 +100,36 @@ script = ExtResource("2_hexw")
 [node name="Atmosfera" type="Node3D" parent="." unique_id=1902384417]
 script = ExtResource("3_hrzn")
 
-[node name="PistaEnergia" type="Node3D" parent="."]
+[node name="PistaEnergia" type="Node3D" parent="." unique_id=1737950395]
 script = ExtResource("5_pista")
 
-[node name="Carro" parent="." node_paths=PackedStringArray("hex_world", "pista") instance=ExtResource("4_carro")]
+[node name="Carro" parent="." unique_id=345318364 node_paths=PackedStringArray("hex_world", "pista") instance=ExtResource("4_carro")]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 7)
 hex_world = NodePath("../HexWorld")
 pista = NodePath("../PistaEnergia")
 
+[node name="Inimigos" type="Node3D" parent="." unique_id=696421528 node_paths=PackedStringArray("hex_world")]
+script = ExtResource("6_inimigos")
+hex_world = NodePath("../HexWorld")
+
+[node name="Portais" type="Node3D" parent="." unique_id=1466089220 node_paths=PackedStringArray("hex_world")]
+script = ExtResource("8_portais")
+hex_world = NodePath("../HexWorld")
+
+[node name="Mundos" type="Node" parent="." unique_id=1697575004 node_paths=PackedStringArray("carro", "hex_world", "atmosfera", "portais", "inimigos", "ambiente", "sol")]
+script = ExtResource("9_mundos")
+carro = NodePath("../Carro")
+hex_world = NodePath("../HexWorld")
+atmosfera = NodePath("../Atmosfera")
+portais = NodePath("../Portais")
+inimigos = NodePath("../Inimigos")
+ambiente = NodePath("../WorldEnvironment")
+sol = NodePath("../DirectionalLight3D")
+
+[node name="Musica" type="Node" parent="." unique_id=217090610]
+script = ExtResource("7_musica")
+
 [node name="CameraDebug" type="Camera3D" parent="." unique_id=1764116811]
 transform = Transform3D(1, 0, 0, 0, 0.9553365, 0.29552022, 0, -0.29552022, 0.9553365, 0, 6.2, 0)
-far = 150.0
+far = 600.0
 script = ExtResource("1_lti8b")

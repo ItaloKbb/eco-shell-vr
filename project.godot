@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="EcoShellVR"
-run/main_scene="uid://1uuhb10qbxc4"
+run/main_scene="res://menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -37,10 +37,13 @@ enabled=PackedStringArray("res://addons/godot-xr-tools/plugin.cfg")
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+textures/vram_compression/import_etc2_astc=true
 
 [xr]
 
 openxr/enabled=true
 openxr/reference_space=0
 openxr/startup_alert=false
+openxr/extensions/hand_tracking=true
+openxr/extensions/hand_interaction_profile=true
 shaders/enabled=true

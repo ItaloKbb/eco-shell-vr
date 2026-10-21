@@ -53,7 +53,7 @@ func _testar():
 	assert(mapa.get_node("HexWorld").chunks_per_frame == chunks)
 	assert(mapa._perfil_spawn.is_empty())
 	assert(not ritual._fade_spawn.visible)
-	assert(ritual._material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED)
+	assert(ritual._material.get_shader_parameter("ruptura") == 0.0)
 	print("SPAWN_VR_OK: painel estável, perfil temporário, retrovisor suspenso e saída com fade")
 	mapa.queue_free()
 	for i in 5:

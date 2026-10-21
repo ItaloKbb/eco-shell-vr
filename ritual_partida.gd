@@ -3,7 +3,16 @@ extends Node
 enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE }
 const ARQUIVO := "user://piloto.cfg"
 const LETRAS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
-const RESOLUCAO := Vector2i(600, 240)
+const RESOLUCAO := Vector2i(800, 320)
+## Paleta do painel e da esfera: ciano do jogador, âmbar da energia no limite
+const COR_CIANO := Color(0.35, 0.8, 1.0)
+const COR_QUENTE := Color(1.0, 0.62, 0.25)
+const COR_LUZ := Color(0.3, 0.6, 1.0)
+const SEGMENTOS := 20
+## Lançamento no PC: a casca estilhaça e o carro atravessa o buraco
+const TEMPO_RUPTURA := 0.9
+const ATRASO_VOO := 0.3
+const TEMPO_VOO := 0.35
 
 var arquivo_perfil := ARQUIVO
 var estado := Estado.ESCOLHA
@@ -17,13 +26,30 @@ var _fase := 0.0
 var _tom: AudioStreamGeneratorPlayback
 var _som: AudioStreamPlayer
 var _tela: SubViewport
-var _texto: Label
 var _painel: MeshInstance3D
-var _material: StandardMaterial3D
+var _material: ShaderMaterial
 var _ruptura: Tween
+var _voo: Tween
+var _abertura: Tween
+## Controles do painel (desenhados na SubViewport)
+var _cabecalho: Label
+var _etapa: Label
+var _caixa_nick: HBoxContainer
+var _slots: Array[Label] = []
+var _estilos_slot: Array[StyleBoxFlat] = []
+var _caixa_carga: VBoxContainer
+var _legenda_carga: Label
+var _segmentos: Array[ColorRect] = []
+var _porcento: Label
+var _dicas: HBoxContainer
+var _dicas_atuais: Array = []
+var _fonte: FontVariation
+var _fonte_forte: FontVariation
 var _pronto := false
 var _reiniciando := false
 var _modo_vr := false
+## Fora da VR: o último comando veio de um gamepad (muda a edição do nick e os textos)
+var _usando_controle := false
 var _fade_spawn: Transicao
 @onready var mapa = get_parent()
 @onready var carro = mapa.get_node("Carro")
@@ -31,6 +57,7 @@ var _fade_spawn: Transicao
 
 func _ready():
 	_modo_vr = get_viewport().use_xr
+	_usando_controle = not Input.get_connected_joypads().is_empty()
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
 	carro.retorno_solicitado.connect(_nova_vida)
@@ -40,13 +67,16 @@ func _ready():
 		nick = _sanitizar(str(config.get_value("piloto", "nick", "PILOTO")))
 	if nick.is_empty():
 		nick = "PILOTO"
-	_material = esfera.get_surface_override_material(0).duplicate()
-	_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_material = ShaderMaterial.new()
+	_material.shader = preload("res://esfera_nascimento.gdshader")
 	if _modo_vr:
-		_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_material.set_shader_parameter("intensidade", 0.6)
+		_material.set_shader_parameter("cintilar", 0.0)
 		_fade_spawn = Transicao.new()
 		add_child(_fade_spawn)
 	esfera.set_surface_override_material(0, _material)
+	# Luz fria por dentro: a laranja antiga deixava o cockpit cor de barro
+	esfera.get_node("LuzEsfera").light_color = COR_LUZ
 	esfera.get_node("Colisao").collision_layer = 0
 	_montar_painel()
 	_montar_som()
@@ -78,12 +108,14 @@ func _nova_vida():
 	for grupo in ["piramides", "misseis"]:
 		for inimigo in get_tree().get_nodes_in_group(grupo):
 			inimigo.queue_free()
-	if _ruptura and _ruptura.is_valid():
-		_ruptura.kill()
+	for tween in [_ruptura, _voo]:
+		if tween and tween.is_valid():
+			tween.kill()
 	esfera.scale = Vector3.ONE
 	esfera.visible = true
-	_material.albedo_color.a = 1.0
-	_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	_material.set_shader_parameter("ruptura", 0.0)
+	_material.set_shader_parameter("carga", 0.0)
+	carro.camera.fov = carro._fov
 	estado = Estado.ESCOLHA
 	carga = 0.0
 	_resetar_carga()
@@ -107,8 +139,8 @@ func _nova_vida():
 	else:
 		_painel.reparent(carro.camera, false)
 		_painel.position = Vector3(0.0, 0.08, -1.2)
-	_painel.visible = true
 	_atualizar_texto()
+	_mostrar_painel()
 	if _modo_vr:
 		await _fade_spawn.descobrir(0.25)
 	_pronto = true
@@ -125,9 +157,25 @@ func _morreu():
 	_painel.visible = false
 
 func _input(event: InputEvent):
+	var era_controle := _usando_controle
+	if event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.5):
+		_usando_controle = true
+	elif event is InputEventKey:
+		_usando_controle = false
+	if _usando_controle != era_controle:
+		_atualizar_texto()
 	if not _pronto or estado != Estado.ESCOLHA:
 		return
-	if event is InputEventKey and event.pressed:
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_A or event.button_index == JOY_BUTTON_START:
+			_confirmar()
+			get_viewport().set_input_as_handled()
+		elif event.button_index == JOY_BUTTON_B:
+			nick = nick.left(cursor) + nick.substr(cursor + 1)
+			cursor = mini(cursor, nick.length())
+			_atualizar_texto()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 			_confirmar()
 		elif event.keycode == KEY_BACKSPACE:
@@ -163,10 +211,20 @@ func _confirmar():
 func _physics_process(delta: float):
 	if not _pronto or estado == Estado.MORTE or estado == Estado.PARTIDA:
 		return
-	if estado == Estado.ESCOLHA and get_viewport().use_xr:
-		_editar_vr(delta)
+	if estado == Estado.ESCOLHA:
+		# VR: analógico esquerdo do Quest; gamepad: analógico esquerdo ou direcional
+		var analogico := Vector2.ZERO
+		if get_viewport().use_xr:
+			analogico = carro.mao_esquerda.get_vector2("primary")
+		var pad := Vector2(carro.eixo_controle(JOY_AXIS_LEFT_X), -carro.eixo_controle(JOY_AXIS_LEFT_Y))
+		pad.x += float(carro.botao_controle(JOY_BUTTON_DPAD_RIGHT)) - float(carro.botao_controle(JOY_BUTTON_DPAD_LEFT))
+		pad.y += float(carro.botao_controle(JOY_BUTTON_DPAD_UP)) - float(carro.botao_controle(JOY_BUTTON_DPAD_DOWN))
+		if pad.length() > analogico.length():
+			analogico = pad
+		_editar_nick(delta, analogico)
 	if estado == Estado.CARGA:
 		var acel := 1.0 if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP) else 0.0
+		acel = maxf(acel, carro.eixo_controle(JOY_AXIS_TRIGGER_RIGHT))
 		if get_viewport().use_xr:
 			acel = maxf(acel, carro.mao_direita.get_float("trigger"))
 		if acel < 0.15:
@@ -177,12 +235,14 @@ func _physics_process(delta: float):
 		if carga >= 1.0:
 			_tentar_partida()
 	var pulso := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * (3.0 + carga * 14.0))
-	_material.emission_energy_multiplier = 0.25 + carga * 0.3 if _modo_vr else 0.25 + carga * (2.0 + pulso)
-	esfera.get_node("LuzEsfera").light_energy = 0.0 if _modo_vr else 2.0 + carga * (6.0 + pulso * 2.0)
+	_material.set_shader_parameter("carga", carga)
+	var luz: OmniLight3D = esfera.get_node("LuzEsfera")
+	luz.light_color = COR_LUZ.lerp(COR_QUENTE, smoothstep(0.4, 1.0, carga))
+	luz.light_energy = 0.0 if _modo_vr else 0.6 + carga * (1.8 + pulso * 0.6)
 	_atualizar_texto()
 
-func _editar_vr(delta: float):
-	var analogico: Vector2 = carro.mao_esquerda.get_vector2("primary")
+## Analógico/direcional: ← → move o cursor, ↑ ↓ troca a letra (com repetição ao segurar)
+func _editar_nick(delta: float, analogico: Vector2):
 	var eixo := Vector2i(int(signf(analogico.x)) if absf(analogico.x) > 0.6 else 0,
 		int(signf(analogico.y)) if absf(analogico.y) > 0.6 else 0)
 	_repeticao -= delta
@@ -212,17 +272,30 @@ func _tentar_partida():
 		altura = maxf(altura, chao.position.y)
 	estado = Estado.PARTIDA
 	_painel.visible = false
+	var destino := Transform3D(Basis.IDENTITY, Vector3(saida.x, altura + 0.15, saida.z))
 	if _modo_vr:
-		_sair_vr(Transform3D(Basis.IDENTITY, Vector3(saida.x, altura + 0.15, saida.z)))
+		_sair_vr(destino)
 		return
-	carro.liberar_partida(Transform3D(Basis.IDENTITY, Vector3(saida.x, altura + 0.15, saida.z)))
-	# A casca expande e se dissolve; o corpo de colisão permanece desativado.
-	_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_lancar(destino)
+
+## PC: a casca estilhaça a partir da saída e o carro atravessa o buraco, com um
+## puxão no campo de visão; só no fim a física assume com a velocidade de largada.
+func _lancar(destino: Transform3D):
+	# _reposicionar soma 0,3 m na altura: desconta para o começo bater com a pose atual
+	var inicio := Transform3D(carro.global_basis, carro.global_position - Vector3.UP * 0.3)
 	_ruptura = create_tween().set_parallel(true)
-	_ruptura.tween_property(esfera, "scale", Vector3.ONE * 1.8, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_ruptura.tween_property(_material, "albedo_color:a", 0.0, 0.45)
-	_ruptura.tween_property(esfera.get_node("LuzEsfera"), "light_energy", 0.0, 0.45)
-	_ruptura.chain().tween_callback(func(): esfera.visible = false)
+	_ruptura.tween_method(func(v: float): _material.set_shader_parameter("ruptura", v), 0.0, 1.0, TEMPO_RUPTURA) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_ruptura.tween_property(esfera.get_node("LuzEsfera"), "light_energy", 0.0, TEMPO_RUPTURA)
+	_ruptura.chain().tween_callback(esfera.hide)
+	var fov: float = carro.camera.fov
+	_voo = create_tween()
+	_voo.tween_interval(ATRASO_VOO)
+	_voo.tween_method(func(f: float): carro.teleportar(inicio.interpolate_with(destino, f)), 0.0, 1.0, TEMPO_VOO) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_voo.parallel().tween_property(carro.camera, "fov", fov + 22.0, TEMPO_VOO).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_voo.tween_callback(carro.liberar_partida.bind(destino))
+	_voo.tween_property(carro.camera, "fov", fov, 0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 func _sair_vr(destino: Transform3D):
 	await _fade_spawn.cobrir(Color(0.05, 0.1, 0.2), 0.15, "Saída da esfera")
@@ -236,30 +309,115 @@ func _sair_vr(destino: Transform3D):
 	carro.liberar_partida(destino)
 
 func _montar_painel():
+	_slots.clear()
+	_estilos_slot.clear()
+	_segmentos.clear()
+	_dicas_atuais = []
 	_tela = SubViewport.new()
 	_tela.size = RESOLUCAO
 	_tela.transparent_bg = true
 	_tela.disable_3d = true
 	_tela.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(_tela)
-	_texto = Label.new()
-	_texto.size = Vector2(RESOLUCAO)
-	_texto.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_texto.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var fonte := SystemFont.new()
-	fonte.font_names = PackedStringArray(["Consolas", "DejaVu Sans Mono", "monospace"])
-	_texto.add_theme_font_override("font", fonte)
-	_texto.add_theme_font_size_override("font_size", 24)
-	_texto.modulate = Color(0.3, 0.8, 1.0)
-	_tela.add_child(_texto)
+	var base := SystemFont.new()
+	base.font_names = PackedStringArray(["Consolas", "DejaVu Sans Mono", "monospace"])
+	_fonte = FontVariation.new()
+	_fonte.base_font = base
+	_fonte.spacing_glyph = 2
+	var negrito := SystemFont.new()
+	negrito.font_names = base.font_names
+	negrito.font_weight = 700
+	_fonte_forte = FontVariation.new()
+	_fonte_forte.base_font = negrito
+	_fonte_forte.spacing_glyph = 6
+
+	# Moldura: vidro escuro com borda ciano e cantos cortados
+	var moldura := PanelContainer.new()
+	moldura.size = Vector2(RESOLUCAO)
+	moldura.add_theme_stylebox_override("panel", _estilo(Color(0.02, 0.06, 0.12, 0.85), Color(COR_CIANO, 0.85), 2, 14))
+	_tela.add_child(moldura)
+	var margem := MarginContainer.new()
+	for lado in ["left", "right"]:
+		margem.add_theme_constant_override("margin_" + lado, 30)
+	for lado in ["top", "bottom"]:
+		margem.add_theme_constant_override("margin_" + lado, 20)
+	moldura.add_child(margem)
+	var coluna := VBoxContainer.new()
+	coluna.add_theme_constant_override("separation", 12)
+	margem.add_child(coluna)
+
+	# Cabeçalho: marca à esquerda, etapa à direita, filete embaixo
+	var topo := HBoxContainer.new()
+	coluna.add_child(topo)
+	_cabecalho = _rotulo("ECO SHELL", 22, COR_CIANO, _fonte_forte)
+	topo.add_child(_cabecalho)
+	var vao := Control.new()
+	vao.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	topo.add_child(vao)
+	_etapa = _rotulo("", 18, Color(COR_CIANO, 0.6))
+	topo.add_child(_etapa)
+	var filete := ColorRect.new()
+	filete.color = Color(COR_CIANO, 0.35)
+	filete.custom_minimum_size.y = 2
+	coluna.add_child(filete)
+
+	# Miolo: um dos dois blocos aparece por vez
+	var miolo := CenterContainer.new()
+	miolo.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	coluna.add_child(miolo)
+	_caixa_nick = HBoxContainer.new()
+	_caixa_nick.add_theme_constant_override("separation", 10)
+	miolo.add_child(_caixa_nick)
+	for i in 8:
+		var estilo := _estilo(Color.TRANSPARENT, Color.TRANSPARENT, 2, 6)
+		var slot := PanelContainer.new()
+		slot.custom_minimum_size = Vector2(62, 84)
+		slot.add_theme_stylebox_override("panel", estilo)
+		var letra := _rotulo("", 46, Color.WHITE, _fonte_forte)
+		letra.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		letra.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		slot.add_child(letra)
+		_caixa_nick.add_child(slot)
+		_slots.append(letra)
+		_estilos_slot.append(estilo)
+
+	_caixa_carga = VBoxContainer.new()
+	_caixa_carga.add_theme_constant_override("separation", 12)
+	miolo.add_child(_caixa_carga)
+	_legenda_carga = _rotulo("", 26, Color.WHITE, _fonte_forte)
+	_legenda_carga.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caixa_carga.add_child(_legenda_carga)
+	var linha_barra := HBoxContainer.new()
+	linha_barra.add_theme_constant_override("separation", 16)
+	_caixa_carga.add_child(linha_barra)
+	var barra := HBoxContainer.new()
+	barra.add_theme_constant_override("separation", 4)
+	linha_barra.add_child(barra)
+	for i in SEGMENTOS:
+		var segmento := ColorRect.new()
+		segmento.custom_minimum_size = Vector2(22, 40)
+		barra.add_child(segmento)
+		_segmentos.append(segmento)
+	_porcento = _rotulo("", 36, Color.WHITE, _fonte_forte)
+	_porcento.custom_minimum_size.x = 110
+	_porcento.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	linha_barra.add_child(_porcento)
+
+	# Rodapé: dicas com o botão desenhado como uma tecla
+	_dicas = HBoxContainer.new()
+	_dicas.alignment = BoxContainer.ALIGNMENT_CENTER
+	_dicas.add_theme_constant_override("separation", 26)
+	coluna.add_child(_dicas)
+
 	var material := ShaderMaterial.new()
 	material.shader = preload("res://visor_holografico.gdshader")
 	material.set_shader_parameter("tela", _tela.get_texture())
 	material.set_shader_parameter("resolucao", Vector2(RESOLUCAO))
+	material.set_shader_parameter("intensidade", 1.6)
 	material.render_priority = 127
 	_painel = MeshInstance3D.new()
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.9, 0.36)
+	quad.size = Vector2(1.0, 0.4)
 	_painel.mesh = quad
 	_painel.material_override = material
 	if _modo_vr:
@@ -268,29 +426,108 @@ func _montar_painel():
 		simples.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		simples.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		simples.albedo_texture = _tela.get_texture()
-		simples.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+		simples.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		_painel.material_override = simples
 	_painel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_painel)
 
+func _estilo(fundo: Color, borda: Color, espessura: int, canto: int) -> StyleBoxFlat:
+	var estilo := StyleBoxFlat.new()
+	estilo.bg_color = fundo
+	estilo.border_color = borda
+	estilo.set_border_width_all(espessura)
+	estilo.set_corner_radius_all(canto)
+	estilo.corner_detail = 1
+	return estilo
+
+func _rotulo(texto: String, tamanho: int, cor: Color, fonte: Font = null) -> Label:
+	var rotulo := Label.new()
+	rotulo.text = texto
+	rotulo.add_theme_font_override("font", fonte if fonte else _fonte)
+	rotulo.add_theme_font_size_override("font_size", tamanho)
+	rotulo.add_theme_color_override("font_color", cor)
+	return rotulo
+
+## Painel liga como um tubo de imagem: abre de uma linha fina até o tamanho cheio
+func _mostrar_painel():
+	if _abertura and _abertura.is_valid():
+		_abertura.kill()
+	_painel.visible = true
+	_painel.scale = Vector3(1.0, 0.04, 1.0)
+	_abertura = create_tween()
+	_abertura.tween_property(_painel, "scale", Vector3.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Dicas do rodapé: [[tecla, texto], ...]; só remonta quando mudam
+func _definir_dicas(dicas: Array):
+	if dicas == _dicas_atuais:
+		return
+	_dicas_atuais = dicas
+	for filho in _dicas.get_children():
+		filho.queue_free()
+	for dica in dicas:
+		var item := HBoxContainer.new()
+		item.add_theme_constant_override("separation", 8)
+		var tecla := PanelContainer.new()
+		var estilo := _estilo(Color(COR_CIANO, 0.18), Color(COR_CIANO, 0.9), 2, 5)
+		estilo.content_margin_left = 8
+		estilo.content_margin_right = 8
+		tecla.add_theme_stylebox_override("panel", estilo)
+		tecla.add_child(_rotulo(dica[0], 20, Color.WHITE, _fonte_forte))
+		item.add_child(tecla)
+		var texto := _rotulo(dica[1], 20, Color(COR_CIANO, 0.9))
+		texto.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		item.add_child(texto)
+		_dicas.add_child(item)
+
 func _atualizar_texto():
-	var texto: String
-	if estado == Estado.ESCOLHA:
-		var slots := nick.rpad(8, "_")
+	var agora := Time.get_ticks_msec() * 0.001
+	var escolha := estado == Estado.ESCOLHA
+	_caixa_nick.visible = escolha
+	_caixa_carga.visible = not escolha
+	if escolha:
+		_etapa.text = "IDENTIFICAÇÃO"
+		# Teclado: destaca onde a próxima letra entra; controle/VR: a letra em edição
+		var ativo := cursor if _modo_vr or _usando_controle else mini(nick.length(), 7)
+		# Piscar só no monitor: na VR o painel só redesenha quando algo muda
+		var brilho := 1.0 if _modo_vr else 0.75 + 0.25 * sin(agora * 6.0)
+		for i in 8:
+			var letra := nick[i] if i < nick.length() and nick[i] != " " else ""
+			_slots[i].text = letra if letra else "·"
+			_slots[i].modulate = Color.WHITE if letra else Color(COR_CIANO, 0.45)
+			var estilo := _estilos_slot[i]
+			if i == ativo:
+				estilo.bg_color = Color(COR_CIANO, 0.2 * brilho)
+				estilo.border_color = Color(COR_CIANO, brilho)
+				estilo.set_border_width_all(3)
+			else:
+				estilo.bg_color = Color(COR_CIANO, 0.06)
+				estilo.border_color = Color(COR_CIANO, 0.3)
+				estilo.set_border_width_all(2)
 		if _modo_vr:
-			slots = slots.left(cursor) + "[" + slots[cursor] + "]" + slots.substr(cursor + 1)
-		texto = "ECO SHELL / IDENTIFIQUE-SE\n\n%s\n\n" % slots
-		texto += "← → POSIÇÃO / ↑ ↓ LETRA\nA: CONFIRMAR NICK" if _modo_vr else "DIGITE SEU NICK • ENTER PARA CONFIRMAR"
-	else:
-		var passos := int(carga * 20)
-		var porcentagem := passos * 5 if _modo_vr else int(carga * 100)
-		texto = "%s / PRONTO PARA NASCER\n\n[%s%s] %03d%%\n\n" % [nick, "|".repeat(passos), ".".repeat(20 - passos), porcentagem]
-		if _modo_vr:
-			texto += "SOLTE O GATILHO DIREITO" if not _soltou else "SEGURE O GATILHO DIREITO PARA SAIR"
+			_definir_dicas([["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"]])
+		elif _usando_controle:
+			_definir_dicas([["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["B", "APAGAR"], ["A", "CONFIRMAR"]])
 		else:
-			texto += "SOLTE O ACELERADOR" if not _soltou else "SEGURE O ACELERADOR PARA ROMPER"
-	if _texto.text != texto:
-		_texto.text = texto
+			_definir_dicas([["A-Z", "DIGITE SEU NICK"], ["⌫", "APAGAR"], ["ENTER", "CONFIRMAR"]])
+	else:
+		_etapa.text = "LANÇAMENTO"
+		_legenda_carga.text = "%s  ·  PRONTO PARA NASCER" % nick
+		# VR avança de 5 em 5% para redesenhar o painel menos vezes
+		var exibida := floorf(carga * SEGMENTOS) / SEGMENTOS if _modo_vr else carga
+		_porcento.text = "%d%%" % int(exibida * 100.0)
+		var cor_carga := COR_CIANO.lerp(COR_QUENTE, smoothstep(0.5, 1.0, carga))
+		_porcento.add_theme_color_override("font_color", cor_carga)
+		var pulso := 1.0 if _modo_vr else 0.8 + 0.2 * sin(agora * (6.0 + carga * 16.0))
+		for i in SEGMENTOS:
+			var preenchido := clampf(exibida * SEGMENTOS - i, 0.0, 1.0)
+			var cor := COR_CIANO.lerp(COR_QUENTE, float(i) / (SEGMENTOS - 1))
+			_segmentos[i].color = Color(COR_CIANO, 0.12).lerp(Color(cor, pulso), preenchido)
+		var tecla := "GATILHO" if _modo_vr else ("RT" if _usando_controle else "W")
+		_definir_dicas([[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]])
+	# Monitor: redesenha sempre (pisca/pulsa); VR: só quando o conteúdo muda
+	var assinatura := "%d|%s|%d|%s|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle)]
+	if not _modo_vr or assinatura != _tela.get_meta("assinatura", ""):
+		_tela.set_meta("assinatura", assinatura)
 		_tela.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 func _montar_som():

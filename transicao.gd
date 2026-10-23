@@ -7,9 +7,8 @@ extends MeshInstance3D
 ## do carregamento flutuam dentro do túnel. Ao descobrir, o núcleo explode num clarão
 ## branco e o mundo novo aparece.
 ##
-## Tudo sem teste de profundidade, então cobre a cena inteira nos dois olhos. O túnel
-## acompanha a posição da cabeça mas não a rotação (fica preso ao mundo): na VR dá para
-## olhar em volta dentro dele, e a velocidade do fluxo é menor para não enjoar.
+## Tudo sem teste de profundidade, então cobre a cena inteira nos dois olhos. No VR
+## usa apenas escurecimento e texto, sem fluxo espiral na periferia da visão.
 
 const SHADER := preload("res://vortice.gdshader")
 

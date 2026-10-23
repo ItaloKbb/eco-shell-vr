@@ -22,8 +22,8 @@ func _ready():
 	var esfera := SphereMesh.new()
 	esfera.radius = 1.0
 	esfera.height = 2.0
-	esfera.radial_segments = 64
-	esfera.rings = 32
+	esfera.radial_segments = 32
+	esfera.rings = 16
 	esfera.flip_faces = true
 	mesh = esfera
 	_material = ShaderMaterial.new()

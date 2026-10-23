@@ -177,8 +177,8 @@ func _contatos_entre_rivais():
 				continue
 			var lado := signf(dd) if dd != 0.0 else (1.0 if randf() < 0.5 else -1.0)
 			var sobra := CarroRival.LARGURA - absf(dd)
-			a.d -= lado * sobra * 0.5
-			b.d += lado * sobra * 0.5
+			a.d = clampf(a.d - lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
+			b.d = clampf(b.d + lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
 			var tras := a if ds > 0.0 else b
 			var frente := b if ds > 0.0 else a
 			var choque := maxf(tras.v - frente.v, 0.0)

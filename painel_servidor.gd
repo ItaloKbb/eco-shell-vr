@@ -126,19 +126,13 @@ func _atualizar_cabecalho():
 func _montar_dispositivos() -> Control:
 	var coluna := VBoxContainer.new()
 	coluna.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var titulo := HBoxContainer.new()
-	for c in LinhaDispositivo.COLUNAS:
-		var r := _rotulo(c[0], 13, COR_CIANO)
-		r.custom_minimum_size.x = c[1]
-		titulo.add_child(r)
-	var acoes := _rotulo("NOME DO JOGADOR / AÇÕES", 13, COR_CIANO)
-	titulo.add_child(acoes)
-	coluna.add_child(titulo)
+	coluna.add_child(_rotulo("Liberar coloca o jogador no lobby. Voltar para idle encerra a sessão; correndo e menu vêm do Quest.", 13, Color(0.7, 0.75, 0.85)))
 	var rolagem := ScrollContainer.new()
 	rolagem.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	coluna.add_child(rolagem)
 	_linhas_box = VBoxContainer.new()
 	_linhas_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_linhas_box.add_theme_constant_override("separation", 8)
 	rolagem.add_child(_linhas_box)
 	return coluna
 
@@ -308,16 +302,16 @@ static func _rotulo(texto: String, tamanho: int, cor: Color) -> Label:
 	return r
 
 
-## Uma linha da tabela de óculos: dados do peer e as ações do operador
-class LinhaDispositivo extends HBoxContainer:
-	## [título, largura]; a ordem é a dos rótulos em atualizar()
-	const COLUNAS := [["ÓCULOS", 110], ["PEER", 90], ["IP", 120], ["APARELHO", 170], ["JOGADOR", 130],
-		["ESTADO", 85], ["PING", 60], ["BATERIA", 70], ["CONECTADO", 85], ["HEARTBEAT", 85]]
+## Cartão de cada Quest: estado e telemetria acima, ações sempre visíveis abaixo.
+class LinhaDispositivo extends PanelContainer:
 
 	signal pediu_apelido(peer: int)
 
 	var peer := 0
-	var _rotulos: Array[Label] = []
+	var _titulo: Label
+	var _estado: Label
+	var _detalhes: Label
+	var _telemetria: Label
 	var _nome: LineEdit
 	var _liberar: Button
 	var _encerrar: Button
@@ -325,28 +319,55 @@ class LinhaDispositivo extends HBoxContainer:
 
 	func _init(peer_: int):
 		peer = peer_
-		for c in COLUNAS:
-			var r := Label.new()
-			r.custom_minimum_size.x = c[1]
-			r.clip_text = true
-			r.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			add_child(r)
-			_rotulos.append(r)
+		var estilo := StyleBoxFlat.new()
+		estilo.bg_color = Color(0.05, 0.09, 0.17)
+		estilo.set_corner_radius_all(5)
+		estilo.set_content_margin_all(8)
+		add_theme_stylebox_override("panel", estilo)
+		var coluna := VBoxContainer.new()
+		coluna.add_theme_constant_override("separation", 6)
+		add_child(coluna)
+		var resumo := HBoxContainer.new()
+		resumo.add_theme_constant_override("separation", 16)
+		coluna.add_child(resumo)
+		_titulo = _rotulo(16)
+		_titulo.custom_minimum_size.x = 170
+		resumo.add_child(_titulo)
+		_estado = _rotulo(14)
+		_estado.custom_minimum_size.x = 105
+		resumo.add_child(_estado)
+		_detalhes = _rotulo(13)
+		_detalhes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_detalhes.clip_text = true
+		resumo.add_child(_detalhes)
+		_telemetria = _rotulo(13)
+		resumo.add_child(_telemetria)
+		var acoes := HBoxContainer.new()
+		acoes.add_theme_constant_override("separation", 8)
+		coluna.add_child(acoes)
 		_nome = LineEdit.new()
-		_nome.placeholder_text = "nome do jogador"
-		_nome.custom_minimum_size.x = 150
+		_nome.placeholder_text = "Nome do jogador para liberar"
+		_nome.custom_minimum_size.x = 180
+		_nome.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_nome.text_submitted.connect(func(_t: String): _liberar_jogador())
-		add_child(_nome)
-		_liberar = _botao("Liberar", _liberar_jogador)
-		_encerrar = _botao("Encerrar sessão", func(): Rede.encerrar(peer))
-		_botao("Apelido", func(): pediu_apelido.emit(peer))
-		_botao("Desconectar", func(): Rede.desconectar(peer))
+		acoes.add_child(_nome)
+		_liberar = _botao(acoes, "Liberar / lobby", _liberar_jogador)
+		_encerrar = _botao(acoes, "Voltar para idle", func(): Rede.encerrar(peer))
+		_encerrar.tooltip_text = "Encerra a sessão e devolve o jogador à espera no Quest"
+		_botao(acoes, "Apelido", func(): pediu_apelido.emit(peer))
+		_botao(acoes, "Desconectar", func(): Rede.desconectar(peer))
 
-	func _botao(texto: String, acao: Callable) -> Button:
+	func _rotulo(tamanho: int) -> Label:
+		var r := Label.new()
+		r.add_theme_font_size_override("font_size", tamanho)
+		r.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		return r
+
+	func _botao(pai: Control, texto: String, acao: Callable) -> Button:
 		var b := Button.new()
 		b.text = texto
 		b.pressed.connect(acao)
-		add_child(b)
+		pai.add_child(b)
 		return b
 
 	func _liberar_jogador():
@@ -364,22 +385,19 @@ class LinhaDispositivo extends HBoxContainer:
 		var conectado := int(agora - float(d.conectado_em))
 		var silencio := agora - float(d.ultimo_heartbeat)
 		var ping := Rede.ping(peer)
-		var valores := [
-			d.apelido, str(peer), d.ip, d.aparelho if d.aparelho != "" else "(registrando)",
-			d.jogador if d.liberado else "—", d.estado,
+		_titulo.text = "%s  ·  #%d" % [d.apelido if d.apelido != "" else "Registrando", peer]
+		_estado.text = d.estado.to_upper()
+		_estado.add_theme_color_override("font_color", CORES_ESTADO.get(d.estado, Color.WHITE))
+		_detalhes.text = "%s  ·  %s  ·  Jogador: %s" % [d.ip, d.aparelho if d.aparelho != "" else "(registrando)", d.jogador if d.liberado else "—"]
+		_telemetria.text = "Ping %s   Bateria %s   Conectado %02d:%02d   Heartbeat %.0f s" % [
 			"%d ms" % ping if ping >= 0 else "—",
 			"%d%%" % d.bateria if int(d.bateria) >= 0 else "—",
-			"%02d:%02d" % [conectado / 60, conectado % 60],
-			"%.0f s" % silencio,
-		]
-		for i in valores.size():
-			_rotulos[i].text = str(valores[i])
-		_rotulos[5].add_theme_color_override("font_color", CORES_ESTADO.get(d.estado, Color.WHITE))
+			conectado / 60, conectado % 60, silencio]
 		var alerta := Dispositivos.sem_resposta(d)
-		_rotulos[9].add_theme_color_override("font_color", COR_ALERTA if alerta else Color.WHITE)
+		_telemetria.add_theme_color_override("font_color", COR_ALERTA if alerta else Color(0.7, 0.75, 0.85))
 		modulate = Color(1.0, 0.75, 0.75) if alerta else Color.WHITE
-		_liberar.text = "Renomear" if d.liberado else "Liberar"
-		_encerrar.disabled = not d.liberado
+		_liberar.text = "Renomear" if d.liberado else "Liberar / lobby"
+		_encerrar.disabled = not d.liberado and d.estado == "idle"
 		# Liberado: o campo mostra o nome atual, a não ser que o operador esteja editando
 		if d.liberado and not _nome.has_focus() and _nome.text != d.jogador:
 			_nome.text = d.jogador

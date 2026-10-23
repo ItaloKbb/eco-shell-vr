@@ -147,13 +147,17 @@ func liberar(peer: int, nome: String):
 ## Operador: devolve o Quest para a espera e limpa o nome
 func encerrar(peer: int):
 	var d := Dispositivos.obter(peer)
-	if d.is_empty():
+	if d.is_empty() or (not d.liberado and d.estado == "idle"):
 		return
 	var jogador: String = d.jogador
+	var estado_anterior: String = d.estado
 	Dispositivos.encerrar(peer)
 	_atualizar_avatar(peer)
 	encerrar_sessao.rpc_id(peer)
-	registrar_evento("sessao", "%s: sessão de %s encerrada" % [d.apelido, jogador])
+	if jogador.is_empty():
+		registrar_evento("sessao", "%s: %s -> idle" % [d.apelido, estado_anterior])
+	else:
+		registrar_evento("sessao", "%s: sessão de %s encerrada (%s -> idle)" % [d.apelido, jogador, estado_anterior])
 
 func renomear_oculos(peer: int, novo: String):
 	novo = novo.strip_edges()

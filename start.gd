@@ -68,11 +68,9 @@ func _configurar_render_vr():
 	# da compressão de vídeo. No APK o tile renderer do Quest lida bem com 4x.
 	viewport.msaa_3d = Viewport.MSAA_4X if OS.has_feature("android") else Viewport.MSAA_2X
 	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
-	# Foveação dinâmica: o Quest reduz detalhe só na periferia quando a GPU aperta,
-	# o que segura o FPS sem mexer no centro da visão.
-	if OS.has_feature("android") and _xr is OpenXRInterface:
-		_xr.foveation_level = 2
-		_xr.foveation_dynamic = true
+	# Sem foveação: no Quest 3 ela cria a swapchain "subamostrada", mas o glow e os
+	# SubViewports fazem o Godot desligá-la ao desenhar, e o compositor lê a imagem
+	# no formato errado (tela piscando azul e preto).
 	print("Render VR: escala %.2fx, MSAA %s" % [viewport.scaling_3d_scale, "4x" if OS.has_feature("android") else "2x"])
 
 ## Só durante o nascimento: evita renderizar tempestade e pós-processamento

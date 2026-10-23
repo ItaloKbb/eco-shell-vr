@@ -49,7 +49,8 @@ signal visao_recentralizada
 signal energia_carregada(barras: int)
 signal sem_energia
 
-const VIDA_MAX := 5
+const VIDA_MAX := 8
+const CONFORTO_VR := preload("res://conforto_vr.gd")
 
 const GRAVIDADE := 9.8
 const CENTRO_ESFERA := Vector3(0, 1.5, 0)
@@ -68,7 +69,9 @@ const FOLGA_RODA := 0.35
 ## Baixo de propósito: o carro de eficiência roda solto quando se tira o pé
 @export var arrasto := 0.6
 @export var velocidade_max := 12.0
-@export var velocidade_re := 3.0
+@export var velocidade_re := 5.0
+## Força do motor em marcha à ré como fração da aceleração para a frente.
+@export_range(0.0, 1.0) var forca_re := 0.9
 @export var direcao_max := 0.42
 ## Esterço ainda disponível na velocidade máxima; preserva curvas sem dar trancos.
 @export_range(0.1, 1.0) var direcao_em_velocidade := 0.5
@@ -254,6 +257,7 @@ var _ponto_choque := Vector3.ZERO
 var _material_choque := &"chao"
 ## Tremor da câmera depois de um choque (só no monitor: na VR enjoa; lá vibra o controle)
 var _tremor := 0.0
+var _conforto_vr
 var _ultimo_dano := -10.0
 var _fumaca: GPUParticles3D
 var _faiscas: GPUParticles3D
@@ -310,7 +314,14 @@ func _ready():
 	add_child(_faiscas_atrito)
 	# Só depois do menu escolher entre VR e monitor dá para saber qual câmera usar
 	_vestir_capacete.call_deferred()
+	_montar_conforto_vr.call_deferred()
 	_montar_camera_traseira()
+
+func _montar_conforto_vr():
+	if not get_viewport().use_xr:
+		return
+	_conforto_vr = CONFORTO_VR.new(self)
+	camera_xr.add_child(_conforto_vr)
 
 ## Câmera de ré: olha para trás, um pouco para baixo, da cauda; imagem pequena num
 ## SubViewport mostrada no painel. Ambiente sem névoa volumétrica nem glow (é barata)
@@ -456,11 +467,16 @@ func _input(event):
 	if not _ativo():
 		return
 	# A centralização precisa funcionar inclusive dentro do menu de nascimento.
-	if get_viewport().use_xr and event is InputEventJoypadButton and event.pressed \
-			and event.button_index in [JOY_BUTTON_LEFT_STICK, JOY_BUTTON_RIGHT_STICK, JOY_BUTTON_BACK]:
-		recentralizar()
-		get_viewport().set_input_as_handled()
-		return
+	if get_viewport().use_xr and event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_RIGHT_STICK:
+			if _conforto_vr:
+				_avisar("CONFORTO VR: " + _conforto_vr.ciclar(), 2.0)
+			get_viewport().set_input_as_handled()
+			return
+		if event.button_index in [JOY_BUTTON_LEFT_STICK, JOY_BUTTON_BACK]:
+			recentralizar()
+			get_viewport().set_input_as_handled()
+			return
 	if not em_ritual and not em_transicao and event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_E: _alternar_energia()
@@ -679,7 +695,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 		elif traseira and acel > 0.0 and v_long < velocidade_max:
 			f_long = aceleracao * mass * acel
 		elif traseira and acel < 0.0 and v_long > -velocidade_re:
-			f_long = aceleracao * 0.6 * mass * acel
+			f_long = aceleracao * forca_re * mass * acel
 		elif acel == 0.0:
 			f_long = -signf(v_long) * min(arrasto * parte, parar)
 		if freio_mao and traseira:

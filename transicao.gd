@@ -189,6 +189,9 @@ func _atualizar_texto():
 ## Cobre a visão na cor dada (o mundo pode ser trocado por trás enquanto isso). Com
 ## `espiral`, o túnel de energia aparece e puxa o piloto; sem, é só um escurecer rápido
 func cobrir(cor: Color, tempo := 0.5, destino := "DESTINO", espiral := true):
+	# O fluxo espiral ocupa a periferia inteira do headset durante o loading.
+	if get_viewport().use_xr:
+		espiral = false
 	_seguir_camera(true)
 	visible = true
 	_carregando = true

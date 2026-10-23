@@ -4,6 +4,10 @@ extends Resource
 ## lê daqui o quanto o piloto é rápido, ousado, defensivo, agressivo e consistente.
 ## elenco() devolve os 10 pilotos do grid, do mais rápido (pole) ao mais lento.
 
+## Ritmo dos rivais durante a corrida. Grip, frenagem e aceleração escalam ao quadrado
+## para manter a velocidade também nas curvas e ao sair delas.
+const FATOR_VELOCIDADE_CORRIDA := 1.4
+
 enum Estilo {
 	## Foco em andar rápido e limpo: ultrapassa por fora, quase nunca bate de propósito
 	CORREDOR,
@@ -83,6 +87,13 @@ static func criar(nome_: String, estilo_: Estilo, valores: Dictionary) -> Perfil
 			perfil.forca_dash = 3.5
 	for chave in valores:
 		perfil.set(chave, valores[chave])
+	perfil.velocidade_max *= FATOR_VELOCIDADE_CORRIDA
+	perfil.aceleracao *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
+	perfil.frenagem *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
+	perfil.aderencia *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
+	perfil.agilidade *= FATOR_VELOCIDADE_CORRIDA
+	perfil.forca_dash *= FATOR_VELOCIDADE_CORRIDA
+	perfil.forca_ataque *= FATOR_VELOCIDADE_CORRIDA
 	return perfil
 
 ## Os 10 do grid, na ordem de largada

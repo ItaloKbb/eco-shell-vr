@@ -180,7 +180,10 @@ func mostrar_controles(dispositivo: Dispositivo, restante: float):
 		for linha in CONTROLES[dispositivo]:
 			_grade.add_child(_cartao_controle(linha[0], linha[1]))
 		var pronto := "ENTER" if dispositivo == Dispositivo.TECLADO else "A"
-		definir_dicas(_dicas, [[pronto, "ESTOU PRONTO"]])
+		var dicas := [[pronto, "ESTOU PRONTO"]]
+		if dispositivo == Dispositivo.VR:
+			dicas.append(["CLIQUE D", "CONFORTO VR"])
+		definir_dicas(_dicas, dicas)
 	redesenhar("c|%d|%d" % [dispositivo, ceili(restante)])
 
 ## "3", "2", "1" em ciano esquentando; "VAI!" em verde

@@ -21,6 +21,8 @@ var pista: PistaCorrida
 var carro: RigidBody3D
 var rivais: Array[CarroRival] = []
 var voltas := 3
+## Obstáculos móveis da pista (Vale das Turbinas); null nas pistas sem eles
+var obstaculos: ObstaculosPista
 
 var ativo := false
 var tempo_corrida := 0.0
@@ -65,8 +67,12 @@ func _physics_process(dt: float):
 	tempo_corrida += dt
 	for rival in rivais:
 		rival.ia.atualizar(self, dt)
+		if obstaculos:
+			obstaculos.guiar(rival)
 	for rival in rivais:
 		rival.mover(dt)
+	if obstaculos:
+		obstaculos.colidir_rivais()
 	_contatos_entre_rivais()
 	_contatos_com_jogador()
 	_ver_chegadas()

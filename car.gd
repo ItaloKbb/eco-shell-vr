@@ -336,6 +336,10 @@ func _ambiente_traseira():
 
 func _process(delta):
 	_tremer(delta)
+	# Inclusive no nascimento: sem isso mãos e controles ficam visíveis na origem XR,
+	# que fica na altura dos olhos, e grudam no rosto até o rastreamento começar
+	if get_viewport().use_xr:
+		_trocar_maos()
 	if em_ritual or em_transicao:
 		tela_traseira.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		return
@@ -343,16 +347,14 @@ func _process(delta):
 	if Engine.get_process_frames() % 2 == 0:
 		tela_traseira.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if get_viewport().use_xr:
-		_trocar_maos()
-		if not em_ritual and not em_transicao:
-			_apertar_botao()
+		_apertar_botao()
 
 ## Rastreador da mão (esqueleto de juntas) de cada lado, ou null sem rastreamento de mãos
 func _rastreador_mao(i: int) -> XRHandTracker:
 	return XRServer.get_tracker("/user/hand_tracker/left" if i == 0 else "/user/hand_tracker/right") as XRHandTracker
 
 ## Mão rastreada de verdade (sem controle na mão): mostra a malha da mão do Quest;
-## senão, o modelo do controle
+## senão, o modelo do controle. Sem rastreamento nenhum, esconde os dois
 func _mao_livre(i: int) -> bool:
 	var rastreador := _rastreador_mao(i)
 	return rastreador != null and rastreador.has_tracking_data \
@@ -361,8 +363,9 @@ func _mao_livre(i: int) -> bool:
 func _trocar_maos():
 	for i in 2:
 		var livre := _mao_livre(i)
+		var mao: XRController3D = mao_esquerda if i == 0 else mao_direita
 		maos_rastreadas[i].visible = livre
-		controles[i].visible = not livre
+		controles[i].visible = not livre and mao.get_has_tracking_data()
 
 ## Ponta que aperta o botão do painel: o indicador da mão rastreada, ou a frente do controle
 func _ponta_dedo(i: int) -> Vector3:
@@ -419,6 +422,14 @@ func _ativo() -> bool:
 
 func recentralizar():
 	if get_viewport().use_xr:
+		# No APK o jogo começa a desenhar antes do Quest rastrear a cabeça: centralizar
+		# com a pose ainda vazia deixa os olhos fora da âncora (dentro da casca do ovo).
+		# Espera a pose valer, com limite para não travar sem headset.
+		var cabeca := XRServer.get_tracker(&"head") as XRPositionalTracker
+		var espera := 0
+		while cabeca and espera < 300 and not _cabeca_rastreada(cabeca):
+			espera += 1
+			await get_tree().process_frame
 		# Zera posição e rotação para que a frente física passe a coincidir com a
 		# frente do carro. No frame seguinte a nova pose do runtime já está válida.
 		XRServer.center_on_hmd(XRServer.RESET_FULL_ROTATION, false)
@@ -428,6 +439,10 @@ func recentralizar():
 		_olhar = _olhar_repouso
 		camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 		visao_recentralizada.emit()
+
+func _cabeca_rastreada(cabeca: XRPositionalTracker) -> bool:
+	var pose := cabeca.get_pose(&"default")
+	return pose != null and pose.has_tracking_data
 
 func _alinhar_origem_xr():
 	var origem := $OrigemXR as XROrigin3D
@@ -1097,7 +1112,7 @@ func _material_de(corpo: Object) -> StringName:
 	return &"chao"
 
 ## Efeitos de um choque forte além das faíscas: clarão no ponto, tremor da câmera
-## (monitor) e, nos pousos, um anel de energia no piso neon ou poeira no deserto
+## (monitor) e, nos pousos, um anel de energia no piso neon ou poeira nos mapas de corrida
 func _efeitos_choque(forca: float, ponto: Vector3, material: StringName, pouso: bool):
 	if not get_viewport().use_xr:
 		_tremor = maxf(_tremor, clampf((forca - 2.0) / 13.0, 0.0, 1.0))
@@ -1105,7 +1120,7 @@ func _efeitos_choque(forca: float, ponto: Vector3, material: StringName, pouso: 
 		var cor := Color(0.5, 0.9, 1.0) if material == &"luz" else Color(1.0, 0.7, 0.35)
 		Explosao.clarao_impacto(get_parent(), ponto, cor, clampf(forca / 10.0, 0.5, 1.6))
 	if pouso and forca >= 3.5:
-		if hex_world is Deserto:
+		if hex_world is MapaCorrida:
 			Explosao.poeira(get_parent(), ponto, clampf(forca / 8.0, 0.4, 1.5))
 		else:
 			Explosao.anel_choque(get_parent(), ponto, Color(0.3, 0.9, 1.0), clampf(forca / 5.0, 0.6, 2.2))
@@ -1256,6 +1271,8 @@ func _atualizar_painel():
 	if explodindo:
 		estado = "DESTRUÍDO"
 	var linha_dash := "DASH OK" if _recarga <= 0.0 else "DASH %.1fs" % _recarga
+	# FPS real (média do último segundo): no Quest deve ficar colado na taxa da tela
+	linha_dash += "  %3d FPS" % roundi(Engine.get_frames_per_second())
 	var direita := "ALT %.1f m\n%s\n%s" % [global_position.y - _altura_terreno(global_position), estado, linha_dash]
 	var cor_direita := HUD_ALERTA if _aviso_tempo > 0.0 or explodindo or ameaca != "" else (HUD_ENERGIA if gerando else HUD_AZUL)
 	# Na câmera livre de debug o visor não faz sentido

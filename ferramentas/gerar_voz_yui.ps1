@@ -1,14 +1,15 @@
 # Gera as falas da assistente Yui (voz/yui/*.wav) a partir de voz/yui/falas.json,
-# com a voz feminina pt-BR do Windows (Microsoft Maria). O timbre "vocaloid" (mais aguda,
-# com coro leve e brilho) é aplicado no jogo, no barramento de áudio "Yui"
+# com a voz feminina pt-BR do Windows (Microsoft Maria). O timbre (levemente aguda,
+# suave, com coro discreto) é aplicado no jogo, no barramento de áudio "Yui"
 # (assistente_yui.gd), então dá para ajustar sem gerar os arquivos de novo.
 #
 # Uso (na raiz do projeto): powershell -ExecutionPolicy Bypass -File ferramentas/gerar_voz_yui.ps1
 # Depois abra o editor (ou rode godot --headless --import) para importar os .wav.
 param(
 	[string]$Voz = "Microsoft Maria Desktop",
-	# Velocidade da fala (-10 a 10): um pouco mais rápida soa mais animada
-	[int]$Velocidade = 2
+	# Velocidade da fala (-10 a 10): 0 é o ritmo natural; mais rápido que isso, somado
+	# ao tom acima no jogo, emenda as sílabas e fica difícil de entender no headset
+	[int]$Velocidade = 0
 )
 
 $ErrorActionPreference = "Stop"

@@ -6,6 +6,10 @@ extends Node3D
 ## Muro só do lado de fora das curvas (e dos dois lados no viaduto): por dentro a pista
 ## é aberta para o miolo, onde fica o portal de volta.
 ## Portões invisíveis ao longo da volta (o 0 é a linha de largada) avisam a corrida.
+##
+## Outros circuitos herdam daqui e trocam só o traçado: _centro(t) (t de 0 a 2π, uma
+## volta), _t_largada() e, se a pista tiver relevo, _chao(x, z) com o terreno embaixo
+## dela (muros, pilares e saias medem a altura a partir dele).
 
 signal portao(indice: int)
 
@@ -41,6 +45,11 @@ var inclinacoes := PackedFloat32Array()
 ## para frear antes das curvas e escolher a linha de corrida
 var curvaturas := PackedFloat32Array()
 var comprimento := 0.0
+## Texto da viga do pórtico de largada
+var letreiro := "SENAI 326 · LARGADA"
+## Quanto a saia de concreto nas bordas da pista desce abaixo de _chao (0 = sem saia).
+## Pista em aterro, acima do terreno, precisa dela para não mostrar o vão por baixo
+var saia := 0.0
 var _lampadas: Array[StandardMaterial3D] = []
 
 func _ready():
@@ -62,11 +71,24 @@ func _viaduto(t: float) -> float:
 	var u := absf(wrapf(t - PI * 0.5, -PI, PI))
 	return 1.0 - smoothstep(VIADUTO_TOPO, VIADUTO_RAMPA, u)
 
+## Parâmetro t onde fica a linha de largada (a amostra 0)
+func _t_largada() -> float:
+	return T_LARGADA
+
+## Altura do terreno embaixo da pista (local da pista): o deserto é plano
+func _chao(_x: float, _z: float) -> float:
+	return 0.0
+
+## Quanto a amostra i está acima do terreno (viaduto, aterro)
+func _elevacao(i: int) -> float:
+	return pontos[i].y - _chao(pontos[i].x, pontos[i].z)
+
 func _calcular():
 	var n := AMOSTRAS
 	var brutos := PackedVector3Array()
+	var t0 := _t_largada()
 	for i in n:
-		brutos.append(_centro(T_LARGADA + TAU * i / n))
+		brutos.append(_centro(t0 + TAU * i / n))
 	# Inclinação pela curvatura no plano (positiva = curva para a direita)
 	var crua := PackedFloat32Array()
 	crua.resize(n)
@@ -139,7 +161,21 @@ func _malha_pista():
 		_quad(fundo, [e1 + baixo, d1 + baixo, d0 + baixo, e0 + baixo], [Vector2.ZERO, Vector2.RIGHT, Vector2.ONE, Vector2.DOWN], Vector3.DOWN)
 
 		# Muros: do lado de fora da curva; dos dois lados no viaduto
-		var alto := pontos[i].y > 0.9 and pontos[j].y > 0.9
+		var alto_i := _elevacao(i) > 0.9
+		var alto_j := _elevacao(j) > 0.9
+		var alto := alto_i and alto_j
+		# Saia: fecha a borda até o terreno onde não há muro
+		if saia > 0.0:
+			for lado_sinal: float in [-1.0, 1.0]:
+				var b0 := pontos[i] + lados[i] * meia * lado_sinal
+				var b1 := pontos[j] + lados[j] * meia * lado_sinal
+				var pe0 := Vector3(b0.x, minf(_chao(b0.x, b0.z), b0.y) - saia, b0.z)
+				var pe1 := Vector3(b1.x, minf(_chao(b1.x, b1.z), b1.y) - saia, b1.z)
+				var face := [b0, b1, pe1, pe0]
+				if lado_sinal < 0.0:
+					face.reverse()
+				var fora_saia := Vector3(lados[i].x, 0.0, lados[i].z).normalized() * lado_sinal
+				_quad(fundo, face, [Vector2.ZERO, Vector2.RIGHT, Vector2.ONE, Vector2.DOWN], fora_saia)
 		for lado_sinal: float in [-1.0, 1.0]:
 			var fora_i := inclinacoes[i] * lado_sinal < -0.05
 			var fora_j := inclinacoes[j] * lado_sinal < -0.05
@@ -150,8 +186,8 @@ func _malha_pista():
 			var o0 := Vector3(lados[i].x, 0.0, lados[i].z).normalized() * lado_sinal * MURO_ESPESSURA
 			var o1 := Vector3(lados[j].x, 0.0, lados[j].z).normalized() * lado_sinal * MURO_ESPESSURA
 			var h := Vector3.UP * MURO_ALTURA
-			var chao0 := minf(b0.y - 0.6, -0.3) if pontos[i].y < 0.9 else b0.y - 0.6
-			var chao1 := minf(b1.y - 0.6, -0.3) if pontos[j].y < 0.9 else b1.y - 0.6
+			var chao0 := minf(b0.y - 0.6, _chao(b0.x, b0.z) - 0.3) if not alto_i else b0.y - 0.6
+			var chao1 := minf(b1.y - 0.6, _chao(b1.x, b1.z) - 0.3) if not alto_j else b1.y - 0.6
 			var dentro := [b0, b1, b1 + h, b0 + h]
 			var topo := [b0 + h, b1 + h, b1 + h + o1, b0 + h + o0]
 			var fora := [b0 + h + o0, b1 + h + o1, Vector3(b1.x + o1.x, chao1, b1.z + o1.z), Vector3(b0.x + o0.x, chao0, b0.z + o0.z)]
@@ -210,12 +246,15 @@ func _suportes():
 	var transformacoes: Array[Transform3D] = []
 	for i in range(0, AMOSTRAS, 9):
 		var p := pontos[i]
-		if p.y < 1.8 or Vector2(p.x, p.z).length() < 13.0:
+		if _elevacao(i) < 1.8 or _sob_viaduto(p):
 			continue
 		for lado_sinal: float in [-1.0, 1.0]:
 			var base := p + lados[i] * (LARGURA * 0.5 - 1.0) * lado_sinal
-			var altura := base.y - 0.6
-			transformacoes.append(Transform3D(Basis.from_scale(Vector3(1.0, altura, 1.0)), Vector3(base.x, altura * 0.5, base.z)))
+			var chao := _chao(base.x, base.z)
+			var altura := base.y - 0.6 - chao
+			transformacoes.append(Transform3D(Basis.from_scale(Vector3(1.0, altura, 1.0)), Vector3(base.x, chao + altura * 0.5, base.z)))
+	if transformacoes.is_empty():
+		return
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = caixa
@@ -225,6 +264,10 @@ func _suportes():
 	var no := MultiMeshInstance3D.new()
 	no.multimesh = mm
 	add_child(no)
+
+## Ponto onde não pode ter pilar porque passa outra pista por baixo (o cruzamento do infinito)
+func _sob_viaduto(p: Vector3) -> bool:
+	return Vector2(p.x, p.z).length() < 13.0
 
 ## Portões invisíveis de passagem: o 0 é a linha de largada/chegada
 func _portoes():
@@ -286,7 +329,7 @@ func _portico():
 	# Um letreiro de cada lado da viga, cada um só visível pela frente
 	for virado: bool in [false, true]:
 		var nome := Label3D.new()
-		nome.text = "SENAI 326 · LARGADA"
+		nome.text = letreiro
 		nome.font_size = 96
 		nome.pixel_size = 0.012
 		nome.outline_size = 16

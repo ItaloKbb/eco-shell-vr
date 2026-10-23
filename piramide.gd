@@ -19,8 +19,9 @@ enum { OCIOSA, PERSEGUINDO }
 ## Distância e altura que ela tenta manter do carro na perseguição
 @export var distancia_caca := 12.0
 @export var altura_caca := 3.5
-@export var intervalo_tiro := 3.5
-@export var tempo_mira := 1.1
+@export var intervalo_tiro := 5.0
+## Tempo de aviso (TRAVANDO no HUD) antes de lançar: janela para reagir
+@export var tempo_mira := 1.5
 @export var recarga_ponta := 6.0
 
 const RAIO_FORMACAO := 1.6

@@ -319,12 +319,14 @@ far = 600.0
 
 [node name="MaoEsquerda" type="XRController3D" parent="OrigemXR"]
 tracker = &"left_hand"
+pose = &"grip_pose"
 
 [node name="Controle" type="OpenXRFbRenderModel" parent="OrigemXR/MaoEsquerda"]
 render_model_type = 0
 
 [node name="MaoDireita" type="XRController3D" parent="OrigemXR"]
 tracker = &"right_hand"
+pose = &"grip_pose"
 
 [node name="Controle" type="OpenXRFbRenderModel" parent="OrigemXR/MaoDireita"]
 render_model_type = 1

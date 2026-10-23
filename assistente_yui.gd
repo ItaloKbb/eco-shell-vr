@@ -6,9 +6,10 @@ extends Node
 ## acompanha a voz) e a legenda da fala.
 ##
 ## As falas ficam em voz/yui/falas.json (legenda) e voz/yui/<id>.wav (voz gravada pela
-## ferramentas/gerar_voz_yui.ps1). O timbre estilo vocaloid, agudo, brilhante e com um
-## coro suave, vem do barramento "Yui": tom acima, graves cortados, chorus e um pouco de
-## sala. Ajustável aqui, sem gerar os .wav de novo.
+## ferramentas/gerar_voz_yui.ps1). O timbre, levemente agudo e suave com um coro
+## discreto, vem do barramento "Yui": tom um pouco acima, ronco cortado, agudos
+## amaciados, compressão leve, chorus e um fio de sala. Ajustável aqui, sem gerar os
+## .wav de novo.
 
 const PASTA := "res://voz/yui"
 const BARRAMENTO := "Yui"
@@ -16,9 +17,11 @@ const COR := Color(0.35, 0.95, 0.9)
 const FALAS_CORRIDA := ["corrida_1", "corrida_2", "corrida_3"]
 const FALAS_LUGAR := ["lugar_1", "lugar_2", "lugar_3"]
 
-## Quanto a voz sobe de tom (1 = original). Acima de ~1,35 começa a soar metálica
-@export_range(1.0, 1.6, 0.01) var tom := 1.26
-@export var volume_db := -2.0
+## Quanto a voz sobe de tom (1 = original). Cada passo acima borra as consoantes;
+## acima de ~1,2 ela já fica metálica e difícil de entender
+@export_range(1.0, 1.6, 0.01) var tom := 1.12
+## Alto o bastante para os alto-falantes do Quest vencerem motor e música
+@export var volume_db := 4.0
 ## Pausa entre duas falas seguidas e quanto o painel fica depois da última (s)
 @export var pausa := 0.45
 @export var permanencia := 2.5
@@ -38,6 +41,7 @@ var _rosto: RostoYui
 var _legenda: Label
 var _apresentou_lugar := false
 var _ultima_corrida := ""
+## Segundos até recolher o painel (-1 = aberto enquanto fala)
 var _fechar_em := -1.0
 
 func _ready():
@@ -64,15 +68,16 @@ func falar(ids: Array):
 	if not falando:
 		_proxima()
 
-## Entrada numa corrida (mundos.gd): uma fala de encorajamento, sem repetir a última.
+## Entrada numa corrida (mundos.gd): uma fala de encorajamento, sem repetir a última,
+## depois de `chegada` (a apresentação do mapa, se houver).
 ## Corta o que estiver falando: a corrida é o que importa agora
-func falar_corrida():
+func falar_corrida(chegada := ""):
 	var opcoes := FALAS_CORRIDA.filter(func(id): return id != _ultima_corrida)
 	_ultima_corrida = opcoes.pick_random()
 	_fila.clear()
 	_player.stop()
 	falando = false
-	falar([_ultima_corrida])
+	falar([chegada, _ultima_corrida] if not chegada.is_empty() else [_ultima_corrida])
 
 ## Primeira largada da sessão (saída da esfera): conta que lugar é este
 func _largou():
@@ -88,7 +93,7 @@ func _largou():
 func _proxima():
 	if _fila.is_empty():
 		falando = false
-		_fechar_em = Time.get_ticks_msec() / 1000.0 + permanencia
+		_fechar_em = permanencia
 		return
 	var id: String = _fila.pop_front()
 	falando = true
@@ -107,7 +112,7 @@ func _terminou_fala():
 	if not _player.playing:
 		_proxima()
 
-func _process(_delta: float):
+func _process(delta: float):
 	if musica and "voz_falando" in musica:
 		musica.voz_falando = falando
 	var nivel := 0.0
@@ -118,9 +123,12 @@ func _process(_delta: float):
 	_rosto.atualizar(nivel)
 	if _painel.visible:
 		_painel.redesenhar("%s|%d|%d" % [_legenda.text, _rosto.passo_boca(), int(_rosto.piscando())])
-	if _fechar_em > 0.0 and Time.get_ticks_msec() / 1000.0 >= _fechar_em:
-		_fechar_em = -1.0
-		_painel.fechar()
+	# Contado no tempo do jogo, igual aos timers das falas
+	if _fechar_em > 0.0:
+		_fechar_em -= delta
+		if _fechar_em <= 0.0:
+			_fechar_em = -1.0
+			_painel.fechar()
 
 func _carregar_textos():
 	var arquivo := FileAccess.open(PASTA.path_join("falas.json"), FileAccess.READ)
@@ -131,8 +139,9 @@ func _carregar_textos():
 	if dados is Dictionary:
 		_textos = dados
 
-## Barramento da voz: graves cortados e presença realçada, tom acima, coro suave
-## (o "dobrado" sintético dos vocaloids), um pouco de sala e o analisador da boca
+## Barramento da voz: só o ronco cortado, tom um pouco acima, agudos amaciados
+## (sem chiado no "s"), compressão leve para as sílabas fracas não sumirem sob o motor,
+## um coro discreto (o "dobrado" dos vocaloids), um fio de sala e o analisador da boca
 func _montar_barramento():
 	var i := AudioServer.get_bus_index(BARRAMENTO)
 	if i < 0:
@@ -142,22 +151,32 @@ func _montar_barramento():
 		AudioServer.set_bus_send(i, "Master")
 	while AudioServer.get_bus_effect_count(i) > 0:
 		AudioServer.remove_bus_effect(i, 0)
+	# Bandas: 32, 100, 320, 1k, 3,2k e 10k Hz
 	var eq := AudioEffectEQ6.new()
 	eq.set_band_gain_db(0, -12.0)
-	eq.set_band_gain_db(1, -4.0)
-	eq.set_band_gain_db(3, 1.5)
-	eq.set_band_gain_db(4, 3.0)
-	eq.set_band_gain_db(5, 2.0)
+	eq.set_band_gain_db(1, -2.0)
+	eq.set_band_gain_db(2, 1.0)
+	eq.set_band_gain_db(3, 1.0)
+	eq.set_band_gain_db(4, 1.5)
+	eq.set_band_gain_db(5, -3.0)
 	AudioServer.add_bus_effect(i, eq)
 	var altura := AudioEffectPitchShift.new()
 	altura.pitch_scale = tom
 	altura.oversampling = 8
-	altura.fft_size = AudioEffectPitchShift.FFT_SIZE_1024
+	# Janela curta: preserva o ataque das consoantes, que é o que dá inteligibilidade
+	altura.fft_size = AudioEffectPitchShift.FFT_SIZE_512
 	AudioServer.add_bus_effect(i, altura)
+	var compressor := AudioEffectCompressor.new()
+	compressor.threshold = -18.0
+	compressor.ratio = 3.0
+	compressor.attack_us = 5000.0
+	compressor.release_ms = 120.0
+	compressor.gain = 3.0
+	AudioServer.add_bus_effect(i, compressor)
 	var coro := AudioEffectChorus.new()
 	coro.voice_count = 2
 	coro.dry = 1.0
-	coro.wet = 0.28
+	coro.wet = 0.1
 	coro.set_voice_delay_ms(0, 12.0)
 	coro.set_voice_rate_hz(0, 0.8)
 	coro.set_voice_depth_ms(0, 1.5)
@@ -168,7 +187,7 @@ func _montar_barramento():
 	var sala := AudioEffectReverb.new()
 	sala.room_size = 0.25
 	sala.damping = 0.6
-	sala.wet = 0.1
+	sala.wet = 0.05
 	sala.dry = 1.0
 	AudioServer.add_bus_effect(i, sala)
 	AudioServer.add_bus_effect(i, AudioEffectSpectrumAnalyzer.new())

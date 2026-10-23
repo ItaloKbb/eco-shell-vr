@@ -7,9 +7,9 @@ extends Node3D
 
 const VELOCIDADE := 20.0
 ## Quanto o míssil consegue virar por segundo (rad/s)
-const CURVA := 1.6
-const COMBUSTIVEL := 6.0
-const RAIO_ACERTO := 1.3
+const CURVA := 1.1
+const COMBUSTIVEL := 4.5
+const RAIO_ACERTO := 0.9
 
 var alvo: RigidBody3D
 var velocidade := Vector3.ZERO
@@ -69,7 +69,8 @@ func _physics_process(delta: float):
 	_som.pitch_scale = 1.0 + 0.45 * perigo
 	_som.volume_db = lerpf(-4.0, 2.0, perigo)
 	var v_alvo: Vector3 = alvo.velocidade_mundo()
-	var mira := alvo_pos + v_alvo * falta * 0.5
+	# Antecipa só um pouco: mudar de direção já tira o carro da trajetória
+	var mira := alvo_pos + v_alvo * falta * 0.25
 	var atual := velocidade.normalized()
 	var desejo := (mira - global_position).normalized()
 	var angulo := atual.angle_to(desejo)

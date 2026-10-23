@@ -1,77 +1,34 @@
 class_name Deserto
-extends Node3D
+extends MapaCorrida
 ## Mapa do primeiro portal: um deserto ao meio-dia com dunas, mesas de rocha vermelha no
 ## horizonte e cactos, em volta do circuito em infinito (pista_corrida.gd). No miolo de
 ## um dos laços fica o portal de volta. Tudo gerado em código na primeira visita.
-## altura(x, z) responde a altura do chão, como o hex_world (o carro usa no visor).
 
 ## Tamanho do chão (m) e quantos quadrados por lado
 const TAMANHO := 1600.0
 const DIVISOES := 128
 
-var pista: PistaCorrida
-var corrida: Corrida
-var portal_volta: Portal
-var rivais: Array[CarroRival] = []
-var trafego: TrafegoCorrida
-## Vagas do grid: os adversários nas primeiras, o jogador na última
-const ADVERSARIOS := 10
-var ambiente := Environment.new()
-var construcao_progressiva := false
-signal etapa_carregamento(texto: String)
-
 var _ruido := FastNoiseLite.new()
 var _ruido_fino := FastNoiseLite.new()
 
-func _ready():
+func _init():
+	nome = "Deserto"
 	_ruido.seed = 326
 	_ruido.frequency = 0.004
 	_ruido_fino.seed = 81
 	_ruido_fino.frequency = 0.02
-	_montar_ambiente()
-	if construcao_progressiva:
-		return
-	_terreno()
-	_mesas()
-	_cactos()
-	_montar_circuito()
 
-## Distribui a primeira construção entre frames, mantendo o loading visível.
-func construir():
-	var etapas := ["Gerando terreno", "Montando horizonte", "Distribuindo vegetação", "Preparando circuito"]
-	var tarefas: Array[Callable] = [_terreno, _mesas, _cactos, _montar_circuito]
-	for i in tarefas.size():
-		etapa_carregamento.emit(etapas[i])
-		await get_tree().process_frame
-		tarefas[i].call()
-	await get_tree().physics_frame
+func _etapas() -> Array:
+	return [
+		["Gerando terreno", _terreno],
+		["Montando horizonte", _mesas],
+		["Distribuindo vegetação", _cactos],
+		["Preparando circuito", _montar_circuito],
+	]
 
-func _montar_circuito():
-	pista = PistaCorrida.new()
-	add_child(pista)
-	# Adversários nas primeiras vagas do grid, cada um com sua personalidade
-	CarroRival.preparar(self)
-	var elenco := PerfilPiloto.elenco()
-	for i in ADVERSARIOS:
-		var rival := CarroRival.new(i + 1, elenco[i % elenco.size()])
-		rival.pista = pista
-		add_child(rival)
-		rivais.append(rival)
-	trafego = TrafegoCorrida.new()
-	trafego.pista = pista
-	trafego.rivais = rivais
-	add_child(trafego)
-	trafego.preparar()
-	corrida = Corrida.new()
-	corrida.pista = pista
-	corrida.rivais = rivais
-	corrida.trafego = trafego
-	add_child(corrida)
-	# Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
-	portal_volta = Portal.new()
-	portal_volta.cor = Color(0.1, 0.85, 1.0)
-	portal_volta.position = Vector3(PistaCorrida.A * 0.6, 0.0, 0.0)
-	add_child(portal_volta)
+## Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
+func _posicao_portal_volta() -> Vector3:
+	return Vector3(PistaCorrida.A * 0.6, 0.0, 0.0)
 
 ## Altura do chão no ponto do mundo: plano em volta da pista, dunas mais longe
 func altura(x: float, z: float) -> float:
@@ -220,9 +177,3 @@ func _cactos():
 	no.multimesh = mm
 	add_child(no)
 
-## Vaga do grid no mundo, com folga de altura para o carro assentar nas rodas
-## (por padrão a última, a do jogador)
-func largada(posicao := ADVERSARIOS) -> Transform3D:
-	var vaga := pista.grid(posicao)
-	vaga.origin += vaga.basis.y * 0.3
-	return global_transform * vaga

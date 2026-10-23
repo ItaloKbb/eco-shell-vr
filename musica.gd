@@ -12,7 +12,7 @@ const BARRAMENTO := "Musica"
 ## Quanto a música abaixa durante o alarme de míssil, para os bipes aparecerem (dB)
 @export var abaixa_alarme := 6.0
 ## Quanto a música abaixa enquanto a assistente Yui fala (dB)
-@export var abaixa_voz := 8.0
+@export var abaixa_voz := 12.0
 ## Ligado pela Yui (assistente_yui.gd) durante as falas
 var voz_falando := false
 
@@ -98,8 +98,9 @@ func _tocar_proxima(duracao: float):
 		sai.stop()
 		_trocando = false)
 
-## Largada: a música da corrida entra do começo, cheia; a que tocava some rápido
-func tocar_corrida():
+## Largada: a música da corrida entra do começo, cheia; a que tocava some rápido.
+## `faixa`: a do mapa (vazio = faixa_corrida)
+func tocar_corrida(faixa := ""):
 	if _troca and _troca.is_valid():
 		_troca.kill()
 	em_corrida = true
@@ -107,7 +108,7 @@ func tocar_corrida():
 	var sai := _players[_atual]
 	_atual = 1 - _atual
 	var entra := _players[_atual]
-	entra.stream = load(faixa_corrida)
+	entra.stream = load(faixa if not faixa.is_empty() and ResourceLoader.exists(faixa) else faixa_corrida)
 	entra.volume_db = volume_db
 	entra.play(0.0)
 	if sai.playing:

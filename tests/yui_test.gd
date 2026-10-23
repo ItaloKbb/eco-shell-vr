@@ -15,12 +15,13 @@ func _testar():
 	current_scene = mapa
 	var yui: AssistenteYui = get_first_node_in_group("yui")
 	assert(yui != null, "A Yui nasce junto com o mapa")
-	assert(yui._textos.size() == 7, "Sete falas com legenda")
+	assert(yui._textos.size() == 8, "Oito falas com legenda")
 	for id in yui._textos:
 		assert(ResourceLoader.exists(AssistenteYui.PASTA.path_join(id + ".wav")), "Falta a voz de " + id)
 	var bus := AudioServer.get_bus_index(AssistenteYui.BARRAMENTO)
-	assert(bus >= 0 and AudioServer.get_bus_effect_count(bus) == 5)
+	assert(bus >= 0 and AudioServer.get_bus_effect_count(bus) == 6)
 	assert(AudioServer.get_bus_effect(bus, 1) is AudioEffectPitchShift)
+	assert(AudioServer.get_bus_effect(bus, 2) is AudioEffectCompressor)
 
 	# Apresentação: dentro da esfera, depois do atraso
 	await create_timer(yui.atraso_inicio + 0.5).timeout

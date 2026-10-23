@@ -27,7 +27,9 @@ signal portal_atravessado(portal: Portal)
 const AMBAR := 3
 ## O carmesim usa o portal avermelhado/magenta já existente.
 const CARMESIM := 1
-const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto" }
+## O verde-ácido leva ao Vale das Turbinas (a usina de energia limpa)
+const VERDE := 2
+const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto", VERDE: "Vale das Turbinas" }
 
 var _portais: Array[Portal] = []
 var _relogio := 0.0

@@ -5,7 +5,9 @@ extends Node3D
 ## Supersampling moderado: no Link, 1,10 renderiza 21% mais pixels. O antigo
 ## 1,25 custava 56% mais pixels e, somado ao MSAA 4x, saturava a GPU/encoder.
 @export_range(1.0, 1.5, 0.05) var escala_render_vr_pc := 1.10
-@export_range(1.0, 1.3, 0.05) var escala_render_vr_quest := 1.10
+## No APK fica em 1,0: qualquer outro valor desenha num buffer intermediário e
+## reamostra com filtro bilinear, o que borra a imagem e ainda custa banda da GPU.
+@export_range(1.0, 1.3, 0.05) var escala_render_vr_quest := 1.0
 
 @onready var camera_debug: Camera3D = $CameraDebug
 @onready var carro: RigidBody3D = $Carro
@@ -18,6 +20,10 @@ var _perfil_spawn := {}
 func _ready():
 	if OS.has_feature("android"):
 		_ajustar_para_quest()
+		# O APK abre direto aqui (sem o Inicializador, que deixava quadros sem XR no
+		# boot): no Quest é sempre cliente do evento
+		if Rede.modo == Rede.Modo.DESLIGADO:
+			Rede.iniciar_cliente()
 	_xr = XRServer.find_interface("OpenXR")
 	if _xr and _xr.is_initialized():
 		print("OpenXR ativo: dirigindo em VR")
@@ -28,6 +34,12 @@ func _ready():
 		$Carro/OrigemXR.current = true
 		$Carro/OrigemXR/CameraXR.make_current()
 		_xr.session_begun.connect(_sessao_iniciada)
+		# Quest: o rastreamento só vale quando o app ganha o foco; e segurar o botão
+		# Meta recentraliza o mundo do runtime, então a âncora do cockpit é refeita
+		if _xr.has_signal("session_focussed"):
+			_xr.session_focussed.connect(carro.recentralizar)
+		if _xr.has_signal("pose_recentered"):
+			_xr.pose_recentered.connect(carro.recentralizar)
 		_sincronizar_fisica(_xr.display_refresh_rate)
 	else:
 		print("Sem headset: dirigindo o carro em primeira pessoa")
@@ -42,6 +54,8 @@ func _ready():
 	yui.carro = carro
 	yui.musica = get_node_or_null("Musica")
 	add_child(yui)
+	# Ranking geral do evento no céu (vem do servidor; sem servidor fica aguardando)
+	add_child(TelaoRanking.new())
 
 ## A escala 3D atua depois que o OpenXR já escolheu a resolução recomendada do
 ## headset, portanto também funciona quando o runtime é Quest Link/SteamVR.
@@ -54,6 +68,11 @@ func _configurar_render_vr():
 	# da compressão de vídeo. No APK o tile renderer do Quest lida bem com 4x.
 	viewport.msaa_3d = Viewport.MSAA_4X if OS.has_feature("android") else Viewport.MSAA_2X
 	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	# Foveação dinâmica: o Quest reduz detalhe só na periferia quando a GPU aperta,
+	# o que segura o FPS sem mexer no centro da visão.
+	if OS.has_feature("android") and _xr is OpenXRInterface:
+		_xr.foveation_level = 2
+		_xr.foveation_dynamic = true
 	print("Render VR: escala %.2fx, MSAA %s" % [viewport.scaling_3d_scale, "4x" if OS.has_feature("android") else "2x"])
 
 ## Só durante o nascimento: evita renderizar tempestade e pós-processamento
@@ -116,9 +135,8 @@ func _sessao_iniciada():
 	_sincronizar_fisica(_xr.display_refresh_rate)
 	if not _xr.refresh_rate_changed.is_connected(_sincronizar_fisica):
 		_xr.refresh_rate_changed.connect(_sincronizar_fisica)
-	# Quest 2/3 começam em 72 Hz; pede 90 se o headset oferecer
-	if OS.has_feature("android") and 90.0 in _xr.get_available_display_refresh_rates():
-		_xr.display_refresh_rate = 90.0
+	# Fica nos 72 Hz padrão do Quest: pedir 90 sem a GPU sustentar faz o headset
+	# reprojetar quadros, e a tremedeira resultante é o que mais enjoa na VR.
 	carro.recentralizar()
 
 ## Física no mesmo ritmo da tela do headset (72/90/120 Hz): o carro anda no passo

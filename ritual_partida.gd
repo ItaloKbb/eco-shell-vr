@@ -1,6 +1,9 @@
 extends Node
 ## Uma vida começa na esfera, com identificação e lançamento, no PC e no XR.
-enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE }
+## No evento (conectado ao servidor) a esfera fica em AGUARDANDO, mostrando o apelido
+## do óculos, até o operador liberar; o nick vem do painel e pula a identificação.
+## Encerrar a sessão devolve o piloto à esfera, em espera para a próxima pessoa.
+enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE, AGUARDANDO }
 const ARQUIVO := "user://piloto.cfg"
 const LETRAS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 const RESOLUCAO := Vector2i(800, 320)
@@ -38,6 +41,8 @@ var _voo: Tween
 ## Controles do painel (desenhados na SubViewport)
 var _etapa: Label
 var _caixa_nick: HBoxContainer
+var _caixa_espera: VBoxContainer
+var _rotulo_oculos: Label
 var _slots: Array[Label] = []
 var _estilos_slot: Array[StyleBoxFlat] = []
 var _caixa_carga: VBoxContainer
@@ -63,6 +68,8 @@ func _ready():
 	carro.retorno_solicitado.connect(_nova_vida)
 	carro.visao_recentralizada.connect(_visao_recentralizada)
 	carro.mao_direita.button_pressed.connect(_botao_vr)
+	Rede.sessao_mudou.connect(_sessao_mudou)
+	Rede.apelido_mudou.connect(func(_apelido: String): _atualizar_texto())
 	var config := ConfigFile.new()
 	if config.load(arquivo_perfil) == OK:
 		nick = _sanitizar(str(config.get_value("piloto", "nick", "PILOTO")))
@@ -118,7 +125,9 @@ func _nova_vida():
 	_material.set_shader_parameter("ruptura", 0.0)
 	_material.set_shader_parameter("carga", 0.0)
 	carro.camera.fov = carro._fov
-	estado = Estado.ESCOLHA
+	estado = _estado_na_esfera()
+	if estado == Estado.CARGA:
+		_usar_nome_do_operador()
 	carga = 0.0
 	_resetar_carga()
 	cursor = 0
@@ -144,6 +153,39 @@ func _nova_vida():
 		await _fade_spawn.descobrir(0.25)
 	_pronto = true
 	_reiniciando = false
+	_informar_sessao()
+
+## Evento: com servidor a esfera espera o operador e o nick vem do painel; sem
+## servidor o piloto escolhe o nick como sempre
+func _estado_na_esfera() -> Estado:
+	if Rede.conectado:
+		return Estado.CARGA if Rede.liberado else Estado.AGUARDANDO
+	return Estado.ESCOLHA
+
+func _usar_nome_do_operador():
+	var limpo := _sanitizar(Rede.nome_jogador)
+	nick = limpo if not limpo.is_empty() else "PILOTO"
+	carro.nickname = nick
+
+func _informar_sessao():
+	Rede.informar_estado("lobby" if Rede.liberado else "idle")
+
+## Conectou/caiu, liberado ou sessão encerrada pelo operador
+func _sessao_mudou():
+	if Rede.liberado:
+		_usar_nome_do_operador()
+	if estado in [Estado.ESCOLHA, Estado.CARGA, Estado.AGUARDANDO]:
+		var novo := _estado_na_esfera()
+		if novo != estado:
+			estado = novo
+			carga = 0.0
+			carro.comando_acel = 0.0
+			_resetar_carga()
+		_informar_sessao()
+	elif Rede.conectado and not Rede.liberado:
+		# Fora da esfera sem liberação (sessão encerrada): volta para a espera
+		_nova_vida()
+	_atualizar_texto()
 
 func _resetar_carga():
 	_soltou = false
@@ -354,6 +396,17 @@ func _montar_painel():
 		_slots.append(letra)
 		_estilos_slot.append(estilo)
 
+	# Espera do evento: o apelido do óculos em destaque para o operador achar qual é
+	_caixa_espera = VBoxContainer.new()
+	_caixa_espera.add_theme_constant_override("separation", 10)
+	miolo.add_child(_caixa_espera)
+	_rotulo_oculos = PainelHolografico.rotulo("", 64, Color.WHITE, true, 6)
+	_rotulo_oculos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caixa_espera.add_child(_rotulo_oculos)
+	var aguarde := PainelHolografico.rotulo("AGUARDE A LIBERAÇÃO", 26, COR_CIANO, true, 6)
+	aguarde.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caixa_espera.add_child(aguarde)
+
 	_caixa_carga = VBoxContainer.new()
 	_caixa_carga.add_theme_constant_override("separation", 12)
 	miolo.add_child(_caixa_carga)
@@ -384,9 +437,15 @@ func _montar_painel():
 func _atualizar_texto():
 	var agora := Time.get_ticks_msec() * 0.001
 	var escolha := estado == Estado.ESCOLHA
+	var espera := estado == Estado.AGUARDANDO
 	_caixa_nick.visible = escolha
-	_caixa_carga.visible = not escolha
-	if escolha:
+	_caixa_espera.visible = espera
+	_caixa_carga.visible = not escolha and not espera
+	if espera:
+		_etapa.text = "EM ESPERA"
+		_rotulo_oculos.text = Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
+		_painel.definir_dicas(_dicas, [["L3/R3", "CENTRALIZAR"]] if _modo_vr else [])
+	elif escolha:
 		_etapa.text = "IDENTIFICAÇÃO"
 		# Teclado: destaca onde a próxima letra entra; controle/VR: a letra em edição
 		var ativo := cursor if _modo_vr or _usando_controle else mini(nick.length(), 7)
@@ -429,7 +488,7 @@ func _atualizar_texto():
 		if _modo_vr:
 			dicas_carga.append(["L3/R3", "CENTRALIZAR"])
 		_painel.definir_dicas(_dicas, dicas_carga)
-	_painel.redesenhar("%d|%s|%d|%s|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle)])
+	_painel.redesenhar("%d|%s|%d|%s|%d|%d|%s" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle), Rede.apelido])
 
 func _montar_som():
 	_som = AudioStreamPlayer.new()

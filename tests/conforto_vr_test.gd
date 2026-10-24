@@ -21,14 +21,15 @@ func _testar():
 	camera.add_child(conforto)
 	conforto.nivel = 1
 	await process_frame
+	conforto.set_process(false)
 	assert(conforto._intensidade < 0.01)
 	carro.velocidade = Vector3(0.0, 0.0, -12.0)
 	for i in 12:
-		await process_frame
+		conforto._process(1.0 / 60.0)
 	assert(conforto._intensidade > 0.1, "O movimento deve fechar a periferia")
 	conforto.nivel = 0
 	for i in 90:
-		await process_frame
+		conforto._process(1.0 / 60.0)
 	assert(conforto._intensidade < 0.01, "Desligado deve abrir a visão")
 	assert(conforto.material_override is ShaderMaterial)
 	print("CONFORTO_VR_OK: vinheta reage ao movimento e pode ser desligada")

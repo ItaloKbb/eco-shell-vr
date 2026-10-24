@@ -21,7 +21,7 @@ extends RigidBody3D
 ## gatilho direito acelera, gatilho esquerdo freia/ré, analógico esquerdo esterça,
 ## analógico direito (cima/baixo) inclina na energia, A liga a energia, B ou dois toques
 ## no gatilho direito fazem o dash, X é o freio de mão, Y desvira, clique no analógico
-## esquerdo recentraliza a visão. As mãos aparecem como os controles do Quest (ou a malha
+## esquerdo recentraliza a visão; clique no direito alterna o conforto VR. As mãos aparecem como os controles do Quest (ou a malha
 ## da própria mão, com rastreamento de mãos); o guidão só acompanha o esterço.
 ## O teclado continua funcionando junto.
 ##

@@ -76,6 +76,12 @@ func _testar():
 	assert(corrida.fase == Corrida.Fase.CORRENDO)
 	assert(not carro.segurado and not carro.freeze)
 	assert(corrida.volta == 1)
+	# O freio deve engatar a ré depois de parar e mover o carro para trás.
+	tecla(KEY_S, true)
+	for i in 120:
+		await physics_frame
+	tecla(KEY_S, false)
+	assert(carro.linear_velocity.dot(-carro.global_basis.z) < -1.0, "A ré não acelerou o carro")
 
 	# Saindo do grid: a primeira passagem pela linha só arma os portões
 	pista.portao.emit(0)

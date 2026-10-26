@@ -8,11 +8,14 @@ const ARQUIVO := "user://dispositivos.json"
 const ESTADOS := ["idle", "lobby", "correndo", "menu"]
 ## Sem heartbeat há mais que isso (s): a linha do painel fica em alerta
 const LIMITE_HEARTBEAT := 10.0
+## Telemetria mais velha que isso (s) não vai para o espectador nem para o painel
+const LIMITE_TELEMETRIA := 2.0
 
 signal mudou
 
 ## peer -> {peer, ip, unique_id, modelo, aparelho, versao, apelido, jogador, liberado,
-## estado, bateria, fps, conectado_em, ultimo_heartbeat}
+## estado, bateria, fps, conectado_em, ultimo_heartbeat, telemetria, telemetria_em}
+## (telemetria: car.gd telemetria(), a ~10 Hz enquanto liberado)
 var lista := {}
 ## unique_id -> apelido
 var _apelidos := {}
@@ -29,6 +32,7 @@ func adicionar(peer: int, ip: String):
 		"peer": peer, "ip": ip, "unique_id": "", "modelo": "", "aparelho": "", "versao": "",
 		"apelido": "", "jogador": "", "liberado": false, "estado": "idle",
 		"bateria": -1, "fps": 0, "conectado_em": agora, "ultimo_heartbeat": agora,
+		"telemetria": {}, "telemetria_em": 0.0,
 	}
 	mudou.emit()
 
@@ -80,6 +84,20 @@ func heartbeat(peer: int, bateria: int, fps: int):
 	d.ultimo_heartbeat = _agora()
 	mudou.emit()
 
+## Chega 10x/s: não emite `mudou` (o painel já refaz os cards a cada 0,5 s)
+func definir_telemetria(peer: int, dados: Dictionary):
+	var d := obter(peer)
+	if d.is_empty():
+		return
+	d.telemetria = dados
+	d.telemetria_em = _agora()
+
+## Telemetria recente do peer, ou vazio
+func telemetria(d: Dictionary) -> Dictionary:
+	if d.is_empty() or _agora() - float(d.telemetria_em) > LIMITE_TELEMETRIA:
+		return {}
+	return d.telemetria
+
 func definir_estado(peer: int, estado: String):
 	var d := obter(peer)
 	if d.is_empty() or estado not in ESTADOS:
@@ -102,6 +120,7 @@ func encerrar(peer: int):
 	d.jogador = ""
 	d.liberado = false
 	d.estado = "idle"
+	d.telemetria = {}
 	mudou.emit()
 
 func sem_resposta(d: Dictionary) -> bool:

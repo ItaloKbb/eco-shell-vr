@@ -94,44 +94,7 @@ func _init(n: int = 0, perfil_: PerfilPiloto = null):
 
 func _ready():
 	var pintura: Array = PINTURAS[(numero - 1) % PINTURAS.size()]
-	var casco := MeshInstance3D.new()
-	casco.mesh = _malha
-	var tinta: ShaderMaterial = _tinta_base.duplicate()
-	tinta.set_shader_parameter("cor_lataria", pintura[0])
-	tinta.set_shader_parameter("cor_filete", pintura[1])
-	casco.set_surface_override_material(0, tinta)
-	add_child(casco)
-
-	var pneu := CylinderMesh.new()
-	pneu.top_radius = RAIO_RODA
-	pneu.bottom_radius = RAIO_RODA
-	pneu.height = 0.11
-	pneu.radial_segments = 18
-	var borracha := StandardMaterial3D.new()
-	borracha.albedo_color = Color(0.06, 0.06, 0.07)
-	borracha.roughness = 0.9
-	pneu.material = borracha
-	for posicao: Vector3 in RODAS:
-		var giro := Node3D.new()
-		giro.position = posicao
-		var roda := MeshInstance3D.new()
-		roda.mesh = pneu
-		roda.rotation.z = PI * 0.5
-		giro.add_child(roda)
-		add_child(giro)
-		_giros.append(giro)
-
-	# Número na traseira, legível para quem vem atrás
-	var placa := Label3D.new()
-	placa.text = str(numero)
-	placa.font_size = 96
-	placa.pixel_size = 0.003
-	placa.outline_size = 18
-	placa.modulate = pintura[1]
-	placa.outline_modulate = Color(0.0, 0.0, 0.0, 0.85)
-	placa.double_sided = false
-	placa.position = Vector3(0.0, 0.5, 1.33)
-	add_child(placa)
+	_giros = montar_visual(self, pintura, perfil.nome, numero).giros
 
 	# Dois filetes simples deixam o dash legível sem partículas ou pós-processamento.
 	_trilhas_dash.name = "TrilhasDash"
@@ -152,18 +115,6 @@ func _ready():
 		filete.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_trilhas_dash.add_child(filete)
 	add_child(_trilhas_dash)
-	# Nome flutuando em cima, sempre virado para quem olha
-	var nome := Label3D.new()
-	nome.text = perfil.nome
-	nome.font_size = 48
-	nome.pixel_size = 0.004
-	nome.outline_size = 10
-	nome.modulate = pintura[1]
-	nome.outline_modulate = Color(0.0, 0.0, 0.0, 0.8)
-	nome.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	nome.position = Vector3(0.0, 1.35, 0.0)
-	nome.visibility_range_end = 45.0
-	add_child(nome)
 
 	var forma := CollisionShape3D.new()
 	var caixa := BoxShape3D.new()
@@ -179,6 +130,66 @@ func _ready():
 	_faiscas_muro = Explosao.faiscas_atrito()
 	_faiscas_muro.position = Vector3(0.0, 0.25, 0.3)
 	add_child(_faiscas_muro)
+
+## Visual do carro em `pai`: casco do Eco Shell com a pintura [lataria, filete], três
+## rodas, o número na traseira (0 = sem número) e o nome flutuando em cima. Também usado
+## pelo espectador (carros vindos da telemetria). Precisa de preparar() antes.
+## Devolve {giros: Array[Node3D] (rodas, para girar), nome: Label3D}
+static func montar_visual(pai: Node3D, pintura: Array, texto_nome: String, numero_: int) -> Dictionary:
+	var casco := MeshInstance3D.new()
+	casco.mesh = _malha
+	var tinta: ShaderMaterial = _tinta_base.duplicate()
+	tinta.set_shader_parameter("cor_lataria", pintura[0])
+	tinta.set_shader_parameter("cor_filete", pintura[1])
+	casco.set_surface_override_material(0, tinta)
+	pai.add_child(casco)
+
+	var pneu := CylinderMesh.new()
+	pneu.top_radius = RAIO_RODA
+	pneu.bottom_radius = RAIO_RODA
+	pneu.height = 0.11
+	pneu.radial_segments = 18
+	var borracha := StandardMaterial3D.new()
+	borracha.albedo_color = Color(0.06, 0.06, 0.07)
+	borracha.roughness = 0.9
+	pneu.material = borracha
+	var giros: Array[Node3D] = []
+	for posicao: Vector3 in RODAS:
+		var giro := Node3D.new()
+		giro.position = posicao
+		var roda := MeshInstance3D.new()
+		roda.mesh = pneu
+		roda.rotation.z = PI * 0.5
+		giro.add_child(roda)
+		pai.add_child(giro)
+		giros.append(giro)
+
+	# Número na traseira, legível para quem vem atrás
+	if numero_ > 0:
+		var placa := Label3D.new()
+		placa.text = str(numero_)
+		placa.font_size = 96
+		placa.pixel_size = 0.003
+		placa.outline_size = 18
+		placa.modulate = pintura[1]
+		placa.outline_modulate = Color(0.0, 0.0, 0.0, 0.85)
+		placa.double_sided = false
+		placa.position = Vector3(0.0, 0.5, 1.33)
+		pai.add_child(placa)
+
+	# Nome flutuando em cima, sempre virado para quem olha
+	var nome := Label3D.new()
+	nome.text = texto_nome
+	nome.font_size = 48
+	nome.pixel_size = 0.004
+	nome.outline_size = 10
+	nome.modulate = pintura[1]
+	nome.outline_modulate = Color(0.0, 0.0, 0.0, 0.8)
+	nome.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	nome.position = Vector3(0.0, 1.35, 0.0)
+	nome.visibility_range_end = 45.0
+	pai.add_child(nome)
+	return {"giros": giros, "nome": nome}
 
 ## Para na posição (s, d) da pista, sem velocidade (grid ou fim da corrida)
 func estacionar(s_: float, d_: float):

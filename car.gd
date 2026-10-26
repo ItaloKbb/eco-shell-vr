@@ -1199,6 +1199,29 @@ func teleportar(t: Transform3D, esperar_chao := false):
 		freeze = true
 		_esperando_chao = true
 
+## Estado para o espectador (Rede manda ao servidor ~10x/s): pose, velocidade, vida e,
+## na corrida, volta, posição, os adversários e o relógio dos obstáculos
+func telemetria() -> Dictionary:
+	var dados := {
+		"pos": global_position, "rot": global_basis.get_rotation_quaternion(),
+		"vel": absf(velocidade) * 3.6, "vida": vida, "vida_max": VIDA_MAX,
+		"explodindo": explodindo, "na_esfera": em_ritual, "energia": gerando, "mapa": "",
+	}
+	if hex_world is MapaCorrida and hex_world.corrida:
+		var mapa: MapaCorrida = hex_world
+		dados.mapa = mapa.nome
+		dados.volta = mapa.corrida.volta
+		dados.voltas = Corrida.VOLTAS
+		dados.posicao = mapa.corrida.posicao
+		dados.total = mapa.rivais.size() + 1
+		var rivais := []
+		for rival in mapa.rivais:
+			rivais.append([rival.numero, rival.global_position, rival.global_basis.get_rotation_quaternion()])
+		dados.rivais = rivais
+		if mapa is ValeTurbinas and mapa.obstaculos:
+			dados.relogio = mapa.obstaculos.tempo
+	return dados
+
 func atualizar_ambiente_traseira():
 	_ambiente_traseira()
 

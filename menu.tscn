@@ -10,31 +10,8 @@
 [ext_resource type="Script" uid="uid://20wgthdtrxj2" path="res://musica.gd" id="7_musica"]
 [ext_resource type="Script" uid="uid://c5ggon447ubws" path="res://portais.gd" id="8_portais"]
 [ext_resource type="Script" uid="uid://c5cbknsfcrgjt" path="res://mundos.gd" id="9_mundos"]
+[ext_resource type="Environment" path="res://ambiente_neon.tres" id="10_ambiente"]
 
-[sub_resource type="Environment" id="Environment_main"]
-background_mode = 1
-background_color = Color(0.0745, 0.0902, 0.2078, 1)
-ambient_light_source = 2
-ambient_light_color = Color(0.149, 0.271, 0.62, 1)
-ambient_light_energy = 0.35
-tonemap_mode = 3
-glow_enabled = true
-glow_intensity = 0.9
-glow_bloom = 0.12
-glow_hdr_threshold = 0.8
-fog_enabled = true
-fog_mode = 1
-fog_light_color = Color(0.0745, 0.0902, 0.2078, 1)
-fog_density = 1.0
-fog_sky_affect = 0.0
-fog_depth_end = 42.0
-volumetric_fog_enabled = true
-volumetric_fog_density = 0.012
-volumetric_fog_albedo = Color(0.45, 0.5, 0.8, 1)
-volumetric_fog_emission = Color(0.03, 0.035, 0.1, 1)
-volumetric_fog_anisotropy = 0.6
-volumetric_fog_length = 60.0
-volumetric_fog_ambient_inject = 0.3
 
 [sub_resource type="SphereMesh" id="SphereMesh_spawn"]
 radius = 3.0
@@ -67,7 +44,7 @@ radius = 3.2
 script = ExtResource("1_ouk20")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1605929947]
-environment = SubResource("Environment_main")
+environment = ExtResource("10_ambiente")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=792661135]
 transform = Transform3D(0.8253356, -0.44229966, 0.3509874, 0, 0.62161, 0.7833269, -0.5646425, -0.6465076, 0.51303685, 0, 0, 0)

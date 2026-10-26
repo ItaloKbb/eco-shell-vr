@@ -294,7 +294,8 @@ func _montar_obstaculos():
 	obstaculos.pista = pista
 	obstaculos.trafego = trafego
 	pista.add_child(obstaculos)
-	trafego.obstaculos = obstaculos
+	if trafego:
+		trafego.obstaculos = obstaculos
 	var l := pista.comprimento
 	var duplo := _reto(0.16 * l)
 	var primeiro := PenduloCarga.new()

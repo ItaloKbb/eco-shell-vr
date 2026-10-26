@@ -1,43 +1,89 @@
+class_name Inicializador
 extends Node
-## Cena inicial, sem nada visual: decide se este executável é cliente VR ou servidor.
-## 1) --servidor / --cliente forçam o modo; 2) Android (Quest) é sempre cliente;
-## 3) no PC, OpenXR inicializado (headset via Link/Air Link) = cliente, senão servidor.
+## Cena inicial, sem nada visual: decide se este executável é cliente VR, servidor ou
+## espectador (telão). 1) --servidor / --espectador / --cliente forçam o modo;
+## 2) Android (Quest) é sempre cliente; 3) no PC, OpenXR inicializado (headset via
+## Link/Air Link) = cliente, senão pergunta (escolha_modo.tscn): servidor ou espectador.
 ## O OpenXR já tentou subir no boot (xr/openxr/enabled), aqui só lê o resultado.
 ## No Android o APK nem passa por aqui (run/main_scene.android abre menu.tscn).
 
 const CENA_CLIENTE := "res://menu.tscn"
 const CENA_SERVIDOR := "res://painel_servidor.tscn"
+const CENA_ESPECTADOR := "res://espectador.tscn"
+const CENA_ESCOLHA := "res://escolha_modo.tscn"
 const FPS_SERVIDOR := 30
+const FPS_ESPECTADOR := 60
 
 func _ready():
-	var servidor := _modo_servidor()
-	if servidor:
-		_preparar_servidor()
-		Rede.iniciar_servidor()
-	else:
-		Rede.iniciar_cliente()
-	print("Modo: %s" % ("SERVIDOR" if servidor else "CLIENTE"))
-	get_tree().change_scene_to_file.call_deferred(CENA_SERVIDOR if servidor else CENA_CLIENTE)
+	var modo := _modo()
+	if modo == "perguntar":
+		_janela_pc(Vector2i(1100, 640), "Eco Shell VR")
+		OS.low_processor_usage_mode = true
+		get_tree().change_scene_to_file.call_deferred(CENA_ESCOLHA)
+		return
+	iniciar(modo)
 
-func _modo_servidor() -> bool:
+## "cliente", "servidor", "espectador" ou "perguntar"
+func _modo() -> String:
 	var args := Rede.argumentos()
-	if "--servidor" in args:
-		return true
-	if "--cliente" in args:
-		return false
+	for modo in ["servidor", "espectador", "cliente"]:
+		if "--" + modo in args:
+			return modo
 	if OS.has_feature("android"):
-		return false
+		return "cliente"
 	var xr := XRServer.find_interface("OpenXR")
-	return xr == null or not xr.is_initialized()
+	return "cliente" if xr != null and xr.is_initialized() else "perguntar"
 
-## Painel 2D: sem XR, sem câmera 3D, em janela, gastando pouco
-func _preparar_servidor():
-	get_viewport().use_xr = false
+## Liga a rede no modo escolhido e abre a cena dele (também chamado pela escolha_modo)
+static func iniciar(modo: String):
+	var cena := CENA_CLIENTE
+	match modo:
+		"servidor":
+			_janela_pc(Vector2i(1440, 900), "Eco Shell VR · Servidor do evento")
+			# Painel 2D: gastando pouco
+			OS.low_processor_usage_mode = true
+			Engine.max_fps = FPS_SERVIDOR
+			Rede.iniciar_servidor()
+			cena = CENA_SERVIDOR
+		"espectador":
+			if _reabrir_em_vulkan():
+				return
+			_janela_pc(Vector2i(1600, 900), "Eco Shell VR · Espectador")
+			# Transmissão: animação fluida para o telão/OBS
+			OS.low_processor_usage_mode = false
+			Engine.max_fps = FPS_ESPECTADOR
+			Rede.iniciar_espectador()
+			cena = CENA_ESPECTADOR
+		_:
+			Rede.iniciar_cliente()
+	print("Modo: %s" % modo.to_upper())
+	(Engine.get_main_loop() as SceneTree).change_scene_to_file.call_deferred(cena)
+
+## O projeto usa D3D12 no Windows (escolhido para o VR), mas em GPU Intel integrada o
+## D3D12 perde o dispositivo ao desenhar os mapas de corrida. O espectador não usa XR:
+## reabre o executável em Vulkan e fecha este. --rendering-driver explícito é respeitado.
+static func _reabrir_em_vulkan() -> bool:
+	if RenderingServer.get_current_rendering_driver_name() != "d3d12" or "--rendering-driver" in OS.get_cmdline_args():
+		return false
+	var args := PackedStringArray()
+	if OS.has_feature("editor"):
+		args.append_array(["--path", ProjectSettings.globalize_path("res://")])
+	args.append_array(["--rendering-driver", "vulkan", "--", "--espectador"])
+	if OS.create_process(OS.get_executable_path(), args) <= 0:
+		return false
+	print("Espectador: reabrindo em Vulkan")
+	(Engine.get_main_loop() as SceneTree).quit()
+	return true
+
+## Sem XR e em janela (servidor, espectador e a própria escolha)
+static func _janela_pc(tamanho: Vector2i, titulo: String):
+	var arvore := Engine.get_main_loop() as SceneTree
+	arvore.root.use_xr = false
 	var xr := XRServer.find_interface("OpenXR")
 	if xr and xr.is_initialized():
 		xr.uninitialize()
-	OS.low_processor_usage_mode = true
-	Engine.max_fps = FPS_SERVIDOR
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(Vector2i(1440, 900))
-	DisplayServer.window_set_title("Eco Shell VR · Servidor do evento")
+	DisplayServer.window_set_size(tamanho)
+	DisplayServer.window_set_title(titulo)
+	var tela := DisplayServer.screen_get_usable_rect()
+	DisplayServer.window_set_position(tela.position + (tela.size - tamanho) / 2)

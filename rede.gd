@@ -15,9 +15,13 @@ extends Node
 ##
 ## LobbyRede/Jogadores existe igual nos dois lados (o Spawner exige a mesma árvore);
 ## os avatares só ganham malha nos clientes (AvatarRede).
+##
+## Espectador (PC do telão): descobre e conecta como um cliente, mas se registra como
+## espectador (não vira linha de óculos). Cada Quest liberado manda a telemetria do
+## carro ~10x/s; o servidor junta tudo num quadro e repassa aos espectadores.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.0"
+const VERSAO := "1.1"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -27,14 +31,19 @@ const INTERVALO_RECONEXAO := 2.0
 ## Quanto o cliente espera o servidor tirar o avatar antes de ir para a corrida (s)
 const ESPERA_CONFIRMACAO := 2.0
 const MAX_EVENTOS := 2000
+## Cliente -> servidor (telemetria do carro) e servidor -> espectadores (quadro), em s
+const INTERVALO_TELEMETRIA := 0.1
+const INTERVALO_QUADRO := 0.1
 
-enum Modo { DESLIGADO, CLIENTE, SERVIDOR }
+enum Modo { DESLIGADO, CLIENTE, SERVIDOR, ESPECTADOR }
 
-## Cliente: conectou/caiu, foi liberado ou teve a sessão encerrada
+## Cliente/espectador: conectou/caiu, foi liberado ou teve a sessão encerrada
 signal sessao_mudou
 signal apelido_mudou(apelido: String)
 ## Servidor: uma linha nova no log de eventos
 signal evento(registro: Dictionary)
+## Espectador: chegou um quadro com os jogadores ativos (lista de telemetrias)
+signal quadro_recebido(jogadores: Array)
 
 var modo := Modo.DESLIGADO
 ## Cliente
@@ -48,6 +57,10 @@ var anuncios_enviados := 0
 var pacotes_recebidos := 0
 var inicio_servidor := 0.0
 var eventos: Array[Dictionary] = []
+## peer -> true de cada espectador conectado
+var espectadores := {}
+## Espectador: o último quadro recebido
+var quadro: Array = []
 
 var _udp := PacketPeerUDP.new()
 var _enet: ENetMultiplayerPeer
@@ -57,6 +70,8 @@ var _destinos_anuncio: PackedStringArray = []
 var _tempo_anuncio := 0.0
 var _tempo_heartbeat := 0.0
 var _tempo_reconexao := 0.0
+var _tempo_telemetria := 0.0
+var _tempo_quadro := 0.0
 var _conectando := false
 var _confirmado := ""
 var _ip_manual := ""
@@ -224,6 +239,10 @@ func _peer_conectou(peer: int):
 func _peer_saiu(peer: int):
 	if modo != Modo.SERVIDOR:
 		return
+	if espectadores.has(peer):
+		espectadores.erase(peer)
+		registrar_evento("espectador", "Espectador #%d saiu" % peer)
+		return
 	var d := Dispositivos.obter(peer)
 	_remover_avatar(peer)
 	Dispositivos.remover(peer)
@@ -256,10 +275,45 @@ func _ranking_mudou(top: Array):
 	if modo == Modo.SERVIDOR:
 		atualizar_ranking.rpc(top)
 
+## Jogadores liberados com telemetria recente, com nome e estado do servidor
+func montar_quadro() -> Array:
+	var lista := []
+	var peers := Dispositivos.lista.keys()
+	peers.sort()
+	for peer in peers:
+		var d := Dispositivos.obter(peer)
+		var dados := Dispositivos.telemetria(d)
+		if not d.liberado or dados.is_empty():
+			continue
+		var item := dados.duplicate()
+		item.peer = peer
+		item.nome = d.jogador
+		item.apelido = d.apelido
+		item.estado = d.estado
+		lista.append(item)
+	return lista
+
+func _enviar_quadros(delta: float):
+	_tempo_quadro -= delta
+	if _tempo_quadro > 0.0 or espectadores.is_empty():
+		return
+	_tempo_quadro = INTERVALO_QUADRO
+	var lista := montar_quadro()
+	for peer in espectadores:
+		quadro_espectador.rpc_id(peer, lista)
+
 # --- Cliente ------------------------------------------------------------------------
 
 func iniciar_cliente():
 	modo = Modo.CLIENTE
+	_escutar_anuncios()
+
+## Telão: acha o servidor como um cliente, mas só assiste
+func iniciar_espectador():
+	modo = Modo.ESPECTADOR
+	_escutar_anuncios()
+
+func _escutar_anuncios():
 	var erro := _udp.bind(PORTA_DESCOBERTA)
 	if erro != OK:
 		push_warning("Descoberta UDP indisponível na porta %d: %s" % [PORTA_DESCOBERTA, error_string(erro)])
@@ -285,10 +339,12 @@ func registrar_tempo(tempo: float, pista: String):
 
 func _cliente(delta: float):
 	if conectado:
-		_tempo_heartbeat -= delta
-		if _tempo_heartbeat <= 0.0:
-			_tempo_heartbeat = INTERVALO_HEARTBEAT
-			heartbeat.rpc_id(1, _bateria(), int(Engine.get_frames_per_second()))
+		if modo == Modo.CLIENTE:
+			_tempo_heartbeat -= delta
+			if _tempo_heartbeat <= 0.0:
+				_tempo_heartbeat = INTERVALO_HEARTBEAT
+				heartbeat.rpc_id(1, _bateria(), int(Engine.get_frames_per_second()))
+			_enviar_telemetria(delta)
 		return
 	if _conectando:
 		return
@@ -307,6 +363,16 @@ func _cliente(delta: float):
 			_conectar(ip, int(dados.get("porta", PORTA)))
 			return
 
+## Só com o Quest liberado (quem está em espera não aparece no telão)
+func _enviar_telemetria(delta: float):
+	_tempo_telemetria -= delta
+	if _tempo_telemetria > 0.0 or not liberado:
+		return
+	_tempo_telemetria = INTERVALO_TELEMETRIA
+	var carro := get_tree().get_first_node_in_group("carro")
+	if carro and carro.has_method("telemetria"):
+		telemetria.rpc_id(1, carro.telemetria())
+
 func _conectar(ip: String, porta: int):
 	_enet = ENetMultiplayerPeer.new()
 	if _enet.create_client(ip, porta) != OK:
@@ -322,6 +388,11 @@ func _conectou():
 	nome_jogador = ""
 	estado = "idle"
 	_tempo_heartbeat = INTERVALO_HEARTBEAT
+	if modo == Modo.ESPECTADOR:
+		registrar_espectador.rpc_id(1, VERSAO)
+		print("Conectado ao servidor do evento como espectador")
+		sessao_mudou.emit()
+		return
 	registrar_dispositivo.rpc_id(1, {
 		"unique_id": OS.get_unique_id(),
 		"modelo": OS.get_model_name(),
@@ -346,6 +417,9 @@ func _caiu():
 		avatar.queue_free()
 	print("Servidor do evento caiu: voltando a procurar")
 	sessao_mudou.emit()
+	if modo == Modo.ESPECTADOR:
+		quadro = []
+		quadro_recebido.emit(quadro)
 
 ## Godot 4 não expõe a bateria em todas as plataformas: -1 quando não dá para ler
 func _bateria() -> int:
@@ -357,7 +431,8 @@ func _process(delta: float):
 	match modo:
 		Modo.SERVIDOR:
 			_anunciar(delta)
-		Modo.CLIENTE:
+			_enviar_quadros(delta)
+		Modo.CLIENTE, Modo.ESPECTADOR:
 			_cliente(delta)
 
 # --- Mensagens (mesmo script nos dois lados) ------------------------------------------
@@ -376,6 +451,36 @@ func registrar_dispositivo(info: Dictionary):
 	definir_apelido.rpc_id(peer, novo)
 	atualizar_ranking.rpc_id(peer, Ranking.top)
 	registrar_evento("dispositivo", "%s registrado: %s" % [novo, info.get("aparelho", "?")])
+
+## O peer é um telão: sai da lista de óculos e passa a receber os quadros
+@rpc("any_peer", "call_remote", "reliable")
+func registrar_espectador(versao: String):
+	if modo != Modo.SERVIDOR:
+		return
+	pacotes_recebidos += 1
+	var peer := multiplayer.get_remote_sender_id()
+	if versao != VERSAO:
+		registrar_evento("erro", "Espectador %d recusado: versão %s" % [peer, versao])
+		_enet.disconnect_peer(peer)
+		return
+	Dispositivos.remover(peer)
+	espectadores[peer] = true
+	atualizar_ranking.rpc_id(peer, Ranking.top)
+	var p := _enet.get_peer(peer)
+	registrar_evento("espectador", "Espectador #%d conectou de %s" % [peer, p.get_remote_address() if p else "?"])
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func telemetria(dados: Dictionary):
+	if modo != Modo.SERVIDOR:
+		return
+	var peer := multiplayer.get_remote_sender_id()
+	if Dispositivos.obter(peer).get("liberado", false):
+		Dispositivos.definir_telemetria(peer, dados)
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func quadro_espectador(lista: Array):
+	quadro = lista
+	quadro_recebido.emit(lista)
 
 @rpc("any_peer", "call_remote", "reliable")
 func mudar_estado(novo: String):

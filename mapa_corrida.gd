@@ -16,6 +16,9 @@ var rivais: Array[CarroRival] = []
 var trafego: TrafegoCorrida
 var ambiente := Environment.new()
 var construcao_progressiva := false
+## Só o cenário (pista, terreno, portal): sem adversários, tráfego nem corrida. O
+## espectador usa assim e põe os carros pela telemetria dos Quests
+var so_cenario := false
 ## Nome mostrado no loading e no portal ("Deserto", "Vale das Turbinas")
 var nome := ""
 ## Música da largada (musica.gd); vazio usa a faixa padrão de corrida
@@ -56,24 +59,25 @@ func _posicao_portal_volta() -> Vector3:
 func _montar_circuito():
 	pista = _nova_pista()
 	add_child(pista)
-	# Adversários nas primeiras vagas do grid, cada um com sua personalidade
-	CarroRival.preparar(self)
-	var elenco := PerfilPiloto.elenco()
-	for i in ADVERSARIOS:
-		var rival := CarroRival.new(i + 1, elenco[i % elenco.size()])
-		rival.pista = pista
-		add_child(rival)
-		rivais.append(rival)
-	trafego = TrafegoCorrida.new()
-	trafego.pista = pista
-	trafego.rivais = rivais
-	add_child(trafego)
-	trafego.preparar()
-	corrida = Corrida.new()
-	corrida.pista = pista
-	corrida.rivais = rivais
-	corrida.trafego = trafego
-	add_child(corrida)
+	if not so_cenario:
+		# Adversários nas primeiras vagas do grid, cada um com sua personalidade
+		CarroRival.preparar(self)
+		var elenco := PerfilPiloto.elenco()
+		for i in ADVERSARIOS:
+			var rival := CarroRival.new(i + 1, elenco[i % elenco.size()])
+			rival.pista = pista
+			add_child(rival)
+			rivais.append(rival)
+		trafego = TrafegoCorrida.new()
+		trafego.pista = pista
+		trafego.rivais = rivais
+		add_child(trafego)
+		trafego.preparar()
+		corrida = Corrida.new()
+		corrida.pista = pista
+		corrida.rivais = rivais
+		corrida.trafego = trafego
+		add_child(corrida)
 	portal_volta = Portal.new()
 	portal_volta.cor = Color(0.1, 0.85, 1.0)
 	portal_volta.position = _posicao_portal_volta()

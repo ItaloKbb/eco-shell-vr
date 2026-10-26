@@ -55,6 +55,11 @@ func _testar():
 	for i in 150:
 		await physics_frame
 	assert(ritual.estado == ritual.Estado.PARTIDA, "Deve carregar e lançar")
+	# O carro atravessa a casca estilhaçada antes de a física assumir
+	for i in 60:
+		if not carro.em_ritual:
+			break
+		await physics_frame
 	assert(not carro.em_ritual and not carro.freeze)
 	assert(carro.global_position.z < -6.0)
 	acelerador.pressed = false
@@ -87,10 +92,14 @@ func _testar():
 			await physics_frame
 			ritual._tentar_partida()
 			assert(ritual.estado == ritual.Estado.PARTIDA)
+			while carro.em_ritual:
+				await physics_frame
 	ritual._confirmar()
 	ritual.carga = 1.0
 	await physics_frame
 	ritual._tentar_partida()
+	while carro.em_ritual:
+		await physics_frame
 	await mapa.get_node("Mundos").entrar_deserto(mapa.get_node("Portais")._portais[3])
 	assert(mapa.get_node("Mundos").no_deserto)
 	carro._explodir()

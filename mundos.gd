@@ -1,11 +1,18 @@
 extends Node
-## Troca de mapa pelos portais. O mapa hexagonal e o deserto ficam na mesma cena: o
-## deserto é montado longe (ORIGEM_DESERTO) na primeira visita. Atravessar o portal
-## âmbar cobre a visão, desliga o mundo hexagonal (chão, névoa, portais, pirâmides),
-## troca céu e sol, e leva o carro para a largada do circuito; o portal de volta faz o
-## caminho contrário, deixando o carro perto do portal âmbar, de costas para ele.
+## Troca de mapa pelos portais. O mundo neon e os mapas de corrida (MapaCorrida: o
+## Deserto e o Vale das Turbinas) ficam na mesma cena: cada mapa é montado longe, na
+## sua ORIGEM, na primeira visita. Atravessar um portal de corrida cobre a visão,
+## desliga o mundo neon (chão, névoa, portais, pirâmides), troca céu e sol, e leva o
+## carro para a largada do circuito; o portal de volta faz o caminho contrário,
+## deixando o carro perto do portal de onde veio, de costas para ele.
 
 const ORIGEM_DESERTO := Vector3(4000.0, 0.0, 0.0)
+const ORIGEM_TURBINAS := Vector3(-4000.0, 0.0, 0.0)
+## Destino do portal (Portal.destino_corrida) -> [classe do mapa, onde fica]
+var _destinos := {
+	"Deserto": [Deserto, ORIGEM_DESERTO],
+	"Vale das Turbinas": [ValeTurbinas, ORIGEM_TURBINAS],
+}
 
 @export var carro: RigidBody3D
 @export var hex_world: Node3D
@@ -14,9 +21,20 @@ const ORIGEM_DESERTO := Vector3(4000.0, 0.0, 0.0)
 @export var inimigos: Node3D
 @export var ambiente: WorldEnvironment
 @export var sol: DirectionalLight3D
+@export var musica: Node
 
-var deserto: Deserto
-var no_deserto := false
+## Mapas já montados, pelo destino
+var mapas := {}
+## Mapa de corrida onde o piloto está (null no mundo neon)
+var mapa_atual: MapaCorrida
+var deserto: Deserto:
+	get: return mapas.get("Deserto")
+var turbinas: ValeTurbinas:
+	get: return mapas.get("Vale das Turbinas")
+var no_deserto: bool:
+	get: return mapa_atual != null and mapa_atual == deserto
+var no_mapa_corrida: bool:
+	get: return mapa_atual != null
 
 var _trocando := false
 var _portal_ida: Portal
@@ -33,28 +51,34 @@ func _ready():
 func restaurar_inicio():
 	while _trocando:
 		await get_tree().process_frame
-	if no_deserto:
+	if mapa_atual:
 		await voltar()
 
 func _portal(portal: Portal):
-	if portal.destino_corrida == "Deserto":
-		entrar_deserto(portal)
+	if _destinos.has(portal.destino_corrida):
+		entrar_mapa(portal, portal.destino_corrida)
 	else:
 		# Os outros ainda não levam a lugar nenhum: avisa no visor
 		carro._avisar("PORTAL FECHADO", 2.0)
 		carro.sem_energia.emit()
 
 func entrar_deserto(portal: Portal):
-	if _trocando or no_deserto:
+	await entrar_mapa(portal, "Deserto")
+
+func entrar_mapa(portal: Portal, destino: String):
+	if _trocando or mapa_atual:
 		return
 	_trocando = true
 	_portal_ida = portal
+	# Evento: o servidor tira o avatar do lobby antes de o piloto sair
+	await Rede.informar_estado("correndo")
+	var titulo := "Corrida / " + destino
 	# Lado de onde o carro veio: na volta ele reaparece desse lado, de costas para o portal
 	_volta_fora = Vector3(carro.global_basis.z.x, 0.0, carro.global_basis.z.z)
 	carro.iniciar_transicao()
-	await _transicao.cobrir(portal.cor, 0.5, "Corrida / Deserto")
+	await _transicao.cobrir(portal.cor, 0.5, titulo)
 
-	# Desliga o mundo hexagonal (e tira os inimigos de cena)
+	# Desliga o mundo neon (e tira os inimigos de cena)
 	hex_world.desligar()
 	atmosfera.visible = false
 	for no in [portais, inimigos]:
@@ -64,52 +88,63 @@ func entrar_deserto(portal: Portal):
 		for no in get_tree().get_nodes_in_group(grupo):
 			no.queue_free()
 
-	if deserto == null:
-		deserto = Deserto.new()
-		deserto.construcao_progressiva = true
-		deserto.etapa_carregamento.connect(func(etapa: String): _transicao.atualizar_loading("Corrida / Deserto", etapa))
-		deserto.position = ORIGEM_DESERTO
-		add_child(deserto)
-		await deserto.construir()
-		deserto.portal_volta.alvo = carro
-		deserto.portal_volta.atravessado.connect(voltar)
-		deserto.corrida.carro = carro
-	_transicao.atualizar_loading("Corrida / Deserto", "Posicionando piloto na largada")
+	var mapa: MapaCorrida = mapas.get(destino)
+	if mapa == null:
+		mapa = _destinos[destino][0].new()
+		mapa.construcao_progressiva = true
+		mapa.etapa_carregamento.connect(func(etapa: String): _transicao.atualizar_loading(titulo, etapa))
+		mapa.position = _destinos[destino][1]
+		add_child(mapa)
+		await mapa.construir()
+		mapa.portal_volta.alvo = carro
+		mapa.portal_volta.atravessado.connect(voltar)
+		mapa.corrida.carro = carro
+		mapa.corrida.terminou.connect(func(total: float, _melhor: float): Rede.registrar_tempo(total, destino))
+		mapas[destino] = mapa
+	_transicao.atualizar_loading(titulo, "Posicionando piloto na largada")
 	await get_tree().process_frame
-	deserto.visible = true
-	deserto.process_mode = Node.PROCESS_MODE_INHERIT
-	deserto.corrida.reiniciar()
+	mapa.visible = true
+	mapa.process_mode = Node.PROCESS_MODE_INHERIT
 
 	_ambiente_hex = ambiente.environment
-	ambiente.environment = deserto.ambiente
+	ambiente.environment = mapa.ambiente
 	_sol_hex = {"transform": sol.transform, "cor": sol.light_color, "energia": sol.light_energy, "sombra": sol.shadow_enabled}
-	sol.rotation_degrees = Vector3(-55.0, -30.0, 0.0)
-	sol.light_color = Color(1.0, 0.93, 0.82)
-	sol.light_energy = 1.5
+	mapa.sol(sol)
 	sol.shadow_enabled = not OS.has_feature("android")
 
-	carro.hex_world = deserto
+	carro.hex_world = mapa
 	carro.pode_voar = false
-	carro.teleportar(deserto.largada())
+	# No grid o carro já fica assentado nas rodas: desconta a folga que teleportar põe
+	carro.teleportar(mapa.largada().translated(Vector3.DOWN * 0.3))
+	carro.segurar()
 	carro.atualizar_ambiente_traseira()
-	no_deserto = true
+	mapa_atual = mapa
 	await get_tree().physics_frame
 	await _transicao.descobrir()
 	carro.terminar_transicao()
+	mapa.corrida.iniciar()
+	var yui := get_tree().get_first_node_in_group("yui")
+	if yui:
+		yui.falar_corrida(mapa.fala_chegada)
+	if musica:
+		musica.tocar_corrida(mapa.faixa_corrida)
 	_trocando = false
 
 func voltar():
-	if _trocando or not no_deserto:
+	if _trocando or mapa_atual == null:
 		return
 	_trocando = true
+	var mapa := mapa_atual
 	carro.iniciar_transicao()
-	await _transicao.cobrir(deserto.portal_volta.cor, 0.5, "Mundo hexagonal")
-	_transicao.atualizar_loading("Mundo hexagonal", "Restaurando ambiente")
+	await _transicao.cobrir(mapa.portal_volta.cor, 0.5, "Mundo Neon")
+	_transicao.atualizar_loading("Mundo Neon", "Restaurando ambiente")
 	await get_tree().process_frame
 
-	deserto.visible = false
-	deserto.process_mode = Node.PROCESS_MODE_DISABLED
-	carro.painel_corrida = ""
+	mapa.visible = false
+	mapa.process_mode = Node.PROCESS_MODE_DISABLED
+	mapa.corrida.abortar()
+	if musica:
+		musica.voltar_playlist()
 	ambiente.environment = _ambiente_hex
 	sol.transform = _sol_hex["transform"]
 	sol.light_color = _sol_hex["cor"]
@@ -122,7 +157,7 @@ func voltar():
 		no.visible = true
 		no.process_mode = Node.PROCESS_MODE_INHERIT
 
-	# Perto do portal âmbar, fora do alcance do puxão, de costas para ele
+	# Perto do portal de ida, fora do alcance do puxão, de costas para ele
 	var centro := _portal_ida.global_position
 	var fora := _volta_fora
 	if fora.length() < 0.1:
@@ -133,14 +168,15 @@ func voltar():
 	carro.pode_voar = true
 	carro.teleportar(Transform3D(Basis.looking_at(fora.normalized(), Vector3.UP), pos), true)
 	carro.atualizar_ambiente_traseira()
-	no_deserto = false
-	_transicao.atualizar_loading("Mundo hexagonal", "Gerando terreno ao redor da saída")
-	# O mapa gera chunks ao redor da câmera já teleportada. Só revela depois
-	# de concluir essa fila, mantendo o carro suspenso durante a geração.
+	mapa_atual = null
+	_transicao.atualizar_loading("Mundo Neon", "Estabilizando o piso de energia")
+	# Aguarda um frame de física para reativar a colisão antes de revelar o mundo.
 	await get_tree().process_frame
 	while hex_world.carregando():
 		await get_tree().process_frame
 	await get_tree().physics_frame
 	await _transicao.descobrir()
 	carro.terminar_transicao()
+	if Rede.liberado:
+		Rede.informar_estado("lobby")
 	_trocando = false

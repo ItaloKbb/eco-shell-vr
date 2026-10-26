@@ -27,7 +27,9 @@ signal portal_atravessado(portal: Portal)
 const AMBAR := 3
 ## O carmesim usa o portal avermelhado/magenta já existente.
 const CARMESIM := 1
-const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto" }
+## O verde-ácido leva ao Vale das Turbinas (a usina de energia limpa)
+const VERDE := 2
+const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto", VERDE: "Vale das Turbinas" }
 
 var _portais: Array[Portal] = []
 var _relogio := 0.0
@@ -65,6 +67,10 @@ func _lugar_livre(centro: Vector3, quem: Portal) -> Vector3:
 		var d := randf_range(distancia_min, distancia_max)
 		p = centro + Vector3(cos(a), 0.0, sin(a)) * d
 		if Vector2(p.x, p.z).length() < raio_praca:
+			continue
+		# Nem no abismo nem em cima das estruturas (com folga para o retorno do deserto,
+		# que deixa o carro fora do alcance do puxão)
+		if hex_world and hex_world.has_method("area_livre") and not hex_world.area_livre(p, Portal.ALCANCE_PUXAO + 12.0):
 			continue
 		var longe := true
 		for outro in _portais:

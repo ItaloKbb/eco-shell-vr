@@ -2,6 +2,13 @@ extends Node3D
 ## Inicia em VR (Meta Quest via Quest Link, ou qualquer runtime OpenXR) se houver
 ## headset; senão usa a câmera de primeira pessoa do carro no monitor.
 
+## Supersampling moderado: no Link, 1,10 renderiza 21% mais pixels. O antigo
+## 1,25 custava 56% mais pixels e, somado ao MSAA 4x, saturava a GPU/encoder.
+@export_range(1.0, 1.5, 0.05) var escala_render_vr_pc := 1.10
+## No APK fica em 1,0: qualquer outro valor desenha num buffer intermediário e
+## reamostra com filtro bilinear, o que borra a imagem e ainda custa banda da GPU.
+@export_range(1.0, 1.3, 0.05) var escala_render_vr_quest := 1.0
+
 @onready var camera_debug: Camera3D = $CameraDebug
 @onready var carro: RigidBody3D = $Carro
 @onready var camera_carro: Camera3D = $Carro/Cabeca
@@ -13,15 +20,26 @@ var _perfil_spawn := {}
 func _ready():
 	if OS.has_feature("android"):
 		_ajustar_para_quest()
+		# O APK abre direto aqui (sem o Inicializador, que deixava quadros sem XR no
+		# boot): no Quest é sempre cliente do evento
+		if Rede.modo == Rede.Modo.DESLIGADO:
+			Rede.iniciar_cliente()
 	_xr = XRServer.find_interface("OpenXR")
 	if _xr and _xr.is_initialized():
 		print("OpenXR ativo: dirigindo em VR")
 		# O headset dita o ritmo; vsync do monitor só atrapalharia
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		get_viewport().use_xr = true
+		_configurar_render_vr()
 		$Carro/OrigemXR.current = true
 		$Carro/OrigemXR/CameraXR.make_current()
 		_xr.session_begun.connect(_sessao_iniciada)
+		# Quest: o rastreamento só vale quando o app ganha o foco; e segurar o botão
+		# Meta recentraliza o mundo do runtime, então a âncora do cockpit é refeita
+		if _xr.has_signal("session_focussed"):
+			_xr.session_focussed.connect(carro.recentralizar)
+		if _xr.has_signal("pose_recentered"):
+			_xr.pose_recentered.connect(carro.recentralizar)
 		_sincronizar_fisica(_xr.display_refresh_rate)
 	else:
 		print("Sem headset: dirigindo o carro em primeira pessoa")
@@ -31,6 +49,29 @@ func _ready():
 	# O ritual precisa conhecer o modo real antes de criar o painel.
 	ritual = preload("res://ritual_partida.gd").new()
 	add_child(ritual)
+	# Assistente Yui: apresenta o lugar no começo e encoraja nas corridas
+	var yui := AssistenteYui.new()
+	yui.carro = carro
+	yui.musica = get_node_or_null("Musica")
+	add_child(yui)
+	# Ranking geral do evento no céu (vem do servidor; sem servidor fica aguardando)
+	add_child(TelaoRanking.new())
+
+## A escala 3D atua depois que o OpenXR já escolheu a resolução recomendada do
+## headset, portanto também funciona quando o runtime é Quest Link/SteamVR.
+## MSAA limpa as bordas geométricas sem o borrão de filtros de pós-processamento.
+func _configurar_render_vr():
+	var viewport := get_viewport()
+	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	viewport.scaling_3d_scale = escala_render_vr_quest if OS.has_feature("android") else escala_render_vr_pc
+	# No PC/Link, 2x mantém as bordas limpas sem multiplicar demais a carga antes
+	# da compressão de vídeo. No APK o tile renderer do Quest lida bem com 4x.
+	viewport.msaa_3d = Viewport.MSAA_4X if OS.has_feature("android") else Viewport.MSAA_2X
+	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	# Sem foveação: no Quest 3 ela cria a swapchain "subamostrada", mas o glow e os
+	# SubViewports fazem o Godot desligá-la ao desenhar, e o compositor lê a imagem
+	# no formato errado (tela piscando azul e preto).
+	print("Render VR: escala %.2fx, MSAA %s" % [viewport.scaling_3d_scale, "4x" if OS.has_feature("android") else "2x"])
 
 ## Só durante o nascimento: evita renderizar tempestade e pós-processamento
 ## atrás da casca fechada. Restaura o perfil anterior antes de revelar a saída.
@@ -44,13 +85,33 @@ func ajustar_spawn_vr(ativo: bool):
 			env.set(propriedade, false)
 		_perfil_spawn["atmosfera"] = $Atmosfera.visible
 		_perfil_spawn["chunks"] = $HexWorld.chunks_per_frame
+		_perfil_spawn["hex_visible"] = $HexWorld.visible
+		_perfil_spawn["sombra"] = $DirectionalLight3D.shadow_enabled
+		var nos_ocultos := {}
+		for nome in ["PistaEnergia", "Inimigos", "Portais"]:
+			var no: Node3D = get_node(nome)
+			nos_ocultos[nome] = [no.visible, no.process_mode]
+			no.visible = false
+			no.process_mode = Node.PROCESS_MODE_DISABLED
+		_perfil_spawn["nos_ocultos"] = nos_ocultos
 		$Atmosfera.hide()
+		# Continua gerando colisões para a saída, mas não desenha o mundo escondido
+		# atrás da casca do nascimento.
+		$HexWorld.visible = false
 		$HexWorld.chunks_per_frame = 1
+		$DirectionalLight3D.shadow_enabled = false
 	elif not _perfil_spawn.is_empty():
 		for propriedade in ["volumetric_fog_enabled", "glow_enabled", "ssr_enabled", "ssao_enabled", "ssil_enabled", "sdfgi_enabled"]:
 			env.set(propriedade, _perfil_spawn[propriedade])
 		$Atmosfera.visible = _perfil_spawn["atmosfera"]
+		$HexWorld.visible = _perfil_spawn["hex_visible"]
 		$HexWorld.chunks_per_frame = _perfil_spawn["chunks"]
+		$DirectionalLight3D.shadow_enabled = _perfil_spawn["sombra"]
+		for nome in _perfil_spawn["nos_ocultos"]:
+			var no: Node3D = get_node(nome)
+			var estado: Array = _perfil_spawn["nos_ocultos"][nome]
+			no.visible = estado[0]
+			no.process_mode = estado[1]
 		_perfil_spawn.clear()
 
 ## Rodando direto no Quest (APK): GPU de celular desenhando duas vezes (um olho cada),
@@ -67,15 +128,13 @@ func _ajustar_para_quest():
 	$DirectionalLight3D.shadow_enabled = false
 	$Atmosfera.process_mode = Node.PROCESS_MODE_DISABLED
 	$Atmosfera.visible = false
-	get_viewport().msaa_3d = Viewport.MSAA_4X
 
 func _sessao_iniciada():
 	_sincronizar_fisica(_xr.display_refresh_rate)
 	if not _xr.refresh_rate_changed.is_connected(_sincronizar_fisica):
 		_xr.refresh_rate_changed.connect(_sincronizar_fisica)
-	# Quest 2/3 começam em 72 Hz; pede 90 se o headset oferecer
-	if OS.has_feature("android") and 90.0 in _xr.get_available_display_refresh_rates():
-		_xr.display_refresh_rate = 90.0
+	# Fica nos 72 Hz padrão do Quest: pedir 90 sem a GPU sustentar faz o headset
+	# reprojetar quadros, e a tremedeira resultante é o que mais enjoa na VR.
 	carro.recentralizar()
 
 ## Física no mesmo ritmo da tela do headset (72/90/120 Hz): o carro anda no passo

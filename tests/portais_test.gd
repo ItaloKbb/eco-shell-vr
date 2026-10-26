@@ -18,6 +18,9 @@ func _testar():
 	var mundos = mapa.get_node("Mundos")
 	for indice in portais._portais.size():
 		var portal: Portal = portais._portais[indice]
+		assert(portal.has_node("Aura") and portal.has_node("Nucleo"))
+		assert(portal.find_children("*", "GPUParticles3D", true, false).is_empty())
+		assert(portal.find_children("*", "MultiMeshInstance3D", true, false).is_empty())
 		assert(portal.has_node("MarcadorCorrida") == portais.CORRIDAS.has(indice))
 		if portais.CORRIDAS.has(indice):
 			assert(portal.get_node("MarcadorCorrida").position.y > Portal.ALTURA + Portal.RAIO)
@@ -46,7 +49,7 @@ func _testar():
 		await mundos.voltar()
 		assert(not mundos.no_deserto)
 		assert(not carro.em_transicao and not mundos._transicao.visible)
-		assert(mundos._transicao._destino == "Mundo hexagonal")
+		assert(mundos._transicao._destino == "Mundo Neon")
 		assert(not mapa.get_node("HexWorld").carregando())
 	# Um portal sem corrida permanece sem marcador e não abre o deserto.
 	var fechado: Portal = portais._portais[0]

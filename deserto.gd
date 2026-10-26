@@ -1,58 +1,34 @@
 class_name Deserto
-extends Node3D
+extends MapaCorrida
 ## Mapa do primeiro portal: um deserto ao meio-dia com dunas, mesas de rocha vermelha no
 ## horizonte e cactos, em volta do circuito em infinito (pista_corrida.gd). No miolo de
 ## um dos laços fica o portal de volta. Tudo gerado em código na primeira visita.
-## altura(x, z) responde a altura do chão, como o hex_world (o carro usa no visor).
 
 ## Tamanho do chão (m) e quantos quadrados por lado
 const TAMANHO := 1600.0
 const DIVISOES := 128
 
-var pista: PistaCorrida
-var corrida: Corrida
-var portal_volta: Portal
-var ambiente := Environment.new()
-var construcao_progressiva := false
-signal etapa_carregamento(texto: String)
-
 var _ruido := FastNoiseLite.new()
 var _ruido_fino := FastNoiseLite.new()
 
-func _ready():
+func _init():
+	nome = "Deserto"
 	_ruido.seed = 326
 	_ruido.frequency = 0.004
 	_ruido_fino.seed = 81
 	_ruido_fino.frequency = 0.02
-	_montar_ambiente()
-	if construcao_progressiva:
-		return
-	_terreno()
-	_mesas()
-	_cactos()
-	_montar_circuito()
 
-## Distribui a primeira construção entre frames, mantendo o loading visível.
-func construir():
-	var etapas := ["Gerando terreno", "Montando horizonte", "Distribuindo vegetação", "Preparando circuito"]
-	var tarefas: Array[Callable] = [_terreno, _mesas, _cactos, _montar_circuito]
-	for i in tarefas.size():
-		etapa_carregamento.emit(etapas[i])
-		await get_tree().process_frame
-		tarefas[i].call()
-	await get_tree().physics_frame
+func _etapas() -> Array:
+	return [
+		["Gerando terreno", _terreno],
+		["Montando horizonte", _mesas],
+		["Distribuindo vegetação", _cactos],
+		["Preparando circuito", _montar_circuito],
+	]
 
-func _montar_circuito():
-	pista = PistaCorrida.new()
-	add_child(pista)
-	corrida = Corrida.new()
-	corrida.pista = pista
-	add_child(corrida)
-	# Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
-	portal_volta = Portal.new()
-	portal_volta.cor = Color(0.1, 0.85, 1.0)
-	portal_volta.position = Vector3(PistaCorrida.A * 0.6, 0.0, 0.0)
-	add_child(portal_volta)
+## Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
+func _posicao_portal_volta() -> Vector3:
+	return Vector3(PistaCorrida.A * 0.6, 0.0, 0.0)
 
 ## Altura do chão no ponto do mundo: plano em volta da pista, dunas mais longe
 func altura(x: float, z: float) -> float:
@@ -201,6 +177,3 @@ func _cactos():
 	no.multimesh = mm
 	add_child(no)
 
-## Transform da largada no mundo
-func largada() -> Transform3D:
-	return global_transform * pista.largada()

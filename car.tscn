@@ -2,8 +2,6 @@
 
 [ext_resource type="Script" path="res://car.gd" id="1_carro"]
 [ext_resource type="Script" path="res://eco_shell_casco.gd" id="2_casco"]
-[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/left_hand_low.tscn" id="3_mao_e"]
-[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/right_hand_low.tscn" id="4_mao_d"]
 [ext_resource type="Script" path="res://capacete_hud.gd" id="5_capacete"]
 [ext_resource type="Script" path="res://eco_shell_adesivos.gd" id="6_adesivos"]
 [ext_resource type="Shader" path="res://roda.gdshader" id="7_roda"]
@@ -321,10 +319,32 @@ far = 600.0
 
 [node name="MaoEsquerda" type="XRController3D" parent="OrigemXR"]
 tracker = &"left_hand"
+pose = &"grip_pose"
 
-[node name="Mao" parent="OrigemXR/MaoEsquerda" instance=ExtResource("3_mao_e")]
+[node name="Controle" type="OpenXRFbRenderModel" parent="OrigemXR/MaoEsquerda"]
+render_model_type = 0
 
 [node name="MaoDireita" type="XRController3D" parent="OrigemXR"]
 tracker = &"right_hand"
+pose = &"grip_pose"
 
-[node name="Mao" parent="OrigemXR/MaoDireita" instance=ExtResource("4_mao_d")]
+[node name="Controle" type="OpenXRFbRenderModel" parent="OrigemXR/MaoDireita"]
+render_model_type = 1
+
+[node name="MaoRastreadaE" type="XRNode3D" parent="OrigemXR"]
+tracker = &"/user/hand_tracker/left"
+
+[node name="Malha" type="OpenXRFbHandTrackingMesh" parent="OrigemXR/MaoRastreadaE"]
+hand = 0
+
+[node name="Modificador" type="XRHandModifier3D" parent="OrigemXR/MaoRastreadaE/Malha"]
+hand_tracker = &"/user/hand_tracker/left"
+
+[node name="MaoRastreadaD" type="XRNode3D" parent="OrigemXR"]
+tracker = &"/user/hand_tracker/right"
+
+[node name="Malha" type="OpenXRFbHandTrackingMesh" parent="OrigemXR/MaoRastreadaD"]
+hand = 1
+
+[node name="Modificador" type="XRHandModifier3D" parent="OrigemXR/MaoRastreadaD/Malha"]
+hand_tracker = &"/user/hand_tracker/right"

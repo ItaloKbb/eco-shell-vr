@@ -1,8 +1,8 @@
 class_name CapaceteHUD
 extends Node3D
 ## Visor do capacete: status do carro em texto holográfico azul, preso à cabeça.
-## Cada bloco é um SubViewport de baixa resolução (os pixels ficam visíveis de
-## propósito) projetado num quad que se desenha por cima de tudo, em modo aditivo.
+## Cada bloco é uma SubViewport de alta densidade projetada num quad que se
+## desenha por cima de tudo, em modo aditivo.
 ## Fica filho da câmera ativa (o carro cuida disso).
 
 ## Distância dos blocos até o olho (m)
@@ -12,9 +12,9 @@ extends Node3D
 @export var descida := 17.0
 
 const SHADER := preload("res://visor_holografico.gdshader")
-const RESOLUCAO := Vector2i(200, 84)
+const RESOLUCAO := Vector2i(320, 128)
 ## Tamanho de cada pixel do visor a 1 m (m)
-const TEXEL := 0.0016
+const TEXEL := 0.001
 
 var _fonte := SystemFont.new()
 var _telas: Array[SubViewport] = []
@@ -24,24 +24,24 @@ var _unidade: Label
 var _direita: Label
 
 func _ready():
-	# Fonte monoespaçada sem suavização: a letra fica feita de pixels inteiros
+	# Grayscale preserva bordas suaves na textura sem o fringing colorido do LCD.
 	_fonte.font_names = PackedStringArray(["Consolas", "Lucida Console", "DejaVu Sans Mono", "Droid Sans Mono", "monospace"])
-	_fonte.antialiasing = TextServer.FONT_ANTIALIASING_NONE
-	_fonte.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	_fonte.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	_fonte.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
 
 	var caixa_e := _bloco(-1.0)
-	_esquerda = _rotulo(caixa_e, 13, HORIZONTAL_ALIGNMENT_LEFT)
+	_esquerda = _rotulo(caixa_e, 19, HORIZONTAL_ALIGNMENT_LEFT)
 
 	var caixa_d := _bloco(1.0)
 	var linha := HBoxContainer.new()
 	linha.alignment = BoxContainer.ALIGNMENT_END
 	linha.add_theme_constant_override("separation", 4)
 	caixa_d.add_child(linha)
-	_velocidade = _rotulo(linha, 26, HORIZONTAL_ALIGNMENT_RIGHT)
-	_unidade = _rotulo(linha, 13, HORIZONTAL_ALIGNMENT_RIGHT)
+	_velocidade = _rotulo(linha, 39, HORIZONTAL_ALIGNMENT_RIGHT)
+	_unidade = _rotulo(linha, 18, HORIZONTAL_ALIGNMENT_RIGHT)
 	_unidade.text = "KM/H"
 	_unidade.size_flags_vertical = Control.SIZE_SHRINK_END
-	_direita = _rotulo(caixa_d, 13, HORIZONTAL_ALIGNMENT_RIGHT)
+	_direita = _rotulo(caixa_d, 19, HORIZONTAL_ALIGNMENT_RIGHT)
 
 ## Atualiza os textos; só redesenha as telas quando algo mudou
 func escrever(esquerda: String, cor_esquerda: Color, km_h: int, direita: String, cor_direita: Color):
@@ -66,7 +66,7 @@ func _bloco(lado: float) -> VBoxContainer:
 	tela.size = RESOLUCAO
 	tela.transparent_bg = true
 	tela.disable_3d = true
-	tela.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
+	tela.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR
 	tela.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(tela)
 	_telas.append(tela)
@@ -84,6 +84,9 @@ func _bloco(lado: float) -> VBoxContainer:
 	material.render_priority = Material.RENDER_PRIORITY_MAX
 	material.set_shader_parameter("tela", tela.get_texture())
 	material.set_shader_parameter("resolucao", Vector2(RESOLUCAO))
+	material.set_shader_parameter("grade_pixels", 0.18)
+	material.set_shader_parameter("forca_halo", 0.16)
+	material.set_shader_parameter("forca_cintilacao", 0.0)
 	var quad := QuadMesh.new()
 	quad.size = Vector2(RESOLUCAO) * TEXEL * distancia
 	var visor := MeshInstance3D.new()

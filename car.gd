@@ -619,7 +619,11 @@ func _physics_process(delta):
 	_atualizar_atrito()
 	if explodindo or em_ritual or em_transicao:
 		return
-	# Caiu no vazio (buraco ou fora do mapa): volta ao último lugar seguro
+	# Fora do lobby (abismo, borda do piso ou voando além dela): explode e renasce na
+	# esfera. Nos mapas de corrida, caiu no vazio volta ao último lugar seguro
+	if _fora_do_lobby():
+		_explodir()
+		return
 	if global_position.y < -30.0:
 		_reposicionar(_ultimo_seguro)
 		_avisar("REPOSICIONADO", 1.5)
@@ -1109,6 +1113,13 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 	_vibrar_ambas(0.9, 0.25)
 	if vida == 0:
 		_explodir()
+
+## No mundo neon (não nos mapas de corrida): caiu abaixo do piso ou passou da borda dele
+func _fora_do_lobby() -> bool:
+	if hex_world == null or hex_world is MapaCorrida:
+		return false
+	var meio: float = hex_world.world_size * 0.5
+	return global_position.y < -12.0 or absf(global_position.x) > meio or absf(global_position.z) > meio
 
 func _soltar_faiscas_impacto(ponto: Vector3, forca: float):
 	var rajada := Explosao.faiscas_impacto(forca)

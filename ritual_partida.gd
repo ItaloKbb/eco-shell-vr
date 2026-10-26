@@ -9,9 +9,11 @@ const LETRAS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 const RESOLUCAO := Vector2i(800, 320)
 ## No headset o painel precisa ocupar uma parte maior do campo de visão. A
 ## resolução continua igual para não aumentar o custo da SubViewport no Quest.
+## Fica além do bico do carro (1,35 m à frente da cabeça) e dentro da esfera (raio 3 m);
+## o tamanho cresce junto com a distância para manter o mesmo ângulo de visão.
 const TAMANHO_PAINEL_MONITOR := Vector2(1.0, 0.4)
-const TAMANHO_PAINEL_VR := Vector2(1.18, 0.472)
-const DISTANCIA_PAINEL_VR := 1.25
+const TAMANHO_PAINEL_VR := Vector2(2.0, 0.8)
+const DISTANCIA_PAINEL_VR := 2.1
 ## Paleta do painel e da esfera: ciano do jogador, âmbar da energia no limite
 const COR_CIANO := PainelHolografico.COR_CIANO
 const COR_QUENTE := PainelHolografico.COR_QUENTE

@@ -76,7 +76,7 @@ func carregando() -> bool:
 	return false
 
 ## O piso é plano. Sobre o abismo também responde 0: é o "piso de energia" do voo
-## (o planador não mergulha no abismo); quem cai de carro é reposicionado.
+## (o planador não mergulha no abismo); quem cai de carro explode e renasce na esfera.
 func altura(_x: float, _z: float) -> float:
 	return 0.0
 

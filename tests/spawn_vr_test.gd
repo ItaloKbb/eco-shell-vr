@@ -55,6 +55,12 @@ func _testar():
 	frente_carro = frente_carro.normalized()
 	var posicao_esperada: Vector3 = ancora + frente_carro * ritual.DISTANCIA_PAINEL_VR
 	assert(ritual._painel.global_position.is_equal_approx(posicao_esperada), "O menu deve nascer à frente do carro")
+	var bico: Vector3 = carro.global_transform * Vector3(0.0, 0.0, -carro.casco.comprimento * 0.5)
+	assert((ritual._painel.global_position - ancora).dot(frente_carro) > (bico - ancora).dot(frente_carro) + 0.5, "O menu fica além do bico, não em cima do carro")
+	var esfera: Vector3 = ritual.esfera.global_position
+	var meia: Vector2 = ritual.TAMANHO_PAINEL_VR * 0.5
+	for canto in [Vector3(meia.x, meia.y, 0), Vector3(-meia.x, meia.y, 0), Vector3(meia.x, -meia.y, 0), Vector3(-meia.x, -meia.y, 0)]:
+		assert((ritual._painel.global_transform * canto).distance_to(esfera) < 2.9, "O menu cabe dentro da esfera")
 	assert(not ritual._som.playing)
 	var posicao: Vector3 = ritual._painel.global_position
 	carro.camera_xr.position.x += 0.1

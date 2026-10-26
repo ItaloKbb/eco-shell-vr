@@ -92,17 +92,26 @@ func _testar():
 	assert(mais_alto > 5.0 and menor_y > -1.0, "Deve subir o arco e não cair")
 	assert(carro.global_position.z < EstruturasNeon.ABISMO_Z - EstruturasNeon.ABISMO_MEIA - 12.0, "Deve chegar ao lado norte")
 
-	# Abismo de verdade: sem ponte, cai e é reposicionado
+	# Fora do mapa: além da borda do piso conta como fora, mesmo no alto
+	var meio: float = hex.world_size * 0.5
+	carro.global_position = Vector3(meio + 1.0, 20.0, 0.0)
+	assert(carro._fora_do_lobby(), "Passar da borda do piso é sair do mapa")
+	carro.global_position = Vector3(meio - 1.0, 20.0, 0.0)
+	assert(not carro._fora_do_lobby())
+
+	# Abismo de verdade: sem ponte, cai e explode (renasce na esfera)
 	_largar(Vector3(-20, 0.3, borda_sul + 4.0), 10.0)
 	var caiu := false
 	for i in 400:
 		await physics_frame
 		if carro.global_position.y < -5.0:
 			caiu = true
+		if carro.explodindo:
 			break
 	assert(caiu, "Sem ponte, o carro cai no abismo")
+	assert(carro.explodindo and mapa.ritual.estado == mapa.ritual.Estado.MORTE, "Cair no abismo explode o carro")
 	tecla(KEY_W, false)
-	print("ESTRUTURAS_OK: loop, salto do abismo, ponte em arco e queda no abismo")
+	print("ESTRUTURAS_OK: loop, salto do abismo, ponte em arco, borda do mapa e queda no abismo")
 	mapa.queue_free()
 	for i in 5:
 		await process_frame

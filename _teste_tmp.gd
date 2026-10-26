@@ -28,7 +28,6 @@ func dirigir_ate(carro, mundos, portal: Portal, lateral: float, segundos: float)
 func _initialize():
 	var cena: Node = load("res://menu.tscn").instantiate()
 	root.add_child(cena)
-	cena.get_node("Inimigos").set_physics_process(false)
 	var carro = cena.get_node("Carro")
 	for i in 200: await process_frame
 	var mundos = cena.get_node("Mundos")

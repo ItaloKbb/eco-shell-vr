@@ -548,6 +548,8 @@ class CartaoDispositivo extends PanelContainer:
 			partes.append("EXPLODIU")
 		elif t.get("na_esfera", false):
 			partes.append("NA ESFERA")
+		elif t.has("sobrecarga"):
+			partes.append("SOBRECARGA %ds" % ceili(float(t.sobrecarga)))
 		var mapa := str(t.get("mapa", ""))
 		if mapa != "":
 			partes.append(mapa.to_upper())

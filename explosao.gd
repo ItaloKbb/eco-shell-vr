@@ -216,20 +216,6 @@ static func poeira(pai: Node, ponto: Vector3, forca := 1.0):
 	m.color_ramp = Explosao._rampa([Color(0.75, 0.62, 0.45, 0.0), Color(0.72, 0.6, 0.44, 0.55), Color(0.6, 0.5, 0.38, 0.0)])
 	Explosao._soltar(pai, p, ponto, 1.6)
 
-## Ponta de pirâmide estourando: cacos de cristal rosados voando e caindo
-static func estilhacos(pai: Node, ponto: Vector3, cor: Color):
-	var p := Explosao._particulas(36, 0.9, Vector2(0.03, 0.08), true)
-	var m: ParticleProcessMaterial = p.process_material
-	m.direction = Vector3.UP
-	m.spread = 180.0
-	m.initial_velocity_min = 3.0
-	m.initial_velocity_max = 9.0
-	m.gravity = Vector3(0, -9.8, 0)
-	m.angular_velocity_min = -720.0
-	m.angular_velocity_max = 720.0
-	m.color_ramp = Explosao._rampa([Color(cor.r * 2.5, cor.g * 2.5, cor.b * 2.5, 1.0), Color(cor, 0.9), Color(cor * 0.4, 0.0)])
-	Explosao._soltar(pai, p, ponto, 1.2)
-
 ## Põe um efeito de uma vez só no mundo e apaga depois de `vida` segundos
 static func _soltar(pai: Node, p: GPUParticles3D, ponto: Vector3, vida: float):
 	if pai == null or not pai.is_inside_tree():

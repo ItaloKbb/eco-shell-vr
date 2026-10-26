@@ -29,7 +29,7 @@ var _tarefa := -1
 var _sons := {}
 var _energia := 0.0
 var _rpm_dash := 0.0
-## Alarme de míssil na cabine: "pi" cada vez mais rápido e o "piiii" contínuo
+## Alarme da sobrecarga do lobby na cabine: "pi" cada vez mais rápido e o "piiii" contínuo
 var _bip: AudioStreamPlayer
 var _bip_continuo: AudioStreamPlayer
 var _proximo_bip := 0.0
@@ -168,7 +168,7 @@ func _process(delta: float):
 
 	if _loops.is_empty():
 		return
-	_alarme_missil(delta)
+	_alarme_sobrecarga(delta)
 	var rapidez := clampf(v / 18.0, 0.0, 1.5)
 	var derrapa := smoothstep(1.2, 4.0, carro.derrapagem) * clampf(v / 3.0, 0.0, 1.0)
 	_tocar("vento", pow(clampf(v / 22.0, 0.0, 1.0), 2.0) * 0.8, 0.75 + v / 35.0, delta)
@@ -214,16 +214,12 @@ func _explodiu():
 	# O estrondo vem da própria explosão (explosao.gd), no lugar dela
 	motor.desligar()
 
-## Bipes de travamento: com a pirâmide mirando, "pi... pi..."; com míssil no ar, o
-## intervalo encolhe com o tempo que falta para acertar até virar o "piiii" contínuo
-func _alarme_missil(delta: float):
-	var falta := INF
-	for missil in get_tree().get_nodes_in_group("misseis"):
-		falta = minf(falta, missil.tempo_para_impacto())
-	var mirando := false
-	for piramide in get_tree().get_nodes_in_group("piramides"):
-		mirando = mirando or (piramide.travando and piramide.alvo == carro)
-	var continuo := falta < 0.6
+## Bipes da sobrecarga do lobby: um "pi" por segundo nos 10 s de aviso antes dela; na
+## sobrecarga o intervalo encolhe com o tempo que falta até virar o "piiii" contínuo
+func _alarme_sobrecarga(delta: float):
+	var falta: float = carro.segundos_para_explodir()
+	var sobrecarga: float = carro.tempo_sobrecarga
+	var continuo := falta < 1.0
 	if continuo != _bip_continuo.playing:
 		if continuo:
 			_bip_continuo.play()
@@ -232,12 +228,12 @@ func _alarme_missil(delta: float):
 	_proximo_bip -= delta
 	if continuo or _proximo_bip > 0.0:
 		return
-	if falta < INF:
+	if falta <= sobrecarga:
 		_bip.play()
-		_proximo_bip = clampf(falta * 0.2, 0.07, 0.6)
-	elif mirando:
+		_proximo_bip = clampf(falta / sobrecarga * 0.7, 0.1, 0.7)
+	elif falta <= sobrecarga + 10.0:
 		_bip.play()
-		_proximo_bip = 0.45
+		_proximo_bip = 1.0
 
 func _dash():
 	_rpm_dash = 2500.0

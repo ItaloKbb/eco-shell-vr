@@ -116,9 +116,6 @@ func _nova_vida():
 	carro.pista.limpar()
 	if _modo_vr:
 		mapa.ajustar_spawn_vr(true)
-	for grupo in ["piramides", "misseis"]:
-		for inimigo in get_tree().get_nodes_in_group(grupo):
-			inimigo.queue_free()
 	for tween in [_ruptura, _voo]:
 		if tween and tween.is_valid():
 			tween.kill()

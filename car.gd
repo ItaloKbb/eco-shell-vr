@@ -36,7 +36,7 @@ extends RigidBody3D
 signal largou
 signal dash_usado
 signal energia_mudou(ligada: bool, caiu: bool)
-## `material`: o que foi atingido (chao, estrutura, luz, rival, missil), para o som
+## `material`: o que foi atingido (chao, estrutura, luz, rival), para o som
 signal impacto(forca: float, ponto: Vector3, material: StringName)
 signal botao_apertado(ponto: Vector3)
 ## Dano: perdeu barrinhas de vida; explodiu (força total ou vida zerada); renasceu
@@ -137,8 +137,11 @@ const FOLGA_RODA := 0.35
 ## Roda pousando mais rápido que isso também estraga o carro (m/s)
 @export var pouso_duro := 6.0
 @export var tempo_renascer := 3.0
-## Força de choque de uma ponta de pirâmide acertando o carro (8 = 2 barrinhas)
-@export var dano_missil := 8.0
+## Lobby (mundo neon): segundos livres depois de sair da esfera; passado isso o casco
+## entra em sobrecarga e perde a vida aos poucos, explodindo em `tempo_sobrecarga`.
+## Empurra o piloto para uma corrida. Zera a cada vida e ao entrar num mapa de corrida
+@export var tempo_lobby := 35.0
+@export var tempo_sobrecarga := 15.0
 
 @export_group("VR")
 @export_range(0.0, 0.5) var zona_morta := 0.15
@@ -242,6 +245,9 @@ var _ultimo_w := -10.0
 var _recarga := 0.0
 var _aviso := ""
 var _aviso_tempo := 0.0
+## Segundos no lobby nesta vida (ver tempo_lobby) e a vida ao entrar na sobrecarga
+var tempo_no_lobby := 0.0
+var _vida_na_sobrecarga := VIDA_MAX
 var _fov := 75.0
 var _olhar := Vector2.ZERO
 var _olhar_repouso := Vector2.ZERO
@@ -277,7 +283,7 @@ var _trilho_desvio := 0.0
 var _no_ar := 0.0
 
 func _ready():
-	# Os inimigos procuram o carro por este grupo
+	# A rede (telemetria, avatar do lobby) procura o carro por este grupo
 	add_to_group("carro")
 	# Colisão com o mesmo formato do casco (envoltória convexa da malha gerada)
 	$Forma.shape = $Casco.mesh.create_convex_shape(true, true)
@@ -623,6 +629,9 @@ func _physics_process(delta):
 	# esfera. Nos mapas de corrida, caiu no vazio volta ao último lugar seguro
 	if _fora_do_lobby():
 		_explodir()
+		return
+	_sobrecarga_lobby(delta)
+	if explodindo:
 		return
 	if global_position.y < -30.0:
 		_reposicionar(_ultimo_seguro)
@@ -988,17 +997,33 @@ func _aplicar_puxao():
 func velocidade_mundo() -> Vector3:
 	return -global_basis.z * velocidade if gerando or not _trilho.is_empty() else linear_velocity
 
-## Ponta de pirâmide acertou: derruba do voo ou empurra no chão, e estraga o carro
-func atingido_por_missil(ponto: Vector3, direcao_missil: Vector3):
-	if explodindo or em_ritual or em_transicao:
+## Conta o tempo no lobby; na sobrecarga tira barrinhas em passos iguais, da vida que
+## o carro tinha ao entrar nela até zero no fim de `tempo_sobrecarga`, e explode
+func _sobrecarga_lobby(delta: float):
+	if hex_world == null or hex_world is MapaCorrida:
+		tempo_no_lobby = 0.0
 		return
-	if gerando:
-		_sair_da_energia(true)
-	else:
-		_sair_do_trilho()
-		apply_central_impulse((direcao_missil.normalized() * 3.0 + Vector3.UP * 2.0) * mass)
-	_avisar("ATINGIDO!", 1.5)
-	_registrar_choque(dano_missil, ponto, 0.0, &"missil")
+	tempo_no_lobby += delta
+	var t := tempo_no_lobby - tempo_lobby
+	if t < 0.0:
+		_vida_na_sobrecarga = vida
+		return
+	if t >= tempo_sobrecarga:
+		_explodir()
+		return
+	var restante := ceili(_vida_na_sobrecarga * (1.0 - t / tempo_sobrecarga))
+	if restante < vida:
+		var barras := vida - restante
+		vida = restante
+		dano.emit(barras)
+		_avisar("SOBRECARGA!", 0.8)
+		_vibrar_ambas(0.6, 0.15)
+
+## Segundos até a sobrecarga explodir o carro (INF fora do lobby ou sem estar dirigindo)
+func segundos_para_explodir() -> float:
+	if hex_world == null or hex_world is MapaCorrida or explodindo or em_ritual or em_transicao:
+		return INF
+	return tempo_lobby + tempo_sobrecarga - tempo_no_lobby
 
 func _bater_na_parede(batida: Dictionary):
 	var forca := maxf(velocidade, choque_minimo)
@@ -1207,6 +1232,9 @@ func telemetria() -> Dictionary:
 		"vel": absf(velocidade) * 3.6, "vida": vida, "vida_max": VIDA_MAX,
 		"explodindo": explodindo, "na_esfera": em_ritual, "energia": gerando, "mapa": "",
 	}
+	var falta := segundos_para_explodir()
+	if falta <= tempo_sobrecarga:
+		dados.sobrecarga = falta
 	if hex_world is MapaCorrida and hex_world.corrida:
 		var mapa: MapaCorrida = hex_world
 		dados.mapa = mapa.nome
@@ -1304,14 +1332,13 @@ func _atualizar_painel():
 	var cheias := floori(energia)
 	var meia := 1 if energia - cheias >= 0.34 and cheias < energia_max else 0
 	var estado := "%s %s" % ["VOO " if gerando else "ENER", "█".repeat(cheias) + "▒".repeat(meia) + "·".repeat(energia_max - cheias - meia)]
-	# Ameaça: míssil no ar ou pirâmide travando a mira
+	# Ameaça: lobby acabando (10 s antes da sobrecarga) e a sobrecarga em si
 	var ameaca := ""
-	if not get_tree().get_nodes_in_group("misseis").is_empty():
-		ameaca = "MÍSSIL!"
-	else:
-		for piramide in get_tree().get_nodes_in_group("piramides"):
-			if piramide.travando and piramide.alvo == self:
-				ameaca = "TRAVANDO"
+	var falta := segundos_para_explodir()
+	if falta <= tempo_sobrecarga:
+		ameaca = "SOBRECARGA %ds" % ceili(falta)
+	elif falta <= tempo_sobrecarga + 10.0:
+		ameaca = "PORTAL EM %ds" % ceili(falta - tempo_sobrecarga)
 	if _aviso_tempo > 0.0:
 		estado = _aviso
 	elif ameaca != "":
@@ -1368,6 +1395,7 @@ func preparar_vida(t: Transform3D):
 	_energia_visual = 0.0
 	_brilho_carga = 0.0
 	_aviso_tempo = 0.0
+	tempo_no_lobby = 0.0
 	_tocando.fill(false)
 	_distancias.fill(curso_suspensao + raio_roda)
 	casco.consertar()
@@ -1390,10 +1418,12 @@ func liberar_partida(t: Transform3D):
 	sleeping = false
 	largou.emit()
 ## Congela a física durante o loading sem bloquear o rastreamento da cabeça.
+## Toda troca de mapa (ida para a corrida ou volta) zera a contagem do lobby.
 func iniciar_transicao():
 	if gerando:
 		_sair_da_energia(false)
 	_sair_do_trilho()
+	tempo_no_lobby = 0.0
 	em_transicao = true
 	freeze = true
 	linear_velocity = Vector3.ZERO

@@ -11,7 +11,7 @@ extends Node3D
 @export var separacao := 90.0
 @export var raio_praca := 40.0
 
-## Uma cor marcante por portal (sem o vermelho dos inimigos)
+## Uma cor marcante por portal (sem vermelho, a cor de alerta do visor)
 const CORES: Array[Color] = [
 	Color(0.1, 0.85, 1.0), # ciano
 	Color(1.0, 0.2, 0.8), # magenta

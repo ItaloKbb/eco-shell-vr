@@ -9,7 +9,7 @@ const BARRAMENTO := "Musica"
 @export var volume_db := -9.0
 ## Duração da transição entre uma música e outra (s)
 @export var transicao := 5.0
-## Quanto a música abaixa durante o alarme de míssil, para os bipes aparecerem (dB)
+## Quanto a música abaixa durante o alarme da sobrecarga do lobby, para os bipes aparecerem (dB)
 @export var abaixa_alarme := 6.0
 ## Quanto a música abaixa enquanto a assistente Yui fala (dB)
 @export var abaixa_voz := 12.0
@@ -47,8 +47,9 @@ func _ready():
 		_tocar_proxima(2.0)
 
 func _process(delta):
-	# Abaixa um pouco enquanto há míssil no ar ou a Yui está falando
-	var alarme := not get_tree().get_nodes_in_group("misseis").is_empty()
+	# Abaixa um pouco na sobrecarga do lobby ou enquanto a Yui está falando
+	var carro := get_tree().get_first_node_in_group("carro")
+	var alarme: bool = carro != null and carro.segundos_para_explodir() <= carro.tempo_sobrecarga
 	var alvo := minf(-abaixa_alarme if alarme else 0.0, -abaixa_voz if voz_falando else 0.0)
 	var bus := AudioServer.get_bus_index(BARRAMENTO)
 	AudioServer.set_bus_volume_db(bus, move_toward(AudioServer.get_bus_volume_db(bus), alvo, 12.0 * delta))

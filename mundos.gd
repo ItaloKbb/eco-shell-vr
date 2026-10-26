@@ -2,7 +2,7 @@ extends Node
 ## Troca de mapa pelos portais. O mundo neon e os mapas de corrida (MapaCorrida: o
 ## Deserto e o Vale das Turbinas) ficam na mesma cena: cada mapa é montado longe, na
 ## sua ORIGEM, na primeira visita. Atravessar um portal de corrida cobre a visão,
-## desliga o mundo neon (chão, névoa, portais, pirâmides), troca céu e sol, e leva o
+## desliga o mundo neon (chão, névoa, portais), troca céu e sol, e leva o
 ## carro para a largada do circuito; o portal de volta faz o caminho contrário,
 ## deixando o carro perto do portal de onde veio, de costas para ele.
 
@@ -18,7 +18,6 @@ var _destinos := {
 @export var hex_world: Node3D
 @export var atmosfera: Node3D
 @export var portais: Node3D
-@export var inimigos: Node3D
 @export var ambiente: WorldEnvironment
 @export var sol: DirectionalLight3D
 @export var musica: Node
@@ -78,15 +77,11 @@ func entrar_mapa(portal: Portal, destino: String):
 	carro.iniciar_transicao()
 	await _transicao.cobrir(portal.cor, 0.5, titulo)
 
-	# Desliga o mundo neon (e tira os inimigos de cena)
+	# Desliga o mundo neon
 	hex_world.desligar()
 	atmosfera.visible = false
-	for no in [portais, inimigos]:
-		no.visible = false
-		no.process_mode = Node.PROCESS_MODE_DISABLED
-	for grupo in ["piramides", "misseis"]:
-		for no in get_tree().get_nodes_in_group(grupo):
-			no.queue_free()
+	portais.visible = false
+	portais.process_mode = Node.PROCESS_MODE_DISABLED
 
 	var mapa: MapaCorrida = mapas.get(destino)
 	if mapa == null:
@@ -153,9 +148,8 @@ func voltar():
 
 	hex_world.ligar()
 	atmosfera.visible = true
-	for no in [portais, inimigos]:
-		no.visible = true
-		no.process_mode = Node.PROCESS_MODE_INHERIT
+	portais.visible = true
+	portais.process_mode = Node.PROCESS_MODE_INHERIT
 
 	# Perto do portal de ida, fora do alcance do puxão, de costas para ele
 	var centro := _portal_ida.global_position

@@ -23,7 +23,8 @@ func _testar():
 		await physics_frame
 	mapa.get_node("HexWorld").desligar()
 	mapa.get_node("Portais").process_mode = Node.PROCESS_MODE_DISABLED
-	mapa.get_node("Inimigos").process_mode = Node.PROCESS_MODE_DISABLED
+	# Testa a pilotagem por muito tempo no mundo neon: sem a sobrecarga do lobby
+	mapa.carro.tempo_lobby = INF
 	mapa.ritual.estado = mapa.ritual.Estado.PARTIDA
 	mapa.ritual._painel.hide()
 	mapa.get_node("EsferaInicial").hide()

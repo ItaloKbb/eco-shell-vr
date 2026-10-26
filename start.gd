@@ -88,7 +88,7 @@ func ajustar_spawn_vr(ativo: bool):
 		_perfil_spawn["hex_visible"] = $HexWorld.visible
 		_perfil_spawn["sombra"] = $DirectionalLight3D.shadow_enabled
 		var nos_ocultos := {}
-		for nome in ["PistaEnergia", "Inimigos", "Portais"]:
+		for nome in ["PistaEnergia", "Portais"]:
 			var no: Node3D = get_node(nome)
 			nos_ocultos[nome] = [no.visible, no.process_mode]
 			no.visible = false

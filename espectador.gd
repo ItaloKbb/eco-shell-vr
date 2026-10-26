@@ -594,6 +594,8 @@ class HudEspectador extends CanvasLayer:
 			TemaEvento.mudar_pilula(_situacao, "EXPLODIU", TemaEvento.ALERTA)
 		elif item.get("na_esfera", false):
 			TemaEvento.mudar_pilula(_situacao, "NA ESFERA", TemaEvento.QUENTE)
+		elif item.has("sobrecarga"):
+			TemaEvento.mudar_pilula(_situacao, "SOBRECARGA %ds" % ceili(float(item.sobrecarga)), TemaEvento.ALERTA)
 		elif mapa != "":
 			TemaEvento.mudar_pilula(_situacao, "CORRIDA", TemaEvento.VERDE)
 		else:

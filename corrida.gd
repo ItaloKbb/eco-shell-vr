@@ -8,6 +8,10 @@ extends Node
 ## livre para sair pelo portal. O texto do visor vai em car.gd painel_corrida.
 ## Os adversários correm por conta própria (TrafegoCorrida + IARival): ficam parados
 ## no grid até o VAI!, e a posição compara o progresso deles com o do piloto.
+## Em grupo (Rede.sala): a contagem só sai quando o servidor dá a largada (todos
+## apertaram PRONTO ou a janela fechou), os outros jogadores aparecem como fantasmas
+## (CarroFantasma, sem colisão) e entram na posição; no anfitrião eles também entram
+## na visão da IA, e nos outros Quests os adversários seguem o que o anfitrião manda.
 
 enum Fase { PARADA, CONTROLES, CONTAGEM, CORRENDO, CHEGADA }
 const VOLTAS := 3
@@ -16,6 +20,8 @@ const TEMPO_CONTROLES := 8.0
 const TEMPO_CONTAGEM := 3.0
 ## Quanto o resultado fica na frente do piloto antes de recolher (s)
 const TEMPO_RESULTADO := 7.0
+## Jogador da corrida em grupo sem telemetria há mais que isso (s) saiu: o fantasma some
+const SUMIR_REMOTO := 2.0
 
 signal fase_mudou(fase: Fase)
 signal terminou(total: float, melhor: float)
@@ -42,17 +48,36 @@ var _painel: PainelCorrida
 var _usando_controle := false
 ## Tempo de corrida somado na física (não o relógio do computador: engasgos não contam)
 var _relogio := 0.0
+## Corrida em grupo (a sala de Rede.sala); vazio = sozinho
+var grupo := {}
+## Outros jogadores do grupo: peer -> {carro: CarroFantasma, nome, progresso, chegou, visto_em}
+var remotos := {}
+var _pronto_enviado := false
+## Contagem de prontos que o servidor manda: {prontos, total, restante (-1 = carregando)}
+var _status := {}
+## O autoload Rede, buscado na árvore: Corrida é classe global e também é compilada
+## em scripts de teste, onde os autoloads ainda não existem na compilação
+var _rede: Node
 
 func _ready():
+	_rede = get_node("/root/Rede")
 	pista.portao.connect(_portao)
 	_som = AudioStreamPlayer.new()
 	_som.bus = "Carro"
 	add_child(_som)
+	_rede.sala_largada.connect(_largada_do_grupo)
+	_rede.sala_status.connect(func(status: Dictionary): _status = status)
+	_rede.telemetria_sala.connect(receber_remoto)
+	_rede.sala_anfitriao.connect(func(): if trafego: trafego.assumir_ia())
 
-## Começa do grid: carro preso, controles na tela
-func iniciar():
+## Começa do grid: carro preso, controles na tela. Em grupo, avisa o servidor que
+## chegou e espera a largada dele
+func iniciar(grupo_ := {}):
+	grupo = grupo_
+	_pronto_enviado = false
+	_status = {}
 	volta = 0
-	posicao = rivais.size() + 1
+	posicao = total_carros()
 	_proximo = 0
 	_cruzou_largada = false
 	_largada = -1.0
@@ -75,9 +100,16 @@ func iniciar():
 	_mudar(Fase.CONTROLES)
 	_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES)
 	_painel.mostrar()
+	if not grupo.is_empty():
+		_rede.avisar_sala("carregado")
 
 ## Saiu do deserto (portal ou morte): limpa tudo
 func abortar():
+	if not grupo.is_empty():
+		_rede.sair_sala()
+		grupo = {}
+	for peer in remotos.keys():
+		_tirar_remoto(peer)
 	_mudar(Fase.PARADA)
 	if _painel:
 		_painel.hide()
@@ -130,10 +162,24 @@ func _input(event: InputEvent):
 	elif event is InputEventKey:
 		pronto = event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER
 	if pronto:
-		_contar()
+		confirmar_pronto()
 
 func _botao_vr(nome: String):
 	if fase == Fase.CONTROLES and nome == "ax_button":
+		confirmar_pronto()
+
+## Sozinho: começa a contagem. Em grupo: avisa o servidor e espera os outros
+func confirmar_pronto():
+	if grupo.is_empty():
+		_contar()
+		return
+	if not _pronto_enviado:
+		_pronto_enviado = true
+		_rede.avisar_sala("pronto")
+		_tocar("clique", 1.3, -6.0)
+
+func _largada_do_grupo():
+	if fase == Fase.CONTROLES and not grupo.is_empty():
 		_contar()
 
 func _physics_process(delta: float):
@@ -143,7 +189,8 @@ func _physics_process(delta: float):
 	_tempo_fase += delta
 	match fase:
 		Fase.CONTROLES:
-			if _tempo_fase >= TEMPO_CONTROLES:
+			# Em grupo quem dá a largada é o servidor
+			if grupo.is_empty() and _tempo_fase >= TEMPO_CONTROLES:
 				_contar()
 		Fase.CONTAGEM:
 			var passo := int(_tempo_fase)
@@ -206,13 +253,18 @@ func _portao(k: int):
 
 func _chegar():
 	_total = _relogio - _largada
-	# Quem já recebeu a bandeirada chegou antes; os outros ficaram para trás
-	posicao = trafego.chegada.size() + 1
+	# Quem já recebeu a bandeirada chegou antes (adversários e outros jogadores)
+	var jogadores_antes := remotos.values().filter(func(r): return r.chegou)
+	posicao = trafego.chegada.size() + jogadores_antes.size() + 1
 	_mudar(Fase.CHEGADA)
 	_tocar("volta", 1.5, -2.0)
 	carro._avisar("BANDEIRADA!", 2.5)
-	var vencedor := "VOCÊ" if trafego.chegada.is_empty() else trafego.chegada[0].nome()
-	_painel.mostrar_chegada(posicao, rivais.size() + 1, _tempo(_total), _tempo(_melhor), vencedor)
+	var vencedor := "VOCÊ"
+	if not trafego.chegada.is_empty():
+		vencedor = trafego.chegada[0].nome()
+	elif not jogadores_antes.is_empty():
+		vencedor = jogadores_antes[0].nome
+	_painel.mostrar_chegada(posicao, total_carros(), _tempo(_total), _tempo(_melhor), vencedor)
 	_painel.mostrar()
 	terminou.emit(_total, _melhor)
 
@@ -232,7 +284,68 @@ func _atualizar_posicao():
 	for rival in rivais:
 		if rival.progresso > meu:
 			frente += 1
+	for remoto in remotos.values():
+		if remoto.progresso > meu:
+			frente += 1
 	posicao = frente + 1
+
+## Carros no grid: adversários, este jogador e os outros do grupo
+func total_carros() -> int:
+	var jogadores: int = grupo.get("jogadores", []).size()
+	return rivais.size() + maxi(jogadores, remotos.size() + 1)
+
+# --- Outros jogadores (corrida em grupo) ------------------------------------------------
+
+## Telemetria de outro jogador da sala (~30x/s): o fantasma dele, a posição na
+## corrida e, no anfitrião, o retrato para a IA; o pacote do anfitrião traz também os
+## adversários e o relógio dos obstáculos para os bonecos daqui
+func receber_remoto(item: Dictionary):
+	var peer := int(item.get("peer", 0))
+	if grupo.is_empty() or fase == Fase.PARADA or peer == multiplayer.get_unique_id():
+		return
+	var t := float(item.get("t", InterpoladorRede.agora()))
+	if not remotos.has(peer):
+		var vaga := 0
+		for jogador in grupo.get("jogadores", []):
+			if int(jogador.peer) == peer:
+				vaga = int(jogador.vaga)
+		var pintura: Array = CarroFantasma.PINTURAS_JOGADOR[vaga % CarroFantasma.PINTURAS_JOGADOR.size()]
+		var fantasma := CarroFantasma.new(pintura, str(item.get("nome", "")), 0, true, true)
+		pista.get_parent().add_child(fantasma)
+		remotos[peer] = {"carro": fantasma, "nome": str(item.get("nome", "")), "progresso": -INF, "chegou": false, "visto_em": 0.0}
+	var remoto: Dictionary = remotos[peer]
+	var pos: Vector3 = item.get("pos", Vector3.ZERO)
+	remoto.carro.visible = not item.get("explodindo", false) and str(item.get("mapa", "")) == pista.get_parent().nome
+	remoto.carro.receber(t, pos, item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
+	remoto.progresso = float(item.get("progresso", -INF))
+	remoto.chegou = item.get("chegou", false)
+	remoto.visto_em = InterpoladorRede.agora()
+	if not trafego.remoto:
+		# Anfitrião: a IA desvia e disputa posição com ele
+		var info := trafego.jogador_remoto(peer)
+		var proj := pista.projetar(pista.to_local(pos))
+		info.s = proj.x
+		info.d = proj.y
+		info.v = float(item.get("vel", 0.0)) / 3.6
+		info.progresso = remoto.progresso
+		info.nome_remoto = remoto.nome
+		info.presente = remoto.carro.visible and absf(proj.y) < PistaCorrida.LARGURA
+	elif item.has("rivais"):
+		for r in item.rivais:
+			var i := int(r[0]) - 1
+			if i >= 0 and i < rivais.size():
+				rivais[i].receber_rede(t, r[1], r[2], float(r[3]), float(r[4]))
+		if trafego.obstaculos and item.has("relogio"):
+			trafego.obstaculos.tempo = float(item.relogio)
+
+func _tirar_remoto(peer: int):
+	var remoto: Dictionary = remotos.get(peer, {})
+	if remoto.is_empty():
+		return
+	remoto.carro.queue_free()
+	remotos.erase(peer)
+	if trafego:
+		trafego.tirar_remoto(peer)
 
 func _tocar(nome: String, pitch: float, volume: float):
 	var som: AudioStream = SomGerador.biblioteca.get(nome)
@@ -245,11 +358,22 @@ func _tocar(nome: String, pitch: float, volume: float):
 func _process(_delta):
 	if carro == null or fase == Fase.PARADA:
 		return
-	var total := rivais.size() + 1
+	# Jogador do grupo que parou de mandar telemetria saiu da corrida
+	for peer in remotos.keys():
+		if InterpoladorRede.agora() - remotos[peer].visto_em > SUMIR_REMOTO:
+			_tirar_remoto(peer)
+	var total := total_carros()
 	match fase:
 		Fase.CONTROLES:
-			_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES - _tempo_fase)
-			carro.painel_corrida = "GRID %d/%d\n%d VOLTAS\nAGUARDE" % [total, total, VOLTAS]
+			if grupo.is_empty():
+				_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES - _tempo_fase)
+				carro.painel_corrida = "GRID %d/%d\n%d VOLTAS\nAGUARDE" % [total, total, VOLTAS]
+			else:
+				var restante := float(_status.get("restante", -1.0))
+				var prontos := "PRONTOS %d/%d" % [int(_status.get("prontos", 0)), int(_status.get("total", grupo.jogadores.size()))]
+				var espera := "AGUARDANDO JOGADORES" if restante < 0.0 else "%s · %ds" % [prontos, ceili(restante)]
+				_painel.mostrar_controles(_dispositivo(), maxf(restante, 0.0), espera, _pronto_enviado)
+				carro.painel_corrida = "GRID %d/%d\n%s\n%s" % [total, total, prontos, "AGUARDE" if _pronto_enviado else "APERTE A"]
 		Fase.CONTAGEM:
 			carro.painel_corrida = "GRID %d/%d\n%d VOLTAS\nLARGADA %d" % [total, total, VOLTAS, 3 - maxi(_passo_contagem, 0)]
 		Fase.CORRENDO:

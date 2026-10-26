@@ -167,10 +167,12 @@ func _pagina(qual: Pagina):
 		_paginas[i].visible = i == qual
 	moldura_visivel(qual != Pagina.CONTAGEM)
 
-## `restante`: segundos até a largada começar sozinha
-func mostrar_controles(dispositivo: Dispositivo, restante: float):
+## `restante`: segundos até a largada começar sozinha. Corrida em grupo: `espera` vai
+## no lugar do "LARGADA EM" (prontos, tempo da janela) e `confirmado` troca a dica do
+## botão por "aguardando os outros"
+func mostrar_controles(dispositivo: Dispositivo, restante: float, espera := "", confirmado := false):
 	_pagina(Pagina.CONTROLES)
-	etapa.text = "LARGADA EM %ds" % ceili(restante)
+	etapa.text = espera if espera != "" else "LARGADA EM %ds" % ceili(restante)
 	if dispositivo != _dispositivo:
 		_dispositivo = dispositivo
 		_subtitulo.text = "COMANDOS  ·  %s" % NOMES[dispositivo]
@@ -179,12 +181,12 @@ func mostrar_controles(dispositivo: Dispositivo, restante: float):
 			filho.queue_free()
 		for linha in CONTROLES[dispositivo]:
 			_grade.add_child(_cartao_controle(linha[0], linha[1]))
-		var pronto := "ENTER" if dispositivo == Dispositivo.TECLADO else "A"
-		var dicas := [[pronto, "ESTOU PRONTO"]]
-		if dispositivo == Dispositivo.VR:
-			dicas.append(["CLIQUE D", "CONFORTO VR"])
-		definir_dicas(_dicas, dicas)
-	redesenhar("c|%d|%d" % [dispositivo, ceili(restante)])
+	var pronto := "ENTER" if dispositivo == Dispositivo.TECLADO else "A"
+	var dicas := [["✓", "PRONTO! AGUARDANDO OS OUTROS"]] if confirmado else [[pronto, "ESTOU PRONTO"]]
+	if dispositivo == Dispositivo.VR:
+		dicas.append(["CLIQUE D", "CONFORTO VR"])
+	definir_dicas(_dicas, dicas)
+	redesenhar("c|%d|%d|%s|%d" % [dispositivo, ceili(restante), espera, int(confirmado)])
 
 ## "3", "2", "1" em ciano esquentando; "VAI!" em verde
 func mostrar_contagem(texto: String, calor: float):

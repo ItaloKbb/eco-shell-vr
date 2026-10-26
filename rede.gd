@@ -18,10 +18,17 @@ extends Node
 ##
 ## Espectador (PC do telão): descobre e conecta como um cliente, mas se registra como
 ## espectador (não vira linha de óculos). Cada Quest liberado manda a telemetria do
-## carro ~10x/s; o servidor junta tudo num quadro e repassa aos espectadores.
+## carro 30x/s; o servidor repassa cada pacote aos espectadores na hora.
+##
+## Corrida em grupo: quem entra num portal pede a corrida ao servidor. Com mais de um
+## jogador liberado no lobby, o servidor abre uma sala e puxa todos (os que estão na
+## esfera também): vagas do grid com a IA na frente e os jogadores atrás, e quem entrou
+## no portal é o anfitrião, o único Quest que roda a IA dos adversários (os outros os
+## mostram pela telemetria dele). Largada quando todos carregaram e apertaram PRONTO,
+## ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.1"
+const VERSAO := "1.2"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -31,9 +38,21 @@ const INTERVALO_RECONEXAO := 2.0
 ## Quanto o cliente espera o servidor tirar o avatar antes de ir para a corrida (s)
 const ESPERA_CONFIRMACAO := 2.0
 const MAX_EVENTOS := 2000
-## Cliente -> servidor (telemetria do carro) e servidor -> espectadores (quadro), em s
-const INTERVALO_TELEMETRIA := 0.1
-const INTERVALO_QUADRO := 0.1
+## Cliente -> servidor: telemetria do carro (s). O servidor repassa cada pacote na hora,
+## e quem recebe interpola entre eles (InterpoladorRede): 30 Hz deixa sempre duas
+## amostras dentro do atraso de 0,1 s da interpolação
+const INTERVALO_TELEMETRIA := 1.0 / 30.0
+## Servidor -> espectadores: lista dos jogadores ativos, para tirar quem saiu (s)
+const INTERVALO_QUADRO := 0.5
+## Corrida em grupo: tempo máximo para todos carregarem o mapa, janela para apertar
+## PRONTO depois disso, quanto o Quest espera a resposta do pedido (senão corre sozinho)
+## e de quanto em quanto tempo o servidor manda a contagem de prontos (s)
+const TEMPO_CARREGAR := 25.0
+const TEMPO_PRONTO := 20.0
+const ESPERA_RESPOSTA_CORRIDA := 3.0
+const INTERVALO_STATUS_SALA := 0.25
+## Vagas do grid: os adversários e o jogador da corrida solo
+const VAGAS := MapaCorrida.ADVERSARIOS + 1
 
 enum Modo { DESLIGADO, CLIENTE, SERVIDOR, ESPECTADOR }
 
@@ -42,8 +61,20 @@ signal sessao_mudou
 signal apelido_mudou(apelido: String)
 ## Servidor: uma linha nova no log de eventos
 signal evento(registro: Dictionary)
-## Espectador: chegou um quadro com os jogadores ativos (lista de telemetrias)
+## Espectador: chegou a lista dos jogadores ativos (a última telemetria de cada um)
 signal quadro_recebido(jogadores: Array)
+## Espectador: chegou um pacote de telemetria de um jogador (com peer, nome e `t`)
+signal telemetria_recebida(item: Dictionary)
+## Cliente, corrida em grupo: o servidor mandou correr sozinho; puxou para uma sala
+## (info: id, destino, anfitriao, rivais, jogadores [{peer, nome, vaga}]); contagem de
+## prontos ({prontos, total, restante: s ou -1 carregando}); largada; virou anfitrião;
+## e a telemetria dos outros jogadores da sala
+signal corrida_solo(destino: String)
+signal sala_entrou(info: Dictionary)
+signal sala_status(status: Dictionary)
+signal sala_largada
+signal sala_anfitriao
+signal telemetria_sala(item: Dictionary)
 
 var modo := Modo.DESLIGADO
 ## Cliente
@@ -52,6 +83,8 @@ var liberado := false
 var nome_jogador := ""
 var apelido := ""
 var estado := "idle"
+## Sala da corrida em grupo em que este Quest está (vazio = nenhuma)
+var sala := {}
 ## Servidor
 var anuncios_enviados := 0
 var pacotes_recebidos := 0
@@ -61,6 +94,11 @@ var eventos: Array[Dictionary] = []
 var espectadores := {}
 ## Espectador: o último quadro recebido
 var quadro: Array = []
+## Servidor: id -> {id, destino, anfitriao, rivais, jogadores, participantes,
+## carregados, prontos, criada_em, prontos_desde (-1 = carregando), largou}
+var salas := {}
+var _proxima_sala := 1
+var _tempo_status := 0.0
 
 var _udp := PacketPeerUDP.new()
 var _enet: ENetMultiplayerPeer
@@ -243,6 +281,7 @@ func _peer_saiu(peer: int):
 		espectadores.erase(peer)
 		registrar_evento("espectador", "Espectador #%d saiu" % peer)
 		return
+	_sair_da_sala(peer)
 	var d := Dispositivos.obter(peer)
 	_remover_avatar(peer)
 	Dispositivos.remover(peer)
@@ -285,13 +324,111 @@ func montar_quadro() -> Array:
 		var dados := Dispositivos.telemetria(d)
 		if not d.liberado or dados.is_empty():
 			continue
-		var item := dados.duplicate()
-		item.peer = peer
-		item.nome = d.jogador
-		item.apelido = d.apelido
-		item.estado = d.estado
-		lista.append(item)
+		lista.append(_item_quadro(peer, d, dados))
 	return lista
+
+## Telemetria com quem é (peer, nome dado pelo operador, apelido do óculos, estado)
+func _item_quadro(peer: int, d: Dictionary, dados: Dictionary) -> Dictionary:
+	var item := dados.duplicate()
+	item.peer = peer
+	item.nome = d.jogador
+	item.apelido = d.apelido
+	item.estado = d.estado
+	return item
+
+# --- Corrida em grupo (servidor) -------------------------------------------------------
+
+## Sala em que o peer está, ou vazio
+func sala_de(peer: int) -> Dictionary:
+	for s in salas.values():
+		if peer in s.participantes:
+			return s
+	return {}
+
+## Quem vai junto: o pedinte primeiro (vira o anfitrião) e os liberados no lobby (na
+## esfera também) que não estão em outra sala, até encher o grid
+func _elegiveis(pedinte: int) -> Array:
+	var lista := [pedinte]
+	var peers := Dispositivos.lista.keys()
+	peers.sort()
+	for peer in peers:
+		var d := Dispositivos.obter(peer)
+		if peer != pedinte and d.liberado and d.estado == "lobby" and sala_de(peer).is_empty():
+			lista.append(peer)
+	return lista.slice(0, VAGAS)
+
+func _abrir_sala(destino: String, participantes: Array):
+	var id := _proxima_sala
+	_proxima_sala += 1
+	var jogadores := []
+	var nomes := PackedStringArray()
+	for k in participantes.size():
+		var d := Dispositivos.obter(participantes[k])
+		# O anfitrião na última vaga, como na corrida solo; os outros logo à frente dele
+		jogadores.append({"peer": participantes[k], "nome": d.jogador, "vaga": VAGAS - 1 - k})
+		nomes.append(d.jogador)
+	var s := {"id": id, "destino": destino, "anfitriao": participantes[0],
+		"rivais": VAGAS - participantes.size(), "jogadores": jogadores,
+		"participantes": participantes.duplicate(), "carregados": {}, "prontos": {},
+		"criada_em": tempo_ligado(), "prontos_desde": -1.0, "largou": false}
+	salas[id] = s
+	registrar_evento("corrida", "Grupo #%d em %s: %s (+%d da IA)" % [id, destino, ", ".join(nomes), s.rivais])
+	for peer in participantes:
+		entrar_sala.rpc_id(peer, _info_sala(s))
+
+## O que cada Quest precisa saber da sala
+func _info_sala(s: Dictionary) -> Dictionary:
+	return {"id": s.id, "destino": s.destino, "anfitriao": s.anfitriao, "rivais": s.rivais, "jogadores": s.jogadores}
+
+## Saiu da corrida (portal, morte, sessão encerrada, caiu da rede). Sala vazia fecha;
+## se era o anfitrião, o próximo assume a IA dos adversários
+func _sair_da_sala(peer: int):
+	var s := sala_de(peer)
+	if s.is_empty():
+		return
+	s.participantes.erase(peer)
+	s.carregados.erase(peer)
+	s.prontos.erase(peer)
+	var nome: String = Dispositivos.obter(peer).get("jogador", "Peer %d" % peer)
+	if s.participantes.is_empty():
+		salas.erase(s.id)
+		registrar_evento("corrida", "Grupo #%d encerrado" % s.id)
+		return
+	registrar_evento("corrida", "%s saiu do grupo #%d" % [nome, s.id])
+	if s.anfitriao == peer:
+		s.anfitriao = s.participantes[0]
+		virou_anfitriao.rpc_id(s.anfitriao, s.id)
+		registrar_evento("corrida", "%s assume a IA do grupo #%d" % [Dispositivos.obter(s.anfitriao).get("jogador", "?"), s.id])
+
+## Espera todos carregarem (até TEMPO_CARREGAR), abre a janela de PRONTO e larga
+## quando todos confirmam ou a janela fecha. Manda a contagem de prontos aos Quests
+func _cuidar_salas(delta: float):
+	_tempo_status -= delta
+	var mandar_status := _tempo_status <= 0.0
+	if mandar_status:
+		_tempo_status = INTERVALO_STATUS_SALA
+	var agora := tempo_ligado()
+	for s in salas.values():
+		if s.largou:
+			continue
+		if s.prontos_desde < 0.0 and (s.carregados.size() >= s.participantes.size() or agora - s.criada_em > TEMPO_CARREGAR):
+			s.prontos_desde = agora
+		var restante: float = -1.0 if s.prontos_desde < 0.0 else maxf(TEMPO_PRONTO - (agora - s.prontos_desde), 0.0)
+		if s.prontos_desde >= 0.0 and (s.prontos.size() >= s.participantes.size() or restante <= 0.0):
+			_largar_sala(s)
+			continue
+		if mandar_status:
+			var status := {"prontos": s.prontos.size(), "total": s.participantes.size(), "restante": restante}
+			for peer in s.participantes:
+				status_sala.rpc_id(peer, s.id, status)
+
+func _largar_sala(s: Dictionary):
+	s.largou = true
+	registrar_evento("corrida", "Grupo #%d: largada (%d de %d prontos)" % [s.id, s.prontos.size(), s.participantes.size()])
+	for peer in s.participantes:
+		# Quem ainda carrega larga ao avisar que chegou ao grid
+		if s.carregados.has(peer):
+			largar_sala.rpc_id(peer, s.id)
 
 func _enviar_quadros(delta: float):
 	_tempo_quadro -= delta
@@ -363,6 +500,29 @@ func _cliente(delta: float):
 			_conectar(ip, int(dados.get("porta", PORTA)))
 			return
 
+# --- Corrida em grupo (cliente) --------------------------------------------------------
+
+func eh_anfitriao() -> bool:
+	return not sala.is_empty() and int(sala.anfitriao) == multiplayer.get_unique_id()
+
+## Entrou num portal de corrida: o servidor responde com corrida_solo ou sala_entrou
+## (mundos.gd espera ESPERA_RESPOSTA_CORRIDA e corre sozinho se nada chegar)
+func pedir_corrida(destino: String):
+	if conectado:
+		pedido_corrida.rpc_id(1, destino)
+
+## "carregado" (chegou ao grid) ou "pronto" (apertou o botão)
+func avisar_sala(novo: String):
+	if conectado and not sala.is_empty():
+		estado_sala.rpc_id(1, int(sala.id), novo)
+
+func sair_sala():
+	if sala.is_empty():
+		return
+	if conectado:
+		estado_sala.rpc_id(1, int(sala.id), "saiu")
+	sala = {}
+
 ## Só com o Quest liberado (quem está em espera não aparece no telão)
 func _enviar_telemetria(delta: float):
 	_tempo_telemetria -= delta
@@ -371,7 +531,10 @@ func _enviar_telemetria(delta: float):
 	_tempo_telemetria = INTERVALO_TELEMETRIA
 	var carro := get_tree().get_first_node_in_group("carro")
 	if carro and carro.has_method("telemetria"):
-		telemetria.rpc_id(1, carro.telemetria())
+		var dados: Dictionary = carro.telemetria()
+		# Relógio deste Quest na hora da medida: quem recebe interpola no tempo certo
+		dados.t = InterpoladorRede.agora()
+		telemetria.rpc_id(1, dados)
 
 func _conectar(ip: String, porta: int):
 	_enet = ENetMultiplayerPeer.new()
@@ -412,6 +575,7 @@ func _caiu():
 	conectado = false
 	liberado = false
 	nome_jogador = ""
+	sala = {}
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	for avatar in _jogadores.get_children():
 		avatar.queue_free()
@@ -432,6 +596,7 @@ func _process(delta: float):
 		Modo.SERVIDOR:
 			_anunciar(delta)
 			_enviar_quadros(delta)
+			_cuidar_salas(delta)
 		Modo.CLIENTE, Modo.ESPECTADOR:
 			_cliente(delta)
 
@@ -474,13 +639,103 @@ func telemetria(dados: Dictionary):
 	if modo != Modo.SERVIDOR:
 		return
 	var peer := multiplayer.get_remote_sender_id()
-	if Dispositivos.obter(peer).get("liberado", false):
-		Dispositivos.definir_telemetria(peer, dados)
+	var d := Dispositivos.obter(peer)
+	if not d.get("liberado", false):
+		return
+	Dispositivos.definir_telemetria(peer, dados)
+	# Repassa na hora: esperar um relógio próprio do servidor juntaria ou pularia
+	# pacotes, e é isso que aparece como tranco no telão
+	if not espectadores.is_empty():
+		var item := _item_quadro(peer, d, dados)
+		for espectador in espectadores:
+			telemetria_espectador.rpc_id(espectador, item)
+	# Corrida em grupo: para os outros da sala (os adversários só valem os do anfitrião)
+	var s := sala_de(peer)
+	if s.size() > 0 and s.participantes.size() > 1:
+		var item := dados.duplicate()
+		item.peer = peer
+		item.nome = d.jogador
+		if peer != s.anfitriao:
+			item.erase("rivais")
+		for outro in s.participantes:
+			if outro != peer:
+				repassar_sala.rpc_id(outro, item)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
 func quadro_espectador(lista: Array):
 	quadro = lista
 	quadro_recebido.emit(lista)
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func telemetria_espectador(item: Dictionary):
+	telemetria_recebida.emit(item)
+
+## Corrida em grupo: um Quest entrou num portal
+@rpc("any_peer", "call_remote", "reliable")
+func pedido_corrida(destino: String):
+	if modo != Modo.SERVIDOR:
+		return
+	pacotes_recebidos += 1
+	var peer := multiplayer.get_remote_sender_id()
+	var atual := sala_de(peer)
+	if not atual.is_empty():
+		entrar_sala.rpc_id(peer, _info_sala(atual))
+		return
+	var participantes := _elegiveis(peer) if Dispositivos.obter(peer).get("liberado", false) else [peer]
+	if participantes.size() <= 1:
+		resposta_solo.rpc_id(peer, destino)
+		return
+	_abrir_sala(destino, participantes)
+
+## Corrida em grupo: "carregado", "pronto" ou "saiu"
+@rpc("any_peer", "call_remote", "reliable")
+func estado_sala(id: int, novo: String):
+	if modo != Modo.SERVIDOR:
+		return
+	pacotes_recebidos += 1
+	var peer := multiplayer.get_remote_sender_id()
+	var s: Dictionary = salas.get(id, {})
+	if s.is_empty() or peer not in s.participantes:
+		return
+	match novo:
+		"carregado":
+			s.carregados[peer] = true
+			if s.largou:
+				largar_sala.rpc_id(peer, id)
+		"pronto":
+			s.carregados[peer] = true
+			s.prontos[peer] = true
+		"saiu":
+			_sair_da_sala(peer)
+
+@rpc("authority", "call_remote", "reliable")
+func resposta_solo(destino: String):
+	corrida_solo.emit(destino)
+
+@rpc("authority", "call_remote", "reliable")
+func entrar_sala(info: Dictionary):
+	sala = info
+	sala_entrou.emit(info)
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func status_sala(id: int, status: Dictionary):
+	if not sala.is_empty() and int(sala.id) == id:
+		sala_status.emit(status)
+
+@rpc("authority", "call_remote", "reliable")
+func largar_sala(id: int):
+	if not sala.is_empty() and int(sala.id) == id:
+		sala_largada.emit()
+
+@rpc("authority", "call_remote", "reliable")
+func virou_anfitriao(id: int):
+	if not sala.is_empty() and int(sala.id) == id:
+		sala.anfitriao = multiplayer.get_unique_id()
+		sala_anfitriao.emit()
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func repassar_sala(item: Dictionary):
+	telemetria_sala.emit(item)
 
 @rpc("any_peer", "call_remote", "reliable")
 func mudar_estado(novo: String):
@@ -496,6 +751,9 @@ func mudar_estado(novo: String):
 		novo = "idle"
 	if d.estado != novo:
 		registrar_evento("estado", "%s: %s -> %s" % [d.apelido, d.estado, novo])
+	# Saiu da corrida (voltou ao lobby, morreu, sessão encerrada): sai da sala junto
+	if novo != "correndo":
+		_sair_da_sala(peer)
 	Dispositivos.definir_estado(peer, novo)
 	_atualizar_avatar(peer)
 	# Um frame para o despawn sair antes da confirmação

@@ -6,21 +6,26 @@ extends Node3D
 ## (casco neon e o nome por cima) só existe nos clientes, e nunca no do próprio dono,
 ## que já tem o carro de verdade.
 
-## Pose enviada 20 vezes por segundo; o visual suaviza entre uma e outra
-const INTERVALO_SYNC := 0.05
+## Pose enviada 30 vezes por segundo junto com o relógio do dono (`t`); o visual
+## interpola entre as poses no tempo em que foram medidas (InterpoladorRede)
+const INTERVALO_SYNC := 1.0 / 30.0
 const COR := Color(1.0, 0.45, 0.15)
 
 var peer := 0
 var nome := ""
+## Relógio do dono quando a pose foi tirada (sincronizado junto com ela)
+var t := 0.0
 var _visual: Node3D
 var _carro: Node3D
+var _interpolador := InterpoladorRede.new()
+var _ultimo_t := -1.0
 
 func _init(peer_: int, nome_: String, com_visual: bool):
 	peer = peer_
 	nome = nome_
 	name = str(peer_)
 	var config := SceneReplicationConfig.new()
-	for propriedade in [NodePath(".:position"), NodePath(".:rotation")]:
+	for propriedade in [NodePath(".:position"), NodePath(".:quaternion"), NodePath(".:t")]:
 		config.add_property(propriedade)
 		config.property_set_spawn(propriedade, false)
 		config.property_set_replication_mode(propriedade, SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
@@ -38,16 +43,21 @@ func _ready():
 	if _visual:
 		_visual.global_transform = global_transform
 
-func _process(delta: float):
+func _process(_delta: float):
 	if peer == multiplayer.get_unique_id():
 		# Dono: a pose do avatar é a do carro local
 		if not is_instance_valid(_carro):
 			_carro = get_tree().get_first_node_in_group("carro") as Node3D
 		if _carro:
 			global_transform = _carro.global_transform
+			t = InterpoladorRede.agora()
 	elif _visual:
-		var peso := 1.0 - exp(-12.0 * delta)
-		_visual.global_transform = _visual.global_transform.interpolate_with(global_transform, peso)
+		# Pose nova chegou (o `t` muda junto): entra no interpolador
+		if t != _ultimo_t:
+			_ultimo_t = t
+			_interpolador.adicionar(t, position, quaternion)
+		if not _interpolador.vazio():
+			_visual.global_transform = _interpolador.pose()
 
 func _montar_visual() -> Node3D:
 	var raiz := Node3D.new()

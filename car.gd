@@ -1224,8 +1224,9 @@ func teleportar(t: Transform3D, esperar_chao := false):
 		freeze = true
 		_esperando_chao = true
 
-## Estado para o espectador (Rede manda ao servidor ~10x/s): pose, velocidade, vida e,
-## na corrida, volta, posição, os adversários e o relógio dos obstáculos
+## Estado para o telão e a corrida em grupo (Rede manda ao servidor 30x/s): pose,
+## velocidade, vida e, na corrida, volta, posição, progresso, os adversários e o
+## relógio dos obstáculos
 func telemetria() -> Dictionary:
 	var dados := {
 		"pos": global_position, "rot": global_basis.get_rotation_quaternion(),
@@ -1241,10 +1242,14 @@ func telemetria() -> Dictionary:
 		dados.volta = mapa.corrida.volta
 		dados.voltas = Corrida.VOLTAS
 		dados.posicao = mapa.corrida.posicao
-		dados.total = mapa.rivais.size() + 1
+		dados.total = mapa.corrida.total_carros()
+		dados.progresso = mapa.trafego.jogador.progresso
+		dados.chegou = mapa.corrida.fase == Corrida.Fase.CHEGADA
+		# [número, posição, rotação, progresso, velocidade] dos adversários da corrida: o
+		# telão mostra; numa corrida em grupo, os outros Quests seguem os do anfitrião
 		var rivais := []
-		for rival in mapa.rivais:
-			rivais.append([rival.numero, rival.global_position, rival.global_basis.get_rotation_quaternion()])
+		for rival in mapa.corrida.rivais:
+			rivais.append([rival.numero, rival.global_position, rival.global_basis.get_rotation_quaternion(), rival.progresso, rival.v])
 		dados.rivais = rivais
 		if mapa is ValeTurbinas and mapa.obstaculos:
 			dados.relogio = mapa.obstaculos.tempo

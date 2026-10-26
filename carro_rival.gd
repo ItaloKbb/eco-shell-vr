@@ -73,6 +73,10 @@ var _lado_muro := 1.0
 var _lado_jogador := 0.0
 var _espera_passagem := 0.0
 var _trilhas_dash := Node3D.new()
+## Corrida em grupo, Quest que não é o anfitrião: este carro não pensa nem anda sozinho,
+## só segue o que o anfitrião manda (seguir_rede)
+var remoto := false
+var _interpolador := InterpoladorRede.new()
 
 ## Gera o casco uma única vez, num CascoEcoShell temporário (ele só constrói na árvore)
 static func preparar(pai: Node):
@@ -310,6 +314,49 @@ func _sincronizar():
 	info.d = d
 	info.v = v
 	info.progresso = progresso
+
+# --- Corrida em grupo -----------------------------------------------------------------
+
+## Fora do grid (no grupo sobram menos vagas para a IA): some, para e não colide
+func ativar(sim: bool):
+	visible = sim
+	process_mode = Node.PROCESS_MODE_INHERIT if sim else Node.PROCESS_MODE_DISABLED
+	collision_layer = 1 if sim else 0
+	for som in [_motor, _rolamento, _raspagem]:
+		if som:
+			som.stream_paused = not sim
+
+## Pose vinda do anfitrião (no relógio dele), com progresso e velocidade. A chegada é
+## conferida aqui mesmo pelo progresso (TrafegoCorrida._ver_chegadas)
+func receber_rede(t: float, pos: Vector3, rot: Quaternion, progresso_: float, v_: float):
+	_interpolador.adicionar(t, pos, rot)
+	progresso = progresso_
+	v = v_
+
+## Um passo de física de boneco: segue a pose interpolada (o corpo animável continua
+## empurrando o carro do jogador), gira as rodas e faz o som
+func seguir_rede(dt: float):
+	_espera_passagem = maxf(_espera_passagem - dt, 0.0)
+	if _interpolador.vazio():
+		return
+	global_transform = _interpolador.pose()
+	for giro in _giros:
+		giro.rotation.x -= v * dt / RAIO_RODA
+	_som()
+	_sincronizar()
+
+## Este Quest virou o anfitrião: retoma a IA de onde o boneco está
+func assumir():
+	remoto = false
+	var proj := pista.projetar(pista.to_local(global_position))
+	s = proj.x
+	d = proj.y
+	d_alvo = d
+	v_alvo = v
+	_vel_lateral = 0.0
+	_empurrao = 0.0
+	_interpolador.limpar()
+	_sincronizar()
 
 ## Motor elétrico (cada carro num tom: o pelotão soa como um enxame, não como um
 ## carro só), rolamento e raspagem no muro. A biblioteca de sons é gerada em segundo

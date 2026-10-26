@@ -2,7 +2,8 @@ extends Node3D
 ## Telão do evento (modo espectador, PC sem headset): conecta ao servidor da rede e
 ## transmite os jogadores ao vivo. Monta o mundo neon e os mapas de corrida só como
 ## cenário (MapaCorrida.so_cenario, nas mesmas origens de mundos.gd, então a geometria
-## bate com a do Quest) e põe os carros pela telemetria que chega em Rede.quadro_recebido.
+## bate com a do Quest) e põe os carros pela telemetria (Rede.telemetria_recebida, ~30x/s
+## por jogador), suavizada pelo InterpoladorRede de cada carro.
 ## A cada TEMPO_TOMADA troca de jogador E de ângulo (topo, diagonal alta, terceira
 ## pessoa); com um jogador só, troca só o ângulo. HUD de transmissão: nome, corrida,
 ## volta/posição, vida e velocidade.
@@ -15,13 +16,7 @@ enum Angulo { TOPO, DIAGONAL, TERCEIRA }
 const NOMES_ANGULO := ["VISTA DE CIMA", "DIAGONAL ALTA", "TERCEIRA PESSOA"]
 const TEMPO_TOMADA := 6.0
 const TEMPO_CORTE := 0.25
-## [lataria, filete] dos jogadores (os rivais usam CarroRival.PINTURAS)
-const PINTURAS_JOGADOR := [
-	[Color(0.03, 0.2, 0.34), Color(0.45, 0.9, 1.0)],
-	[Color(0.3, 0.04, 0.3), Color(1.0, 0.5, 0.95)],
-	[Color(0.34, 0.2, 0.02), Color(1.0, 0.8, 0.3)],
-	[Color(0.04, 0.28, 0.12), Color(0.5, 1.0, 0.6)],
-]
+const PINTURAS_JOGADOR := CarroFantasma.PINTURAS_JOGADOR
 
 ## Os mapas de corrida do jeito que os portais abrem (destino -> [classe, origem])
 var _destinos := {
@@ -33,11 +28,11 @@ var sol: DirectionalLight3D
 var camera: Camera3D
 var lobby: Node3D
 var mapas := {}
-## peer -> CarroEspectador
+## peer -> CarroFantasma
 var carros := {}
 ## Os 10 adversários da corrida do jogador em foco (cada corrida é particular)
-var rivais: Array[CarroEspectador] = []
-## Último quadro, por peer
+var rivais: Array[CarroFantasma] = []
+## Último pacote de telemetria, por peer
 var dados := {}
 var foco := 0
 var angulo := Angulo.TOPO
@@ -92,11 +87,12 @@ func _ready():
 	CarroRival.preparar(self)
 	var elenco := PerfilPiloto.elenco()
 	for i in MapaCorrida.ADVERSARIOS:
-		var rival := CarroEspectador.new(CarroRival.PINTURAS[i % CarroRival.PINTURAS.size()], elenco[i % elenco.size()].nome, i + 1, false)
+		var rival := CarroFantasma.new(CarroRival.PINTURAS[i % CarroRival.PINTURAS.size()], elenco[i % elenco.size()].nome, i + 1, false)
 		rival.visible = false
 		add_child(rival)
 		rivais.append(rival)
 	Rede.quadro_recebido.connect(receber_quadro)
+	Rede.telemetria_recebida.connect(receber_telemetria)
 	Ranking.ranking_mudou.connect(func(_top: Array): _hud.mostrar_ranking())
 	await _montar_mapas()
 	pronto = true
@@ -118,49 +114,61 @@ func _montar_mapas():
 		mapa.process_mode = Node.PROCESS_MODE_DISABLED
 		mapas[destino] = mapa
 
-# --- Quadros da rede -----------------------------------------------------------------
+# --- Telemetria da rede --------------------------------------------------------------
 
+## Um pacote de um jogador: chega ~30x/s, repassado pelo servidor assim que o Quest
+## manda, com o carimbo de tempo do Quest (`t`) para o interpolador do carro
+func receber_telemetria(item: Dictionary):
+	if not item.has("peer"):
+		return
+	var peer: int = item.peer
+	var t := float(item.get("t", InterpoladorRede.agora()))
+	dados[peer] = item
+	if not carros.has(peer):
+		var carro_novo := CarroFantasma.new(PINTURAS_JOGADOR[carros.size() % PINTURAS_JOGADOR.size()], _nome(item), 0, true)
+		add_child(carro_novo)
+		carros[peer] = carro_novo
+	var carro: CarroFantasma = carros[peer]
+	carro.rotulo.text = _nome(item)
+	var escondido: bool = item.get("explodindo", false) or item.get("na_esfera", false)
+	if item.get("explodindo", false) and not carro.explodindo:
+		_explodir(carro)
+	carro.explodindo = item.get("explodindo", false)
+	# Reapareceu (renasceu, saiu da esfera): começa da pose nova, sem deslizar da antiga
+	if not escondido and not carro.visible:
+		carro.reiniciar()
+	carro.visible = not escondido
+	carro.receber(t, item.get("pos", Vector3.ZERO), item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
+	if pronto and peer == foco:
+		_atualizar_foco_rivais()
+
+## Lista dos jogadores ativos (o servidor manda a cada 0,5 s): quem saiu dela some
 func receber_quadro(lista: Array):
 	var vistos := {}
 	for item in lista:
-		if not item is Dictionary or not item.has("peer"):
-			continue
-		var peer: int = item.peer
-		vistos[peer] = true
-		dados[peer] = item
-		if not carros.has(peer):
-			var nome := _nome(item)
-			var carro := CarroEspectador.new(PINTURAS_JOGADOR[carros.size() % PINTURAS_JOGADOR.size()], nome, 0, true)
-			add_child(carro)
-			carros[peer] = carro
-		var carro: CarroEspectador = carros[peer]
-		carro.rotulo.text = _nome(item)
-		carro.receber(item.get("pos", Vector3.ZERO), item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
-		var escondido: bool = item.get("explodindo", false) or item.get("na_esfera", false)
-		if item.get("explodindo", false) and not carro.explodindo:
-			_explodir(carro)
-		carro.explodindo = item.get("explodindo", false)
-		carro.visible = not escondido
+		if item is Dictionary and item.has("peer"):
+			vistos[item.peer] = true
+			receber_telemetria(item)
 	for peer in carros.keys():
 		if not vistos.has(peer):
 			carros[peer].queue_free()
 			carros.erase(peer)
 			dados.erase(peer)
-	if pronto:
-		_atualizar_foco_rivais()
 
 func _nome(item: Dictionary) -> String:
 	var nome := str(item.get("nome", ""))
 	return nome if nome != "" else str(item.get("apelido", "PILOTO"))
 
-func _explodir(carro: CarroEspectador):
+func _explodir(carro: CarroFantasma):
 	var explosao := Explosao.new()
 	add_child(explosao)
 	explosao.global_position = carro.global_transform * Vector3(0.0, 0.35, 0.0)
 
-## Rivais e relógio dos obstáculos vêm da corrida do jogador em foco
+## Rivais e relógio dos obstáculos vêm da corrida do jogador em foco (no mesmo pacote,
+## com o mesmo carimbo de tempo)
 func _atualizar_foco_rivais():
 	var item: Dictionary = dados.get(foco, {})
+	var t := float(item.get("t", InterpoladorRede.agora()))
 	var lista: Array = item.get("rivais", [])
 	var usados := {}
 	for r in lista:
@@ -168,12 +176,12 @@ func _atualizar_foco_rivais():
 		if i < 0 or i >= rivais.size():
 			continue
 		usados[i] = true
-		rivais[i].receber(r[1], r[2], 0.0)
+		rivais[i].receber(t, r[1], r[2], 0.0)
 		rivais[i].visible = true
 	for i in rivais.size():
-		if not usados.has(i):
+		if not usados.has(i) and rivais[i].visible:
 			rivais[i].visible = false
-			rivais[i].novo = true
+			rivais[i].reiniciar()
 	var mapa: MapaCorrida = mapas.get(str(item.get("mapa", "")))
 	if mapa is ValeTurbinas and mapa.obstaculos and item.has("relogio"):
 		mapa.obstaculos.tempo = float(item.relogio)
@@ -219,6 +227,10 @@ func proxima_tomada(passo := 1):
 	_cortar(proximo, novo)
 
 func _cortar(peer: int, novo_angulo: int):
+	# Outro jogador, outra corrida: os rivais recomeçam pelas poses da corrida dele
+	if peer != foco:
+		for rival in rivais:
+			rival.reiniciar()
 	foco = peer
 	angulo = novo_angulo as Angulo
 	tempo_tomada = 0.0
@@ -230,7 +242,7 @@ func _cortar(peer: int, novo_angulo: int):
 
 ## Câmera atrás do carro em foco, no ângulo atual; `cortar` posiciona sem suavizar
 func _seguir(delta: float, cortar: bool):
-	var carro: CarroEspectador = carros.get(foco)
+	var carro: CarroFantasma = carros.get(foco)
 	if carro == null:
 		return
 	var alvo := carro.global_position
@@ -306,67 +318,6 @@ func _unhandled_input(event: InputEvent):
 		KEY_F11:
 			var cheia := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if cheia else DisplayServer.WINDOW_MODE_FULLSCREEN)
-
-
-## Carro vindo da telemetria: o visual do rival (casco pintado, rodas, nome) seguindo
-## a pose recebida com suavização, rodas girando pela velocidade.
-class CarroEspectador extends Node3D:
-	var giros: Array[Node3D] = []
-	var rotulo: Label3D
-	var alvo := Transform3D.IDENTITY
-	## m/s, para girar as rodas
-	var vel := 0.0
-	var novo := true
-	var explodindo := false
-
-	func _init(pintura: Array, nome: String, numero: int, jogador: bool):
-		var visual := CarroRival.montar_visual(self, pintura, nome, numero)
-		giros = visual.giros
-		rotulo = visual.nome
-		if jogador:
-			# Jogador: nome do mesmo tamanho na tela em qualquer ângulo (até a 28 m na
-			# vista de cima), branco com contorno, sempre por cima do cenário
-			rotulo.fixed_size = true
-			rotulo.font_size = 64
-			rotulo.pixel_size = 0.0009
-			rotulo.outline_size = 18
-			rotulo.position.y = 1.8
-			rotulo.modulate = Color(1.0, 1.0, 1.0)
-			rotulo.outline_modulate = Color(0.0, 0.0, 0.0, 0.85)
-			rotulo.visibility_range_end = 0.0
-			rotulo.no_depth_test = true
-			# Anel neon no chão, na cor do filete: destaca o jogador no piso escuro do lobby
-			# e o separa dos adversários na corrida (o glow do ambiente faz o halo)
-			var anel := MeshInstance3D.new()
-			var toro := TorusMesh.new()
-			toro.inner_radius = 1.55
-			toro.outer_radius = 1.75
-			toro.rings = 48
-			toro.ring_segments = 6
-			anel.mesh = toro
-			anel.scale = Vector3(1.0, 0.15, 1.0)
-			anel.position.y = 0.06
-			var neon := StandardMaterial3D.new()
-			neon.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			neon.albedo_color = pintura[1]
-			neon.emission_enabled = true
-			neon.emission = pintura[1]
-			neon.emission_energy_multiplier = 3.0
-			anel.material_override = neon
-			anel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			add_child(anel)
-
-	func receber(pos: Vector3, rot: Quaternion, vel_kmh: float):
-		alvo = Transform3D(Basis(rot), pos)
-		vel = vel_kmh / 3.6
-		if novo:
-			transform = alvo
-			novo = false
-
-	func _process(delta: float):
-		transform = transform.interpolate_with(alvo, 1.0 - exp(-10.0 * delta))
-		for giro in giros:
-			giro.rotation.x -= vel * delta / CarroRival.RAIO_RODA
 
 
 ## HUD de transmissão (CanvasLayer): selo AO VIVO, ângulo e chips dos jogadores no

@@ -41,10 +41,14 @@ var _transicao := Transicao.new()
 var _ambiente_hex: Environment
 var _sol_hex := {}
 var _volta_fora := Vector3.BACK
+## Online: esperando o servidor dizer se a corrida é solo ou em grupo
+var _pedindo := false
 
 func _ready():
 	portais.portal_atravessado.connect(_portal)
 	add_child(_transicao)
+	Rede.corrida_solo.connect(_corrida_solo)
+	Rede.sala_entrou.connect(_entrar_sala)
 
 ## A morte sempre devolve o piloto à esfera do mundo inicial.
 func restaurar_inicio():
@@ -55,7 +59,10 @@ func restaurar_inicio():
 
 func _portal(portal: Portal):
 	if _destinos.has(portal.destino_corrida):
-		entrar_mapa(portal, portal.destino_corrida)
+		if Rede.conectado and Rede.liberado:
+			_pedir_corrida(portal)
+		else:
+			entrar_mapa(portal, portal.destino_corrida)
 	else:
 		# Os outros ainda não levam a lugar nenhum: avisa no visor
 		carro._avisar("PORTAL FECHADO", 2.0)
@@ -64,7 +71,53 @@ func _portal(portal: Portal):
 func entrar_deserto(portal: Portal):
 	await entrar_mapa(portal, "Deserto")
 
-func entrar_mapa(portal: Portal, destino: String):
+# --- Corrida em grupo ---------------------------------------------------------------
+
+## Online: o servidor decide se a corrida é solo ou em grupo (puxando os outros). O
+## carro para no portal enquanto isso; sem resposta a tempo, corre sozinho
+func _pedir_corrida(portal: Portal):
+	if _trocando or mapa_atual or _pedindo:
+		return
+	_pedindo = true
+	_portal_ida = portal
+	carro.iniciar_transicao()
+	Rede.pedir_corrida(portal.destino_corrida)
+	await get_tree().create_timer(Rede.ESPERA_RESPOSTA_CORRIDA).timeout
+	if _pedindo:
+		_pedindo = false
+		entrar_mapa(portal, portal.destino_corrida)
+
+func _corrida_solo(destino: String):
+	if _pedindo:
+		_pedindo = false
+		entrar_mapa(_portal_ida, destino)
+
+## O servidor puxou para uma corrida em grupo (quem entrou no portal e os outros do
+## lobby, inclusive da esfera). Sem condição de ir (explodindo, já trocando de mapa),
+## sai da sala e o grupo segue sem este Quest
+func _entrar_sala(info: Dictionary):
+	var destino := str(info.get("destino", ""))
+	if _trocando or mapa_atual or carro.explodindo or not _destinos.has(destino):
+		Rede.sair_sala()
+		return
+	var portal := _portal_ida if _pedindo else _portal_mais_perto(destino)
+	_pedindo = false
+	var ritual = get_parent().get("ritual")
+	if carro.em_ritual and ritual:
+		ritual.sair_para_corrida()
+	entrar_mapa(portal, destino, info)
+
+## Portal do destino mais perto do carro (a volta da corrida sai perto dele)
+func _portal_mais_perto(destino: String) -> Portal:
+	var melhor: Portal
+	for portal in get_tree().get_nodes_in_group("portais"):
+		if portal is Portal and portal.destino_corrida == destino and portal.is_inside_tree():
+			if melhor == null or portal.global_position.distance_to(carro.global_position) < melhor.global_position.distance_to(carro.global_position):
+				melhor = portal
+	return melhor
+
+## `grupo`: a sala da corrida em grupo (Rede.sala); vazio = sozinho
+func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	if _trocando or mapa_atual:
 		return
 	_trocando = true
@@ -75,7 +128,7 @@ func entrar_mapa(portal: Portal, destino: String):
 	# Lado de onde o carro veio: na volta ele reaparece desse lado, de costas para o portal
 	_volta_fora = Vector3(carro.global_basis.z.x, 0.0, carro.global_basis.z.z)
 	carro.iniciar_transicao()
-	await _transicao.cobrir(portal.cor, 0.5, titulo)
+	await _transicao.cobrir(portal.cor if portal else Color(0.1, 0.85, 1.0), 0.5, titulo)
 
 	# Desliga o mundo neon
 	hex_world.desligar()
@@ -109,15 +162,16 @@ func entrar_mapa(portal: Portal, destino: String):
 
 	carro.hex_world = mapa
 	carro.pode_voar = false
+	var vaga := mapa.preparar_corrida(grupo)
 	# No grid o carro já fica assentado nas rodas: desconta a folga que teleportar põe
-	carro.teleportar(mapa.largada().translated(Vector3.DOWN * 0.3))
+	carro.teleportar(mapa.largada(vaga).translated(Vector3.DOWN * 0.3))
 	carro.segurar()
 	carro.atualizar_ambiente_traseira()
 	mapa_atual = mapa
 	await get_tree().physics_frame
 	await _transicao.descobrir()
 	carro.terminar_transicao()
-	mapa.corrida.iniciar()
+	mapa.corrida.iniciar(grupo)
 	var yui := get_tree().get_first_node_in_group("yui")
 	if yui:
 		yui.falar_corrida(mapa.fala_chegada)
@@ -151,8 +205,9 @@ func voltar():
 	portais.visible = true
 	portais.process_mode = Node.PROCESS_MODE_INHERIT
 
-	# Perto do portal de ida, fora do alcance do puxão, de costas para ele
-	var centro := _portal_ida.global_position
+	# Perto do portal de ida, fora do alcance do puxão, de costas para ele (puxado para
+	# um grupo sem portal por perto: perto da praça)
+	var centro := _portal_ida.global_position if is_instance_valid(_portal_ida) else Vector3(0.0, 0.0, -40.0)
 	var fora := _volta_fora
 	if fora.length() < 0.1:
 		fora = Vector3.BACK

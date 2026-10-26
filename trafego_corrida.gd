@@ -7,6 +7,9 @@ extends Node
 ## adversário com o jogador (o corpo animável empurra o carro de verdade; aqui o
 ## adversário reage, e os ataques ganham um tranco extra).
 ## Também guarda a ordem de chegada.
+## Corrida em grupo: no anfitrião os outros jogadores entram em `carros` (a IA desvia
+## e disputa posição com eles); nos outros Quests (`remoto`) os adversários só seguem
+## a pose que o anfitrião manda, e a chegada deles é conferida pelo progresso recebido.
 
 signal rival_chegou(rival: CarroRival, posicao: int)
 ## Um brigão acertou o jogador (som, conquistas, estatística...)
@@ -25,6 +28,10 @@ var voltas := 3
 var obstaculos: ObstaculosPista
 
 var ativo := false
+## Corrida em grupo num Quest que não é o anfitrião
+var remoto := false
+## Outros jogadores da corrida em grupo, por peer (só no anfitrião)
+var remotos := {}
 var tempo_corrida := 0.0
 ## O jogador visto pela IA (progresso vem da corrida, que conta as voltas dele)
 var jogador := CarroNaPista.new()
@@ -38,9 +45,34 @@ var _contatos := {}
 func _ready():
 	jogador.eh_jogador = true
 	jogador.presente = false
+	definir_rivais(rivais)
+
+## Adversários desta corrida (no grupo sobram menos vagas para a IA)
+func definir_rivais(lista: Array[CarroRival]):
+	rivais = lista
 	carros.assign([jogador])
 	for rival in rivais:
 		carros.append(rival.info)
+	for info in remotos.values():
+		carros.append(info)
+
+## Outro jogador da corrida em grupo, como a IA o enxerga (criado na primeira vez)
+func jogador_remoto(peer: int) -> CarroNaPista:
+	if not remotos.has(peer):
+		var info := CarroNaPista.new()
+		info.eh_jogador = true
+		remotos[peer] = info
+		carros.append(info)
+	return remotos[peer]
+
+func tirar_remoto(peer: int):
+	if remotos.has(peer):
+		carros.erase(remotos[peer])
+		remotos.erase(peer)
+
+func limpar_remotos():
+	for peer in remotos.keys():
+		tirar_remoto(peer)
 
 ## Todos estacionados nas vagas do grid
 func preparar():
@@ -55,13 +87,32 @@ func preparar():
 func largar():
 	ativo = true
 	tempo_corrida = 0.0
+	if remoto:
+		return
 	for rival in rivais:
 		rival.ia.largar(rival.perfil.reacao + randf_range(0.05, 0.4))
+
+## Este Quest virou o anfitrião no meio da corrida: os bonecos voltam a ter IA
+func assumir_ia():
+	if not remoto:
+		return
+	remoto = false
+	for rival in rivais:
+		rival.assumir()
+		if ativo and not rival.terminou:
+			rival.ia.largar(0.0)
 
 func _physics_process(dt: float):
 	if pista == null or carro == null:
 		return
 	_ver_jogador()
+	if remoto:
+		# Bonecos: a IA roda no anfitrião; aqui só seguem a pose e contam a chegada
+		for rival in rivais:
+			rival.seguir_rede(dt)
+		if ativo:
+			_ver_chegadas()
+		return
 	if not ativo:
 		return
 	tempo_corrida += dt

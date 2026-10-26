@@ -83,6 +83,29 @@ func _montar_circuito():
 	portal_volta.position = _posicao_portal_volta()
 	add_child(portal_volta)
 
+## Antes de cada corrida. Solo (`grupo` vazio): os 10 adversários com IA, o jogador na
+## última vaga. Em grupo (Rede.sala): só os `rivais` da sala, nas primeiras vagas, com
+## IA só no anfitrião (nos outros Quests seguem a rede). Devolve a vaga deste jogador
+func preparar_corrida(grupo: Dictionary) -> int:
+	var quantos := ADVERSARIOS if grupo.is_empty() else int(grupo.rivais)
+	var remoto := not grupo.is_empty() and int(grupo.anfitriao) != multiplayer.get_unique_id()
+	var ativos: Array[CarroRival] = []
+	for i in rivais.size():
+		var rival := rivais[i]
+		rival.ativar(i < quantos)
+		rival.remoto = remoto
+		if i < quantos:
+			ativos.append(rival)
+	corrida.rivais = ativos
+	trafego.remoto = remoto
+	trafego.limpar_remotos()
+	trafego.definir_rivais(ativos)
+	var vaga := ADVERSARIOS
+	for jogador in grupo.get("jogadores", []):
+		if int(jogador.peer) == multiplayer.get_unique_id():
+			vaga = int(jogador.vaga)
+	return vaga
+
 ## Altura do chão no ponto do mundo
 func altura(_x: float, _z: float) -> float:
 	return 0.0

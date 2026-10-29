@@ -15,7 +15,7 @@ func _testar():
 	current_scene = mapa
 	var yui: AssistenteYui = get_first_node_in_group("yui")
 	assert(yui != null, "A Yui nasce junto com o mapa")
-	assert(yui._textos.size() == 10, "Dez falas com legenda")
+	assert(yui._textos.size() == 11, "Onze falas com legenda")
 	for id in yui._textos:
 		assert(ResourceLoader.exists(AssistenteYui.PASTA.path_join(id + ".wav")), "Falta a voz de " + id)
 	var bus := AudioServer.get_bus_index(AssistenteYui.BARRAMENTO)

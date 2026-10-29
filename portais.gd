@@ -25,14 +25,14 @@ signal portal_atravessado(portal: Portal)
 
 ## Índice da cor do portal que leva ao deserto (âmbar)
 const AMBAR := 3
-## O carmesim usa o portal avermelhado/magenta já existente.
+## O carmesim (o portal avermelhado/magenta) leva ao I de Incrível, o campo de lava
 const CARMESIM := 1
 ## O verde-ácido leva ao Vale das Turbinas (a usina de energia limpa)
 const VERDE := 2
 ## O ciano leva ao Sistema S (o S largo) e o violeta ao Parque Industrial (o i com rampas)
 const CIANO := 0
 const VIOLETA := 4
-const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto", VERDE: "Vale das Turbinas",
+const CORRIDAS := { CARMESIM: "I de Incrível", AMBAR: "Deserto", VERDE: "Vale das Turbinas",
 	CIANO: "Sistema S", VIOLETA: "Parque Industrial" }
 
 var _portais: Array[Portal] = []

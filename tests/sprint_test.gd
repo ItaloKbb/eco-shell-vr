@@ -1,8 +1,8 @@
 extends SceneTree
-## Pistas ponta a ponta: o portal ciano abre o Sistema S (S largo) e o violeta o Parque
-## Industrial (reta com rampas). Traçado sem se cruzar, grid atrás da largada, portões até
+## Pistas ponta a ponta: o portal ciano abre o Sistema S (S largo), o violeta o Parque
+## Industrial (reta com rampas) e o carmesim o I de Incrível (reta na lava com minas). Traçado sem se cruzar, grid atrás da largada, portões até
 ## a bandeirada, adversários chegando e estacionando antes do fim, salto da rampa (jogador
-## e adversários) e o portal de volta no fim.
+## e adversários), minas (faixa livre, detonação e rearme) e o portal de volta no fim.
 ## godot --headless --path . --xr-mode off --fixed-fps 60 --script res://tests/sprint_test.gd
 
 ## Passos extras da IA por quadro (a corrida inteira dos adversários sem esperar o relógio)
@@ -21,7 +21,7 @@ func tecla(codigo: Key, pressionada: bool):
 	Input.flush_buffered_events()
 
 func _testar():
-	create_timer(280.0).timeout.connect(func():
+	create_timer(420.0).timeout.connect(func():
 		push_error("Timeout no teste das sprints")
 		quit(1))
 	var mapa = load("res://menu.tscn").instantiate()
@@ -37,7 +37,8 @@ func _testar():
 	carro.em_ritual = false
 
 	for caso in [[portais.CIANO, "Sistema S", PistaSistemaS.LARGURA_S, 1500.0, 1750.0],
-			[portais.VIOLETA, "Parque Industrial", PistaIndustrial.LARGURA_I, 1790.0, 1830.0]]:
+			[portais.VIOLETA, "Parque Industrial", PistaIndustrial.LARGURA_I, 1790.0, 1830.0],
+			[portais.CARMESIM, "I de Incrível", PistaVulcao.LARGURA_V, 1990.0, 2040.0]]:
 		var portal: Portal = portais._portais[caso[0]]
 		assert(portal.destino_corrida == caso[1])
 		assert(portal.has_node("MarcadorCorrida"))
@@ -73,6 +74,9 @@ func _testar():
 		# Portal de volta depois da chegada, longe do puxão de quem ainda corre
 		var chegada_mundo: Vector3 = sprint.global_transform * pista.pontos[pista.amostra_em(pista.s_chegada)]
 		assert(sprint.portal_volta.global_position.distance_to(chegada_mundo) > Portal.ALCANCE_PUXAO + 30.0)
+
+		if sprint is Vulcao:
+			_testar_minas(sprint, carro)
 
 		# Largada
 		tecla(KEY_ENTER, true)
@@ -169,8 +173,44 @@ func _testar():
 		for i in 10:
 			await physics_frame
 
-	print("SPRINT_OK: Sistema S e Parque Industrial, ponta a ponta, rampas, chegada e volta")
+	print("SPRINT_OK: Sistema S, Parque Industrial e I de Incrível, ponta a ponta, rampas, minas, chegada e volta")
 	mapa.queue_free()
 	for i in 5:
 		await process_frame
 	quit()
+
+## Campos minados do I de Incrível: todos na corrida, com uma faixa reta livre que os
+## adversários enxergam; a mina detona (e some) com a batida e volta depois do rearme
+func _testar_minas(sprint: Vulcao, carro: RigidBody3D):
+	assert(sprint.campos.size() == Vulcao.CAMPOS.size())
+	assert(sprint.trafego.obstaculos == sprint.obstaculos)
+	var pista := sprint.pista
+	for campo in sprint.campos:
+		assert(campo.s0 > pista.s_largada + 50.0 and campo.s0 < pista.s_chegada - 50.0)
+		for m in campo.minas:
+			assert(absf(m.y) + CampoMinado.RAIO < pista.meia_util + 0.5, "Mina fora da pista")
+		var livres := 0
+		var d := -pista.meia_util
+		while d <= pista.meia_util:
+			var livre := true
+			var ds := -campo.alcance_s
+			while ds <= campo.alcance_s and livre:
+				livre = not campo.bloqueia(ds, d, 0.0)
+				ds += 0.5
+			if livre:
+				livres += 1
+			d += 0.85
+		assert(livres >= 1, "Campo em %.0f m sem faixa livre" % campo.s0)
+	var campo: CampoMinado = sprint.campos[0]
+	var mina: Vector2 = campo.minas[0]
+	var t := sprint.obstaculos.tempo
+	assert(campo.bloqueia(mina.x, mina.y, t) and campo.armada(0, t))
+	var vida: int = carro.vida
+	campo.atingido(mina.x, mina.y, t, null)
+	assert(not campo.armada(0, t) and not campo.bloqueia(mina.x, mina.y, t + 1.0))
+	assert(campo.has_node("Mina0") and not campo.get_node("Mina0").visible)
+	assert(campo.armada(0, t + CampoMinado.REARME))
+	assert(carro.vida == vida, "Detonação de adversário não fere o jogador")
+	campo._detonada[0] = -INF
+	campo.animar(t)
+	print("I de Incrível: %d campos minados, %d minas" % [sprint.campos.size(), sprint.campos.reduce(func(n, c): return n + c.minas.size(), 0)])

@@ -99,7 +99,8 @@ func _jogador():
 		batidas_jogador += 1
 		var ponto: Vector3 = carro.global_position + frente * MEIO_CARRO_FRENTE * -sentido + Vector3.UP * 0.5
 		carro._registrar_choque(FORCA_BATIDA, ponto, 0.0, &"estrutura")
-		carro._avisar("BATEU!", 1.2)
+		carro._avisar(obstaculo.aviso_batida, 1.2)
+		obstaculo.atingido(ds, info.d, tempo, carro)
 
 ## Aviso no visor uma vez por obstáculo, quando ele entra no alcance à frente
 func _avisar(carro: RigidBody3D, s: float):
@@ -231,6 +232,7 @@ func colidir_rivais():
 		if OS.has_environment("DEBUG_OBSTACULOS"):
 			var plano: Array = _plano.get(rival, [])
 			print("BATIDA %s em %s ds=%.1f d=%.1f v=%.1f distraido=%s plano=%s" % [rival.perfil.nome, obstaculo.get_class() if obstaculo.get_script() == null else obstaculo.get_script().get_global_name(), ds, rival.d, rival.v, _distraido.get(rival, [null, "?"])[1], plano.slice(2)])
+		obstaculo.atingido(ds, rival.d, tempo, null)
 		var empurra := obstaculo.lado_empurrao(ds, rival.d, tempo)
 		rival.levar_batida((empurra if empurra != 0.0 else 1.0) * 2.0, -rival.v, 4.0, null, false)
 		rival.v = 0.0

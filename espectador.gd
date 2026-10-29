@@ -24,6 +24,7 @@ var _destinos := {
 	"Vale das Turbinas": [ValeTurbinas, Mundos.ORIGEM_TURBINAS],
 	"Sistema S": [SistemaS, Mundos.ORIGEM_SISTEMA_S],
 	"Parque Industrial": [ParqueIndustrial, Mundos.ORIGEM_INDUSTRIAL],
+	"I de Incrível": [Vulcao, Mundos.ORIGEM_VULCAO],
 }
 var ambiente: WorldEnvironment
 var sol: DirectionalLight3D

@@ -1,6 +1,7 @@
 extends Node
 ## Troca de mapa pelos portais. O mundo neon e os mapas de corrida (MapaCorrida: o
-## Deserto, o Vale das Turbinas, o Sistema S e o Parque Industrial) ficam na mesma cena: cada mapa é montado longe, na
+## Deserto, o Vale das Turbinas, o Sistema S, o Parque Industrial e o I de Incrível) ficam
+## na mesma cena: cada mapa é montado longe, na
 ## sua ORIGEM, na primeira visita. Atravessar um portal de corrida cobre a visão,
 ## desliga o mundo neon (chão, névoa, portais), troca céu e sol, e leva o
 ## carro para a largada do circuito; o portal de volta faz o caminho contrário,
@@ -10,12 +11,15 @@ const ORIGEM_DESERTO := Vector3(4000.0, 0.0, 0.0)
 const ORIGEM_TURBINAS := Vector3(-4000.0, 0.0, 0.0)
 const ORIGEM_SISTEMA_S := Vector3(0.0, 0.0, 4000.0)
 const ORIGEM_INDUSTRIAL := Vector3(0.0, 0.0, -4000.0)
+## Longe dos outros na diagonal: o chão de lava tem 5,6 km de lado
+const ORIGEM_VULCAO := Vector3(-5000.0, 0.0, -5000.0)
 ## Destino do portal (Portal.destino_corrida) -> [classe do mapa, onde fica]
 var _destinos := {
 	"Deserto": [Deserto, ORIGEM_DESERTO],
 	"Vale das Turbinas": [ValeTurbinas, ORIGEM_TURBINAS],
 	"Sistema S": [SistemaS, ORIGEM_SISTEMA_S],
 	"Parque Industrial": [ParqueIndustrial, ORIGEM_INDUSTRIAL],
+	"I de Incrível": [Vulcao, ORIGEM_VULCAO],
 }
 
 @export var carro: RigidBody3D
@@ -38,6 +42,8 @@ var sistema_s: SistemaS:
 	get: return mapas.get("Sistema S")
 var industrial: ParqueIndustrial:
 	get: return mapas.get("Parque Industrial")
+var vulcao: Vulcao:
+	get: return mapas.get("I de Incrível")
 var no_deserto: bool:
 	get: return mapa_atual != null and mapa_atual == deserto
 var no_mapa_corrida: bool:

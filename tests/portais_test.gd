@@ -27,7 +27,7 @@ func _testar():
 	mapa.ritual.estado = mapa.ritual.Estado.PARTIDA
 	carro.em_ritual = false
 	# Entrar dirigindo ao nível do chão deve disparar a transição, sem chamar Mundos diretamente.
-	for indice in [portais.CARMESIM, portais.AMBAR]:
+	for indice in [portais.AMBAR]:
 		var portal: Portal = portais._portais[indice]
 		carro.teleportar(Transform3D(Basis.IDENTITY, portal.global_position))
 		carro.freeze = true
@@ -51,10 +51,12 @@ func _testar():
 		assert(not carro.em_transicao and not mundos._transicao.visible)
 		assert(mundos._transicao._destino == "Mundo Neon")
 		assert(not mapa.get_node("HexWorld").carregando())
-	# Todo portal leva a uma corrida (ciano: Sistema S, violeta: Parque Industrial)
+	# Todo portal leva a uma corrida (ciano: Sistema S, violeta: Parque Industrial,
+	# carmesim: I de Incrível)
 	assert(portais.CORRIDAS.size() == portais.CORES.size())
 	assert(portais.CORRIDAS[portais.CIANO] == "Sistema S" and portais.CORRIDAS[portais.VIOLETA] == "Parque Industrial")
-	print("PORTAIS_OK: entrada real no carmesim e âmbar; marcador em todos os portais de corrida")
+	assert(portais.CORRIDAS[portais.CARMESIM] == "I de Incrível")
+	print("PORTAIS_OK: entrada real no âmbar; marcador em todos os portais de corrida")
 	mapa.queue_free()
 	for i in 5:
 		await process_frame

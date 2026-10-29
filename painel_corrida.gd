@@ -6,23 +6,23 @@ extends PainelHolografico
 enum Pagina { CONTROLES, CONTAGEM, CHEGADA }
 enum Dispositivo { VR, CONTROLE, TECLADO }
 
-## [tecla, ação] de cada dispositivo (no circuito não tem voo de energia)
+## [tecla, ação] de cada dispositivo
 const CONTROLES := {
 	Dispositivo.VR: [
 		["GATILHO D", "ACELERAR"], ["GATILHO E", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["GRIP", "PEGAR GUIDÃO"],
+		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
 		["B", "DASH"], ["X", "FREIO DE MÃO"],
 		["Y", "DESVIRAR"], ["CLIQUE E", "RECENTRAR"],
 	],
 	Dispositivo.CONTROLE: [
 		["RT", "ACELERAR"], ["LT", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["ANALÓG. D", "OLHAR"],
+		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
 		["B", "DASH / RT 2X"], ["X", "FREIO DE MÃO"],
-		["Y", "DESVIRAR"], ["R3", "CENTRAR VISÃO"],
+		["Y", "DESVIRAR"], ["ANALÓG. D ↕", "NARIZ NO AR"],
 	],
 	Dispositivo.TECLADO: [
 		["W / ↑", "ACELERAR"], ["S / ↓", "FREIO / RÉ"],
-		["A D", "ESTERÇAR"], ["MOUSE", "OLHAR"],
+		["A D", "ESTERÇAR"], ["E", "NITRO"],
 		["W W", "DASH"], ["ESPAÇO", "FREIO DE MÃO"],
 		["R", "DESVIRAR"], ["ESC", "SOLTAR MOUSE"],
 	],

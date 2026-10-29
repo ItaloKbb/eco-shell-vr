@@ -268,14 +268,20 @@ func _contatos_com_jogador():
 		var atacando := rival.ia.estado == IARival.Estado.ATACAR and rival.ia.alvo == jogador
 		var lateral := absf(rival._vel_lateral)
 		var dv := 0.0
+		var empurrao := lado * (0.8 + lateral * 0.4)
 		if rival_atras:
 			# Bateu na traseira do jogador: perde o embalo
 			dv = -choque * 0.6
 		else:
-			# Levou do jogador por trás: é empurrado para a frente
-			dv = choque * 0.5
-		rival.levar_batida(lado * (0.8 + lateral * 0.4), dv, choque + lateral, jogador, atacando or rival_atras)
-		if atacando:
+			# O jogador acertou a traseira dele: é ataque do jogador. O adversário perde o
+			# embalo e é jogado de lado (o jogador não leva dano, ver car.gd "ataque")
+			dv = -choque * 0.5
+			empurrao = lado * (1.2 + choque * 0.35)
+			if choque > 1.0:
+				carro._avisar("ACERTOU %s!" % rival.perfil.nome, 1.0)
+				carro._vibrar_ambas(0.5, 0.12)
+		rival.levar_batida(empurrao, dv, choque + lateral, jogador, atacando or rival_atras)
+		if atacando and rival_atras:
 			_tranco_no_jogador(rival, -lado, rival_atras)
 
 ## Pancada de brigão: empurra o carro do jogador (para a frente se veio por trás,

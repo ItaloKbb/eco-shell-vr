@@ -25,7 +25,7 @@ func _testar():
 	jogo.ritual.estado = jogo.ritual.Estado.PARTIDA
 	carro.em_ritual = false
 	var t: Dictionary = carro.telemetria()
-	for chave in ["pos", "rot", "vel", "vida", "vida_max", "explodindo", "na_esfera", "energia", "mapa"]:
+	for chave in ["pos", "rot", "vel", "vida", "vida_max", "explodindo", "na_esfera", "nitro", "nitros", "mapa"]:
 		assert(t.has(chave), "Telemetria sem %s" % chave)
 	assert(t.mapa == "" and t.pos is Vector3 and t.rot is Quaternion and not t.has("rivais"))
 	var mundos = jogo.get_node("Mundos")
@@ -70,10 +70,10 @@ func _testar():
 	assert(rival_quest.distance_to(deserto.largada(0).origin) < 1.0, "Mesmo mapa no Quest e no telão")
 	var ana := {"peer": 5, "nome": "Ana", "apelido": "Óculos 1", "estado": "lobby",
 		"pos": Vector3(10, 0.3, 20), "rot": Quaternion.IDENTITY, "vel": 88.4, "vida": 6, "vida_max": 8,
-		"explodindo": false, "na_esfera": false, "energia": false, "mapa": ""}
+		"explodindo": false, "na_esfera": false, "nitro": false, "mapa": ""}
 	var beto := {"peer": 9, "nome": "", "apelido": "Óculos 2", "estado": "correndo",
 		"pos": largada.origin, "rot": largada.basis.get_rotation_quaternion(), "vel": 142.0, "vida": 8, "vida_max": 8,
-		"explodindo": false, "na_esfera": false, "energia": false, "mapa": "Deserto",
+		"explodindo": false, "na_esfera": false, "nitro": false, "mapa": "Deserto",
 		"volta": 2, "voltas": 3, "posicao": 3, "total": 11, "rivais": rivais_quest}
 	rede.quadro_recebido.emit([ana, beto])
 	await _esperar(3)

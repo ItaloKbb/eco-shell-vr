@@ -191,7 +191,7 @@ mesh = SubResource("Mesh_botao")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.031, 0.001)
 pixel_size = 0.0002
 modulate = Color(0.55, 0.85, 1, 1)
-text = "ENERGIA"
+text = "NITRO"
 font_size = 40
 outline_size = 0
 

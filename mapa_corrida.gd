@@ -12,6 +12,8 @@ const ADVERSARIOS := 10
 var pista: PistaCorrida
 var corrida: Corrida
 var portal_volta: Portal
+## Turbos de nitro flutuando na pista
+var nitros: NitrosPista
 var rivais: Array[CarroRival] = []
 var trafego: TrafegoCorrida
 var ambiente := Environment.new()
@@ -59,6 +61,8 @@ func _posicao_portal_volta() -> Vector3:
 func _montar_circuito():
 	pista = _nova_pista()
 	add_child(pista)
+	nitros = NitrosPista.new(pista)
+	pista.add_child(nitros)
 	if not so_cenario:
 		# Adversários nas primeiras vagas do grid, cada um com sua personalidade
 		CarroRival.preparar(self)

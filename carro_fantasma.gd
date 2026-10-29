@@ -20,6 +20,8 @@ var interpolador := InterpoladorRede.new()
 ## m/s, para girar as rodas
 var vel := 0.0
 var explodindo := false
+## Quantas vezes o dono ligou o nitro (telemetria "nitros"); -1 = ainda não visto
+var _nitros := -1
 
 func _init(pintura: Array, nome: String, numero: int, jogador: bool, translucido := false):
 	var visual := CarroRival.montar_visual(self, pintura, nome, numero)
@@ -72,6 +74,26 @@ func _anel(cor: Color):
 func receber(t: float, pos: Vector3, rot: Quaternion, vel_kmh: float):
 	interpolador.adicionar(t, pos, rot)
 	vel = vel_kmh / 3.6
+
+## Contador de nitros do dono (telemetria): subiu, ele acabou de ligar e o ronco toca
+## aqui, no carro dele. O primeiro valor visto só marca o ponto de partida
+func ver_nitro(contador: int):
+	if _nitros >= 0 and contador > _nitros and visible:
+		CarroFantasma.roncar(self)
+	_nitros = contador
+
+## Ronco do nitro (som_gerador.gd "nitro") preso ao carro, alto o bastante para ouvir
+## de longe; some quando acaba
+static func roncar(pai: Node3D):
+	var som := SomGerador.fonte("nitro")
+	if som.stream == null:
+		som.free()
+		return
+	som.unit_size = 12.0
+	som.position = Vector3(0.0, 0.35, 1.2)
+	pai.add_child(som)
+	som.play()
+	som.finished.connect(som.queue_free)
 
 ## Some e volta a aparecer depois (renascer, outra corrida): começa da próxima pose
 func reiniciar():

@@ -6,37 +6,38 @@ extends RigidBody3D
 ## cai em buracos.
 ## W/S acelera/freia/ré, A/D esterça, Espaço é o freio de mão (solta a traseira).
 ## Acelerar e frear ao mesmo tempo (W+S, ou os dois gatilhos) faz drift: a traseira
-## solta mas continua tracionando.
+## solta mas continua tracionando. Fora do drift e do freio de mão o pneu guarda
+## primeiro a aderência lateral: o motor só usa o que sobra, e a traseira não escapa
+## por acelerar numa curva.
 ##
-## E (ou o botão no painel, apertado com o dedo em VR) liga a energia: o carro vira
-## planador, fica cinemático e voa como numa montanha-russa, deixando duas paredes de
-## luz sólidas saindo das pontas das asas, como as motos do Tron. Espaço levanta o
-## nariz, Shift abaixa (o ângulo fica onde parou), A/D fazem curvas inclinando o carro
-## aos poucos. Se o embalo não segurar o carro (lento de cabeça para baixo ou numa
-## subida íngreme), ou se ele bater numa parede de luz, ele desgruda e cai.
+## E (ou o botão no painel, apertado com o dedo em VR) liga o nitro: o carro continua
+## no chão, fica 1,5x mais rápido e deixa uma linha de luz saindo do centro da
+## traseira. O tanque enche pegando os turbos que flutuam nas pistas (NitrosPista).
+## No ar, o analógico direito (cima/baixo) abaixa/levanta o nariz e o esquerdo gira o
+## carro de lado, como no GTA, para acertar o pouso.
 ##
 ## W duas vezes seguidas: dash. R: desvira/reposiciona. O mouse só move a cabeça.
 ##
 ## No Meta Quest (Quest Link / OpenXR) a câmera VR fica nos olhos do piloto e vale:
 ## gatilho direito acelera, gatilho esquerdo freia/ré, analógico esquerdo esterça,
-## analógico direito (cima/baixo) inclina na energia, A liga a energia, B ou dois toques
+## analógico direito (cima/baixo) controla o nariz no ar, A liga o nitro, B ou dois toques
 ## no gatilho direito fazem o dash, X é o freio de mão, Y desvira, clique no analógico
 ## esquerdo recentraliza a visão; clique no direito alterna o conforto VR. As mãos aparecem como os controles do Quest (ou a malha
 ## da própria mão, com rastreamento de mãos); o guidão só acompanha o esterço.
 ## O teclado continua funcionando junto.
 ##
 ## Gamepad (Xbox, ROG Ally, Steam Deck...) segue o mesmo esquema do Quest: RT acelera,
-## LT freia/ré, analógico esquerdo esterça, analógico direito inclina na energia (cima/
-## baixo) e olha para os lados, A liga a energia, B ou dois toques no RT fazem o dash,
+## LT freia/ré, analógico esquerdo esterça, analógico direito controla o nariz no ar
+## (cima/baixo) e olha para os lados, A liga o nitro, B ou dois toques no RT fazem o dash,
 ## X é o freio de mão, Y desvira; clique em qualquer analógico recentraliza os olhos
 ## exatamente na âncora do cockpit, inclusive no menu de nascimento.
 
 ## Para o som (som_carro.gd): o carro tocou o chão pela primeira vez, usou o dash,
-## ligou/desligou a energia, ou bateu (roda pousando, degrau, casco contra algo)
+## ligou/desligou o nitro, ou bateu (roda pousando, degrau, casco contra algo)
 signal largou
 signal dash_usado
-signal energia_mudou(ligada: bool, caiu: bool)
-## `material`: o que foi atingido (chao, estrutura, luz, rival), para o som
+signal nitro_mudou(ligado: bool)
+## `material`: o que foi atingido (chao, estrutura, rival), para o som
 signal impacto(forca: float, ponto: Vector3, material: StringName)
 signal botao_apertado(ponto: Vector3)
 ## Dano: perdeu barrinhas de vida; explodiu (força total ou vida zerada); renasceu
@@ -45,15 +46,14 @@ signal explodiu
 signal retorno_solicitado
 signal renasceu
 signal visao_recentralizada
-## Energia do voo: encheu mais uma barra derrapando; tentou voar sem energia
-signal energia_carregada(barras: int)
-signal sem_energia
+## Pegou um turbo de nitro; recusa (nitro vazio, portal fechado): bip grave
+signal nitro_coletado(barras: int)
+signal sem_nitro
 
 const VIDA_MAX := 8
 const CONFORTO_VR := preload("res://conforto_vr.gd")
 
 const GRAVIDADE := 9.8
-const CENTRO_ESFERA := Vector3(0, 1.5, 0)
 const FOLGA_RODA := 0.35
 
 @export var hex_world: Node3D
@@ -77,6 +77,10 @@ const FOLGA_RODA := 0.35
 @export_range(0.1, 1.0) var direcao_em_velocidade := 0.5
 @export var resposta_direcao := 1.4
 @export var raio_roda := 0.245
+## Fração da aderência lateral que a traseira mantém no drift (acelerando e freando juntos)
+@export_range(0.05, 1.0) var aderencia_drift := 0.3
+## Parte do pneu sempre disponível para motor e freio, mesmo numa curva no limite
+@export_range(0.0, 1.0) var reserva_tracao := 0.35
 
 @export_group("Suspensão e pneus")
 @export var curso_suspensao := 0.15
@@ -90,25 +94,21 @@ const FOLGA_RODA := 0.35
 ## a rolagem da carroceria nas curvas, que a câmera VR herda e causa vertigem
 @export var barra_estabilizadora := 8000.0
 
-@export_group("Pista de energia")
-@export var aceleracao_energia := 6.0
-@export var velocidade_max_energia := 18.0
-## Quanto a gravidade freia nas subidas e embala nas descidas (1 = real).
-## Em 1, subidas acima de ~38° vencem o motor: é preciso embalo (ou dash) para passar.
-@export_range(0.0, 1.0) var efeito_gravidade := 1.0
-## Velocidade com que Espaço/Shift mudam a inclinação (rad/s)
-@export var taxa_inclinacao := 0.7
-@export var raio_curva := 15.0
-## Inclinação lateral máxima nas curvas (rad). Pequena de propósito: a câmera VR herda
-## o giro inteiro, e os ~40° de antes davam vertigem
-@export var giro_max := 0.2
-@export var taxa_giro := 1.5
-## Atração magnética da pista, em g; somada à força centrípeta segura o carro invertido
-@export var aderencia_energia := 0.35
-## Abaixo disso o carro escorrega de subidas íngremes
-@export var velocidade_minima := 4.0
-## Distância mínima entre o carro e o centro da esfera inicial
-@export var raio_esfera := 4.45
+@export_group("Nitro")
+## Quanto a velocidade máxima sobe com o nitro ligado
+@export var fator_nitro := 1.5
+## Empurrão extra do nitro (m/s²), por cima do motor: o pneu sozinho não chega lá
+@export var empuxo_nitro := 3.5
+## Barras do tanque, gasto por segundo ligado e quanto cada turbo da pista enche.
+## A primeira vida da sessão já começa com o tanque cheio
+@export var nitro_max := 5
+@export var consumo_nitro := 1.0
+@export var nitro_por_turbo := 2.5
+
+@export_group("No ar")
+## Giro máximo comandado pelos analógicos no ar (rad/s). Baixo de propósito: a câmera
+## VR gira junto com o carro
+@export var giro_no_ar := 1.6
 
 @export_group("Dash")
 @export var dash_impulso := 8.0
@@ -116,30 +116,19 @@ const FOLGA_RODA := 0.35
 ## Tempo máximo entre os dois toques no W (s)
 @export var dash_janela := 0.3
 
-@export_group("Energia")
-## Barras de energia do voo. Só enchem derrapando no chão (freio de mão de lado ou
-## drift). A primeira vida da sessão já começa com a energia cheia
-@export var energia_max := 5
-## Escorregamento lateral (m/s) a partir do qual a derrapagem carrega
-@export var derrapagem_minima := 0.6
-## Barras por segundo para cada m/s de escorregamento acima do mínimo
-@export var carga_derrapagem := 0.8
-## Barras gastas por segundo de voo
-@export var consumo_voo := 0.25
-## Fração da aderência lateral que a traseira mantém no drift (acelerando e freando juntos)
-@export_range(0.05, 1.0) var aderencia_drift := 0.3
-
 @export_group("Dano")
-## Força de um choque = variação brusca de velocidade (m/s). Abaixo disso, só barulho
-@export var choque_minimo := 4.0
+## Força de um choque = variação brusca de velocidade (m/s). Abaixo disso, só barulho.
+## Limites altos: raspar o muro ou encostar num carro não estraga; bater de frente na
+## velocidade máxima tira 2 barras, e só uma pancada enorme (nitro de frente) explode
+@export var choque_minimo := 6.0
 ## Daqui para cima tira 2 barrinhas (abaixo, 1)
-@export var choque_medio := 7.0
+@export var choque_medio := 10.0
 ## Daqui para cima tira 3 barrinhas
-@export var choque_forte := 11.0
+@export var choque_forte := 15.0
 ## Força total: explode na hora
-@export var choque_fatal := 15.0
+@export var choque_fatal := 24.0
 ## Roda pousando mais rápido que isso também estraga o carro (m/s)
-@export var pouso_duro := 6.0
+@export var pouso_duro := 7.0
 @export var tempo_renascer := 3.0
 ## Lobby (mundo neon): segundos livres depois de sair da esfera; passado isso o casco
 ## entra em sobrecarga e perde a vida aos poucos, explodindo em `tempo_sobrecarga`.
@@ -185,27 +174,23 @@ const HUD_ALERTA := Color(1.0, 0.3, 0.25)
 @onready var botao_tampa: Node3D = $Painel/BotaoEnergia/Tampa
 @onready var material_botao: StandardMaterial3D = $Painel/BotaoEnergia/Tampa.mesh.material
 
-## Botão da energia no painel: curso da tampa (m) e quanto precisa afundar para acionar
+## Botão do nitro no painel: curso da tampa (m) e quanto precisa afundar para acionar
 const CURSO_BOTAO := 0.008
 const ACIONA_BOTAO := 0.006
 @onready var luz_inferior: OmniLight3D = $LuzInferior
 @onready var material_roda: ShaderMaterial = $RodaT/Giro/Pneu.mesh.material
 @onready var material_asa: ShaderMaterial = $AsaE/Malha.mesh.material
 
-## Modo planador (pista de energia): onde cada roda fica deitada, como disco de levitação
-const POSE_VOO: Array[Vector3] = [Vector3(-0.36, 0.22, -0.75), Vector3(0.36, 0.22, -0.75), Vector3(0.0, 0.05, 0.7)]
+## Centro da traseira (local), de onde sai a linha de luz do nitro
+const TRASEIRA := Vector3(0.0, 0.3, 1.36)
 
 ## Velocidade ao longo da frente do carro
 var velocidade := 0.0
 var direcao := 0.0
-var gerando := false
-## Orientação no modo energia, em ângulos de Euler (ordem YXZ do Godot)
-var rumo := 0.0
-var inclinacao := 0.0
-var giro := 0.0
+var nitro_ativo := false
+## Quantas vezes o nitro foi ligado (a rede manda para os outros ouvirem o ronco)
+var nitros_ligados := 0
 var rodas_no_chao := 0
-## 1 = pista segurando com folga, 0 = vai cair
-var aderencia := 1.0
 ## Comando do acelerador (-1 a 1), quanto está freando (0 a 1) e o maior
 ## escorregamento dos pneus no chão (m/s), lidos pelo som
 var comando_acel := 0.0
@@ -221,23 +206,17 @@ var em_transicao := false
 ## Parado no grid esperando a largada (corrida.gd): comandos lidos, carro preso
 var segurado := false
 var nickname := "PILOTO"
-## Nos circuitos não tem voo de energia (só derrapagem e dash)
-var pode_voar := true
 ## Texto da corrida (corrida.gd); quando tem, ocupa o lado esquerdo do visor
 var painel_corrida := ""
 var _ja_largou := false
-## Energia do voo, em barras (fração = barra enchendo). Cheia na primeira vida
-var energia := 0.0
+## Nitro no tanque, em barras (fração = barra pela metade). Cheio na primeira vida
+var nitro := 0.0
 var _primeira_vida := true
 ## Acelerando e freando juntos: traseira solta para derrapar
 var drift := false
-## Derrapando o bastante para carregar neste passo
-var carregando := false
-var _deriva_lateral := 0.0
 ## Puxão de portal acumulado neste passo, e sua intensidade para o visor
 var _puxao := Vector3.ZERO
 var _puxao_hud := 0.0
-var _brilho_carga := 0.0
 
 var _ancoras: Array[Vector3] = []
 var _repouso_rodas: Array[Vector3] = []
@@ -397,7 +376,7 @@ func _ponta_dedo(i: int) -> Vector3:
 	return mao.global_transform * Vector3(0.0, 0.0, -0.07)
 
 ## Botão físico do painel: a ponta do indicador (ou do controle) empurra a tampa;
-## afundando o bastante, liga/desliga a energia (uma vez por toque, solta quando sai)
+## afundando o bastante, liga/desliga o nitro (uma vez por toque, solta quando sai)
 func _apertar_botao():
 	var afunda := 0.0
 	var quem := -1
@@ -416,7 +395,7 @@ func _apertar_botao():
 	botao_tampa.position.z = 0.008 - afunda
 	if afunda >= ACIONA_BOTAO and not _botao_preso:
 		_botao_preso = true
-		_alternar_energia()
+		_alternar_nitro()
 		botao_apertado.emit(botao.global_position)
 		_vibrar(mao_esquerda if quem == 0 else mao_direita, 0.5, 0.05)
 	elif afunda < 0.002:
@@ -489,12 +468,12 @@ func _input(event):
 			return
 	if not em_ritual and not em_transicao and event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
-			KEY_E: _alternar_energia()
+			KEY_E: _alternar_nitro()
 			KEY_R: _desvirar()
 			KEY_W: _ultimo_w = _toque_duplo(_ultimo_w)
 	if not em_ritual and not em_transicao and event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
-			JOY_BUTTON_A: _alternar_energia()
+			JOY_BUTTON_A: _alternar_nitro()
 			JOY_BUTTON_B: _dash()
 			JOY_BUTTON_Y: _desvirar()
 			JOY_BUTTON_LEFT_STICK, JOY_BUTTON_BACK:
@@ -537,7 +516,7 @@ func _botao_direito(nome: String):
 	if em_ritual or em_transicao:
 		return
 	match nome:
-		"ax_button": _alternar_energia()
+		"ax_button": _alternar_nitro()
 		"by_button": _dash()
 		"trigger_click": _ultimo_gatilho = _toque_duplo(_ultimo_gatilho)
 
@@ -601,7 +580,7 @@ func _physics_process(delta):
 		freio_mao = freio_mao or mao_esquerda.is_button_pressed("ax_button")
 	pedal = minf(pedal, 1.0)
 	pedal_freio = minf(pedal_freio, 1.0)
-	drift = pedal > 0.5 and pedal_freio > 0.5 and not gerando
+	drift = pedal > 0.5 and pedal_freio > 0.5
 	acel += pedal if drift else pedal - pedal_freio
 	acel = clamp(acel, -1.0, 1.0)
 	vira = clamp(vira, -1.0, 1.0)
@@ -615,12 +594,11 @@ func _physics_process(delta):
 		_animar(delta)
 		_atualizar_painel()
 		return
-	if gerando:
-		_andar_na_energia(delta, acel, vira, sobe)
-	elif not _trilho.is_empty():
+	if not _trilho.is_empty():
 		_andar_no_trilho(delta, acel)
 	else:
-		_andar_com_fisica(delta, acel, vira, freio_mao)
+		_andar_com_fisica(delta, acel, vira, sobe, freio_mao)
+	_gastar_nitro(delta)
 	if _choque > 0.0:
 		var forca := _choque
 		_choque = 0.0
@@ -646,10 +624,12 @@ func _physics_process(delta):
 
 # --- Chão: corpo rígido com suspensão por raio ------------------------------
 
-func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
+func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, freio_mao: bool):
 	var cima := global_basis.y
 	var frente := -global_basis.z
 	velocidade = linear_velocity.dot(frente)
+	# Nitro: a máxima sobe e um empurrão extra leva o carro até lá
+	var maxima := velocidade_max * (fator_nitro if nitro_ativo else 1.0)
 	var rapidez: float = clamp(abs(velocidade) / velocidade_max, 0.0, 1.0)
 	direcao = move_toward(direcao, vira * direcao_max * lerp(1.0, direcao_em_velocidade, rapidez), resposta_direcao * delta)
 
@@ -659,7 +639,6 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 	rodas_no_chao = 0
 	freio = 1.0 if freio_mao else 0.0
 	derrapagem = 0.0
-	_deriva_lateral = 0.0
 	var agora := Time.get_ticks_msec() / 1000.0
 	for i in 3:
 		# Esfera do tamanho da roda descendo pelo curso da suspensão: passa liso
@@ -699,7 +678,6 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 			_ultimo_impacto[i] = agora
 		_tocando[i] = true
 		derrapagem = max(derrapagem, absf(v_lat))
-		_deriva_lateral = max(_deriva_lateral, absf(v_lat))
 		if (acel > 0.0 and v_long < -0.3) or (acel < 0.0 and v_long > 0.3):
 			freio = max(freio, absf(acel))
 		if freio_mao and traseira:
@@ -709,7 +687,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 		var parar := absf(v_long) * parte / delta
 		if (acel > 0.0 and v_long < -0.3) or (acel < 0.0 and v_long > 0.3):
 			f_long = -signf(v_long) * min(frenagem * parte * absf(acel), parar)
-		elif traseira and acel > 0.0 and v_long < velocidade_max:
+		elif traseira and acel > 0.0 and v_long < maxima:
 			f_long = aceleracao * mass * acel
 		elif traseira and acel < 0.0 and v_long > -velocidade_re:
 			f_long = aceleracao * forca_re * mass * acel
@@ -720,11 +698,19 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 
 		# Freio de mão solta a traseira para derrapar; no drift ela solta mas segue tracionando
 		var grip := aderencia_lateral
-		if traseira and freio_mao:
-			grip *= 0.25
-		elif traseira and drift:
-			grip *= aderencia_drift
-		var atrito := Vector2(f_long, -v_lat * parte * grip).limit_length(atrito_pneu * carga)
+		var limite := atrito_pneu * carga
+		var lateral := -v_lat * parte * grip
+		var atrito: Vector2
+		if traseira and (freio_mao or drift):
+			grip *= 0.25 if freio_mao else aderencia_drift
+			atrito = Vector2(f_long, -v_lat * parte * grip).limit_length(limite)
+		else:
+			# Lateral primeiro: motor e freio usam só o que sobra do pneu (com uma reserva
+			# para o pedal sempre responder). Antes o motor, sozinho maior que o limite da
+			# roda traseira, levava toda a aderência e a traseira escapava acelerando
+			lateral = clampf(lateral, -limite, limite)
+			var sobra := maxf(sqrt(maxf(limite * limite - lateral * lateral, 0.0)), limite * reserva_tracao)
+			atrito = Vector2(clampf(f_long, -sobra, sobra), lateral)
 		apply_force(cima * carga + frente_roda * atrito.x + lado_roda * atrito.y, braco)
 
 	# Barra estabilizadora: a roda dianteira mais comprimida empurra a carroceria para
@@ -735,19 +721,21 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 			var ponto_barra: Vector3 = global_transform * _ancoras[i] - cima * _distancias[i]
 			apply_force(cima * (torcao if i == 0 else -torcao), ponto_barra - global_position)
 
-	# Derrapagem de lado (não vale travar a roda indo reto) carrega a energia do voo
-	carregando = rodas_no_chao >= 2 and _deriva_lateral > derrapagem_minima and energia < energia_max
-	if carregando:
-		var antes := floori(energia)
-		energia = minf(energia + (_deriva_lateral - derrapagem_minima) * carga_derrapagem * delta, energia_max)
-		if floori(energia) > antes:
-			energia_carregada.emit(floori(energia))
-			_vibrar_ambas(0.4, 0.06)
+	# Nitro no chão: empurrão pelo centro (não passa pelo pneu, então não faz a traseira
+	# escapar), só acelerando e até a máxima do nitro
+	if nitro_ativo and rodas_no_chao > 0 and acel > 0.0 and velocidade < maxima:
+		apply_central_force(frente * empuxo_nitro * acel * mass)
 
-	# Salto rápido (rampas, lançador do abismo): no ar o nariz acompanha a trajetória
-	# aos poucos, só na arfagem, para pousar com as rodas e não com a cauda
 	_no_ar = _no_ar + delta if rodas_no_chao == 0 else 0.0
-	if _no_ar > 0.15 and linear_velocity.length() > 8.0:
+	# No ar, como no GTA: analógico direito para a frente abaixa o nariz, para trás
+	# levanta; o esquerdo de lado gira o carro no eixo da frente. Sem comando, o nariz
+	# acompanha a trajetória sozinho (salto rápido), para pousar com as rodas
+	var comando_ar := Vector2(vira, sobe)
+	if _no_ar > 0.1 and comando_ar.length() > 0.05:
+		var direita := global_basis.x
+		var alvo := (direita * -sobe + frente * -vira) * giro_no_ar
+		angular_velocity += (alvo + angular_velocity.project(cima) - angular_velocity) * minf(1.0, 5.0 * delta)
+	elif _no_ar > 0.15 and linear_velocity.length() > 8.0:
 		var direita := global_basis.x
 		var rumo_voo := linear_velocity.slide(direita)
 		if rumo_voo.length() > 1.0:
@@ -769,7 +757,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 
 ## Entrada de um loop: o carro passa a seguir o caminho com a velocidade que trouxe
 func entrar_trilho(trilho: Dictionary):
-	if gerando or explodindo or em_ritual or em_transicao or segurado or not _trilho.is_empty():
+	if explodindo or em_ritual or em_transicao or segurado or not _trilho.is_empty():
 		return
 	var pontos: PackedVector3Array = trilho.pontos
 	var tangente := (pontos[1] - pontos[0]).normalized()
@@ -811,9 +799,6 @@ func _andar_no_trilho(delta: float, acel: float):
 	elif acel < 0.0:
 		velocidade = move_toward(velocidade, 0.0, frenagem * -acel * delta)
 	velocidade -= arrasto * 0.5 * delta
-	aderencia = 1.0
-	if cima.y < 0.0:
-		aderencia = clampf(velocidade * velocidade * curvatura / (-cima.y * GRAVIDADE) - 1.0, 0.0, 1.0)
 	if velocidade <= 0.5 or (cima.y < -0.1 and velocidade * velocidade * curvatura < -cima.y * GRAVIDADE):
 		_sair_do_trilho()
 		_avisar("SEM EMBALO!", 1.5)
@@ -840,134 +825,65 @@ func _sair_do_trilho():
 	linear_velocity = -global_basis.z * velocidade
 	angular_velocity = Vector3.ZERO
 
-# --- Pista de energia: trilho cinemático ------------------------------------
+# --- Nitro --------------------------------------------------------------------
 
-func _alternar_energia():
-	if pista == null or explodindo or em_ritual or em_transicao or segurado or not _trilho.is_empty():
+func _alternar_nitro():
+	if explodindo or em_ritual or em_transicao or segurado:
 		return
-	if not gerando and not pode_voar:
-		_avisar("SEM VOO AQUI", 1.5)
-		sem_energia.emit()
-		return
-	if gerando:
-		_sair_da_energia(false)
-	elif energia < 1.0:
-		# Para decolar precisa de pelo menos uma barra cheia
-		_avisar("DERRAPE!", 1.5)
-		sem_energia.emit()
+	if nitro_ativo:
+		_desligar_nitro()
+	elif nitro < 0.5:
+		_avisar("PEGUE NITRO NA PISTA" if hex_world is MapaCorrida else "SEM NITRO", 1.5)
+		sem_nitro.emit()
 	else:
-		_entrar_na_energia()
+		_ligar_nitro()
 
-func _entrar_na_energia():
-	var e := global_basis.get_euler()
-	# No chão o carro sempre tem um pouco de nariz para cima ou para baixo (suspensão,
-	# degraus). No voo isso vira subida contínua e o carro passa por cima das próprias
-	# paredes de luz: inclinações pequenas começam niveladas
-	inclinacao = e.x if absf(e.x) > deg_to_rad(8.0) else 0.0
-	rumo = e.y
-	giro = e.z if absf(e.z) > deg_to_rad(8.0) else 0.0
-	velocidade = max(linear_velocity.dot(-global_basis.z), 0.0)
-	freeze = true
-	gerando = true
-	freio = 0.0
-	derrapagem = 0.0
-	pista.comecar(global_transform, _pontas())
-	_vibrar_ambas(0.3, 0.1)
-	energia_mudou.emit(true, false)
+func _ligar_nitro():
+	nitro_ativo = true
+	nitros_ligados += 1
+	if pista:
+		pista.comecar(global_transform * TRASEIRA, global_basis.y)
+	var tw := create_tween()
+	tw.tween_property(camera, "fov", _fov + 12.0, 0.2)
+	tw.tween_property(camera, "fov", _fov, 1.2).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	_avisar("NITRO!", 1.0)
+	_vibrar_ambas(0.5, 0.3)
+	nitro_mudou.emit(true)
 
-func _sair_da_energia(caiu: bool):
-	gerando = false
-	pista.terminar(global_transform, _pontas())
-	freeze = false
-	linear_velocity = -global_basis.z * velocidade
-	angular_velocity = Vector3.ZERO
-	energia_mudou.emit(false, caiu)
-	if caiu:
-		# Desgrudou: sai rodopiando um pouco
-		angular_velocity = global_basis.z * randf_range(-1.5, 1.5) + global_basis.x * randf_range(-0.6, 0.6)
-		_avisar("SEM ADERÊNCIA!", 2.0)
-		_vibrar_ambas(1.0, 0.4)
-
-func _andar_na_energia(delta: float, acel: float, vira: float, sobe: float):
-	# O voo gasta energia; acabou, o planador desliga e o carro cai
-	energia = maxf(energia - consumo_voo * delta, 0.0)
-	if energia <= 0.0:
-		_sair_da_energia(false)
-		_avisar("SEM ENERGIA", 2.0)
+func _desligar_nitro():
+	if not nitro_ativo:
 		return
-	if acel > 0.0: velocidade = max(velocidade, min(velocidade + aceleracao_energia * acel * delta, velocidade_max_energia))
-	elif acel < 0.0: velocidade = move_toward(velocidade, 0.0, frenagem * -acel * delta)
-	else: velocidade = move_toward(velocidade, 0.0, arrasto * delta)
-	# Embalo do dash acima da máxima vai se dissipando
-	if velocidade > velocidade_max_energia:
-		velocidade = move_toward(velocidade, velocidade_max_energia, 4.0 * delta)
-	velocidade = max(velocidade - GRAVIDADE * efeito_gravidade * sin(inclinacao) * delta, 0.0)
+	nitro_ativo = false
+	if pista:
+		pista.terminar(global_transform * TRASEIRA, global_basis.y)
+	nitro_mudou.emit(false)
 
-	inclinacao = wrapf(inclinacao + sobe * taxa_inclinacao * delta, -PI, PI)
-	# De cabeça para baixo o rumo gira ao contrário, então A continua sendo "esquerda do piloto"
-	var invertido := cos(inclinacao) < 0.0
-	rumo += vira * max(velocidade, 3.0) / raio_curva * delta * (-1.0 if invertido else 1.0)
-	giro = lerp_angle(giro, vira * giro_max, taxa_giro * delta)
-	direcao = move_toward(direcao, vira * 0.15, 2.5 * delta)
-
-	var b := Basis.from_euler(Vector3(inclinacao, rumo, giro))
-	var pos := global_position - b.z * velocidade * delta
-	# Puxão de portal: no trilho cinemático vira um desvio suave do caminho
-	pos += _puxao * 0.6 * delta
-	# A pista não atravessa o chão: encosta e vai nivelando o nariz
-	var h := _altura_terreno(pos)
-	if pos.y < h:
-		pos.y = h
-		if inclinacao < 0.0 and not invertido:
-			inclinacao = lerp(inclinacao, 0.0, min(1.0, 8.0 * delta))
-	var batida := _parede_no_caminho(Transform3D(b, pos))
-	if not batida.is_empty():
-		_bater_na_parede(batida)
+## Gasta o tanque enquanto ligado e estica a linha de luz da traseira
+func _gastar_nitro(delta: float):
+	if not nitro_ativo:
 		return
-	global_transform = Transform3D(b, pos)
-	pista.adicionar(global_transform, _pontas())
+	nitro = maxf(nitro - consumo_nitro * delta, 0.0)
+	if pista:
+		pista.adicionar(global_transform * TRASEIRA, global_basis.y)
+	if nitro <= 0.0:
+		_desligar_nitro()
+		_avisar("NITRO ACABOU", 1.5)
 
-	# Aderência: a pista segura com força centrípeta (curvando o nariz) + atração magnética.
-	# A parte da gravidade que puxa o carro para fora da pista só existe de lado/invertido.
-	var puxao := -b.y.y * GRAVIDADE
-	var segura := velocidade * absf(sobe) * taxa_inclinacao + aderencia_energia * GRAVIDADE
-	aderencia = clamp(1.0 - puxao / segura, 0.0, 1.0) if puxao > 0.0 else 1.0
-	var subida := -b.z.y
-	if subida > 0.42: # mais de ~25° subindo: precisa de embalo
-		aderencia = min(aderencia, clamp((velocidade - velocidade_minima) / velocidade_minima, 0.0, 1.0))
-	if puxao > segura or (subida > 0.42 and velocidade < velocidade_minima):
-		_sair_da_energia(true)
-	elif (pos + b.y * 0.3 - CENTRO_ESFERA).length() < raio_esfera:
-		_sair_da_energia(true)
-
-## Pontas das asas, de onde saem as paredes de luz
-func _pontas() -> Array[Vector3]:
-	return [pontas_asas[0].global_position, pontas_asas[1].global_position]
-
-## Colisão com uma parede de luz no passo de voo: o casco indo da posição atual até a
-## nova, e a envergadura (de ponta a ponta) já na posição nova. As asas encostam nas
-## próprias paredes recém-criadas, então essa parte ignora os trechos mais novos.
-func _parede_no_caminho(novo: Transform3D) -> Dictionary:
-	var espaco := get_world_3d().direct_space_state
-	# Casco: um raio rente ao fundo e outro na altura da bolha
-	for altura in [0.12, 0.7]:
-		var raio := PhysicsRayQueryParameters3D.create(
-			global_transform * Vector3(0, altura, 0), novo * Vector3(0, altura, -1.3), pista.camada_colisao, [get_rid()])
-		var achou := espaco.intersect_ray(raio)
-		if not achou.is_empty():
-			return achou
-	var desloca := novo * global_transform.affine_inverse()
-	var p := _pontas()
-	var excluir: Array[RID] = pista.recentes()
-	excluir.append(get_rid())
-	var asas_ray := PhysicsRayQueryParameters3D.create(desloca * p[0], desloca * p[1], pista.camada_colisao, excluir)
-	return espaco.intersect_ray(asas_ray)
+## Turbo flutuando na pista (NitrosPista): enche o tanque. Devolve se pegou
+func coletar_nitro() -> bool:
+	if explodindo or em_ritual or em_transicao:
+		return false
+	nitro = minf(nitro + nitro_por_turbo, nitro_max)
+	nitro_coletado.emit(floori(nitro))
+	_avisar("+NITRO", 1.0)
+	_vibrar_ambas(0.4, 0.1)
+	return true
 
 ## Placa de turbo (loops e salto do abismo): garante `alvo` m/s na direção da placa,
 ## só para quem passa por ela no sentido certo e rodando no chão. Com `lancar` (topo da
 ## rampa do salto) a saída é exatamente `alvo` nessa direção, sem giro: o salto é sempre igual
 func impulsionar(direcao: Vector3, alvo: float, lancar := false):
-	if gerando or explodindo or em_ritual or em_transicao or segurado:
+	if explodindo or em_ritual or em_transicao or segurado:
 		return
 	var atual := linear_velocity.dot(direcao)
 	if atual < 2.0:
@@ -994,20 +910,19 @@ func puxar(aceleracao: Vector3):
 	if not explodindo and not em_ritual and not em_transicao:
 		_puxao += aceleracao
 
-## No chão vira força; no voo já desviou o caminho em _andar_na_energia. Vibra as mãos
-## e mostra o aviso enquanto puxa
+## Vira força no carro; vibra as mãos e mostra o aviso enquanto puxa
 func _aplicar_puxao():
 	_puxao_hud = _puxao.length()
 	if _puxao_hud > 0.0:
-		if not gerando:
+		if _trilho.is_empty():
 			apply_central_force(_puxao * mass)
 		if Engine.get_physics_frames() % 6 == 0:
 			_vibrar_ambas(clampf(_puxao_hud / Portal.PUXAO_MAX, 0.0, 1.0) * 0.3, 0.06)
 	_puxao = Vector3.ZERO
 
-## Velocidade real do carro no mundo (no voo ele é cinemático e linear_velocity é zero)
+## Velocidade real do carro no mundo (no trilho ele é cinemático e linear_velocity é zero)
 func velocidade_mundo() -> Vector3:
-	return -global_basis.z * velocidade if gerando or not _trilho.is_empty() else linear_velocity
+	return -global_basis.z * velocidade if not _trilho.is_empty() else linear_velocity
 
 ## Conta o tempo no lobby; na sobrecarga tira barrinhas em passos iguais, da vida que
 ## o carro tinha ao entrar nela até zero no fim de `tempo_sobrecarga`, e explode
@@ -1036,12 +951,6 @@ func segundos_para_explodir() -> float:
 	if hex_world == null or hex_world is MapaCorrida or explodindo or em_ritual or em_transicao:
 		return INF
 	return tempo_lobby + tempo_sobrecarga - tempo_no_lobby
-
-func _bater_na_parede(batida: Dictionary):
-	var forca := maxf(velocidade, choque_minimo)
-	_sair_da_energia(true)
-	_avisar("PAREDE DE LUZ!", 2.0)
-	_registrar_choque(forca, batida.position, 0.0, &"luz")
 
 # --- VR -----------------------------------------------------------------------
 
@@ -1087,7 +996,7 @@ func _dash():
 	if _recarga > 0.0 or explodindo or em_ritual or em_transicao or segurado:
 		return
 	_recarga = dash_recarga
-	if gerando or not _trilho.is_empty():
+	if not _trilho.is_empty():
 		velocidade += dash_impulso
 	else:
 		apply_central_impulse(-global_basis.z * dash_impulso * mass)
@@ -1110,7 +1019,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 		if forca > _choque:
 			_choque = forca
 			_ponto_choque = state.get_contact_collider_position(i)
-			_material_choque = _material_de(state.get_contact_collider_object(i))
+			var corpo := state.get_contact_collider_object(i)
+			_material_choque = _material_de(corpo)
+			# Adversário à frente do bico: foi o jogador que bateu na traseira dele
+			if _material_choque == &"rival" and ((corpo as Node3D).global_position - global_position).dot(-global_basis.z) > 0.8:
+				_material_choque = &"ataque"
 		var relativa := state.get_contact_local_velocity_at_position(i) - state.get_contact_collider_velocity_at_position(i)
 		var tangencial := relativa.slide(state.get_contact_local_normal(i).normalized()).length()
 		if tangencial > raspagem:
@@ -1125,7 +1038,12 @@ func _atualizar_atrito():
 
 ## Todo choque passa por aqui: toca o som e, se for forte, tira vida e marca o casco.
 ## `folga` é descontada só do dano (pouso de roda, que a suspensão amortece)
+## `material` &"ataque": o jogador acertou um adversário com o bico (som e faíscas de
+## batida, sem dano: o ataque é dele)
 func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &"chao"):
+	var ataque := material == &"ataque"
+	if ataque:
+		material = &"rival"
 	impacto.emit(forca, ponto, material)
 	var agora := Time.get_ticks_msec() / 1000.0
 	if forca >= 3.0 and agora - _ultimo_efeito_impacto >= 0.08 and not explodindo and not em_ritual and not em_transicao:
@@ -1133,7 +1051,7 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 		_soltar_faiscas_impacto(ponto, forca)
 		_efeitos_choque(forca, ponto, material, folga > 0.0)
 	var f := forca - folga
-	if explodindo or em_ritual or em_transicao or f < choque_minimo:
+	if ataque or explodindo or em_ritual or em_transicao or f < choque_minimo:
 		return
 	# Um choque dura alguns passos de física: conta uma vez só
 	if agora - _ultimo_dano < 0.4:
@@ -1169,8 +1087,6 @@ func _soltar_faiscas_impacto(ponto: Vector3, forca: float):
 func _material_de(corpo: Object) -> StringName:
 	if corpo is CarroRival:
 		return &"rival"
-	if corpo is CollisionObject3D and pista and corpo.collision_layer & pista.camada_colisao:
-		return &"luz"
 	if corpo is Node and corpo.get_parent() is EstruturasNeon:
 		return &"estrutura"
 	return &"chao"
@@ -1194,8 +1110,7 @@ func _explodir():
 		return
 	explodindo = true
 	vida = 0
-	if gerando:
-		_sair_da_energia(false)
+	_desligar_nitro()
 	_sair_do_trilho()
 	var explosao := Explosao.new()
 	explosao.velocidade = linear_velocity
@@ -1219,7 +1134,7 @@ func _mostrar_carro(sim: bool):
 	_faiscas_atrito.emitting = false
 
 func _desvirar():
-	if gerando or explodindo or em_ritual or em_transicao or segurado:
+	if explodindo or em_ritual or em_transicao or segurado:
 		return
 	var f := -global_basis.z
 	f.y = 0.0
@@ -1243,7 +1158,8 @@ func telemetria() -> Dictionary:
 	var dados := {
 		"pos": global_position, "rot": global_basis.get_rotation_quaternion(),
 		"vel": absf(velocidade) * 3.6, "vida": vida, "vida_max": VIDA_MAX,
-		"explodindo": explodindo, "na_esfera": em_ritual, "energia": gerando, "mapa": "",
+		"explodindo": explodindo, "na_esfera": em_ritual, "nitro": nitro_ativo,
+		"nitros": nitros_ligados, "mapa": "",
 	}
 	var falta := segundos_para_explodir()
 	if falta <= tempo_sobrecarga:
@@ -1271,8 +1187,7 @@ func atualizar_ambiente_traseira():
 	_ambiente_traseira()
 
 func _reposicionar(t: Transform3D):
-	if gerando:
-		_sair_da_energia(false)
+	_desligar_nitro()
 	_sair_do_trilho()
 	global_transform = Transform3D(t.basis, t.origin + Vector3.UP * 0.3)
 	linear_velocity = Vector3.ZERO
@@ -1287,68 +1202,59 @@ func _altura_terreno(p: Vector3) -> float:
 	return hex_world.altura(p.x, p.z) if hex_world else 0.0
 
 func _animar(delta: float):
-	# Modo planador: ao gerar a pista o carro se transforma aos poucos (~0,6 s). As rodas
-	# deitam e viram discos de levitação girando com LED, depois as asas abrem; o filete
-	# neon do casco e a luz por baixo acendem junto
-	_energia_visual = move_toward(_energia_visual, 1.0 if gerando else 0.0, 1.6 * delta)
-	var deita := smoothstep(0.0, 0.7, _energia_visual)
+	# Nitro: o visual do antigo modo energia acende aos poucos (~0,6 s): LED das rodas,
+	# asas abrindo para trás, filete neon do casco e a luz por baixo. As rodas ficam no
+	# chão (o carro continua dirigindo)
+	_energia_visual = move_toward(_energia_visual, 1.0 if nitro_ativo else 0.0, 1.6 * delta)
+	var acende := smoothstep(0.0, 0.7, _energia_visual)
 	var abre := smoothstep(0.3, 1.0, _energia_visual)
 	for i in 3:
-		giros_rodas[i].rotation.x -= (velocidade / raio_roda + 14.0 * deita) * delta
-		# Roda acompanha a suspensão (no trilho fica na posição de repouso)
-		var descida := 0.1 if gerando else _distancias[i] - raio_roda
-		var no_chao := Vector3(_repouso_rodas[i].x, _ancoras[i].y - descida, _repouso_rodas[i].z)
-		rodas[i].position = no_chao.lerp(POSE_VOO[i], deita)
-		var lado := -1.0 if i == 0 else 1.0
+		giros_rodas[i].rotation.x -= velocidade / raio_roda * delta
+		# Roda acompanha a suspensão
+		var descida := _distancias[i] - raio_roda
+		rodas[i].position = Vector3(_repouso_rodas[i].x, _ancoras[i].y - descida, _repouso_rodas[i].z)
 		var esterco := direcao if i < 2 else 0.0
-		rodas[i].rotation = Vector3(0.0, esterco * (1.0 - deita), PI * 0.5 * lado * deita)
+		rodas[i].rotation = Vector3(0.0, esterco, 0.0)
 	for k in 2:
 		var lado := -1.0 if k == 0 else 1.0
 		asas[k].visible = abre > 0.01
 		# Saem dobradas para trás, junto ao casco, e abrem com leve diedro
 		asas[k].scale = Vector3(maxf(abre, 0.01), 1.0, 1.0)
 		asas[k].rotation = Vector3(0.0, -lado * lerpf(1.3, 0.12, abre), lado * 0.08 * abre)
-	# Carregando na derrapagem: o filete neon pisca
-	_brilho_carga = move_toward(_brilho_carga, 0.7 if carregando else 0.0, 4.0 * delta)
-	var pisca := _brilho_carga * (0.6 + 0.4 * sin(Time.get_ticks_msec() / 1000.0 * 30.0))
-	pintura.set_shader_parameter("energia", maxf(_energia_visual, pisca))
-	material_roda.set_shader_parameter("led", deita)
+	pintura.set_shader_parameter("energia", _energia_visual)
+	material_roda.set_shader_parameter("led", acende)
 	material_asa.set_shader_parameter("energia", abre)
-	luz_inferior.light_energy = 1.5 * deita
-	# Botão da energia: aceso fraco desligado, pulsando forte ligado
+	luz_inferior.light_energy = 1.5 * acende
+	# Botão do nitro: aceso fraco desligado, pulsando forte ligado
 	var pulso := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 6.0)
-	# Botão quase apagado enquanto não há energia para decolar
-	var desligado := 0.6 if energia >= 1.0 else 0.12
+	# Botão quase apagado com o tanque vazio
+	var desligado := 0.6 if nitro >= 0.5 else 0.12
 	material_botao.emission_energy_multiplier = lerpf(desligado, 2.0 + 1.5 * pulso, _energia_visual)
 	_fumaca.emitting = vida <= 2
 	_faiscas.emitting = vida <= 1
 	guidao.rotation.z = direcao * 2.0
 
 func _atualizar_painel():
-	var incl := inclinacao
-	var gir := giro
-	var rum := rumo
-	if not gerando:
-		var e := global_basis.get_euler()
-		incl = e.x
-		gir = e.z
-		rum = e.y
-	var linha_ader := "ADER  %3d%%" % roundi(aderencia * 100.0) if gerando else "RODAS  %d/3" % rodas_no_chao
+	var e := global_basis.get_euler()
+	var incl := e.x
+	var gir := e.z
+	var rum := e.y
+	var linha_ader := "RODAS  %d/3" % rodas_no_chao
 	var barras := "█".repeat(vida) + "·".repeat(VIDA_MAX - vida)
 	var esquerda := "INCL %+4d°\nGIRO %+4d°\nRUMO  %03d°\n%s\nVIDA %s" % [
 		roundi(rad_to_deg(incl)), roundi(rad_to_deg(gir)), roundi(fposmod(-rad_to_deg(rum), 360.0)), linha_ader, barras]
 	if painel_corrida != "":
 		esquerda = painel_corrida + "\nVIDA " + barras
-	var cor_esquerda := HUD_ALERTA if (gerando and aderencia < 0.25) or vida <= 2 else HUD_AZUL
+	var cor_esquerda := HUD_ALERTA if vida <= 2 else HUD_AZUL
 	# Última barrinha: pisca
 	if vida == 1 and fmod(Time.get_ticks_msec() / 1000.0, 0.6) < 0.3:
 		cor_esquerda = HUD_ALERTA * 0.45
 
-	var km_h := 0 if explodindo else roundi((velocidade if gerando or not _trilho.is_empty() else linear_velocity.length()) * 3.6)
-	# Barras de energia: cheias, a que está enchendo/acabando (▒ a partir de 1/3) e vazias
-	var cheias := floori(energia)
-	var meia := 1 if energia - cheias >= 0.34 and cheias < energia_max else 0
-	var estado := "%s %s" % ["VOO " if gerando else "ENER", "█".repeat(cheias) + "▒".repeat(meia) + "·".repeat(energia_max - cheias - meia)]
+	var km_h := 0 if explodindo else roundi((velocidade if not _trilho.is_empty() else linear_velocity.length()) * 3.6)
+	# Tanque do nitro: barras cheias, a que está acabando (▒ a partir de 1/3) e vazias
+	var cheias := floori(nitro)
+	var meia := 1 if nitro - cheias >= 0.34 and cheias < nitro_max else 0
+	var estado := "%s %s" % ["NITRO>" if nitro_ativo else "NITRO ", "█".repeat(cheias) + "▒".repeat(meia) + "·".repeat(nitro_max - cheias - meia)]
 	# Ameaça: lobby acabando (10 s antes da sobrecarga) e a sobrecarga em si
 	var ameaca := ""
 	var falta := segundos_para_explodir()
@@ -1368,7 +1274,7 @@ func _atualizar_painel():
 	# FPS real (média do último segundo): no Quest deve ficar colado na taxa da tela
 	linha_dash += "  %3d FPS" % roundi(Engine.get_frames_per_second())
 	var direita := "ALT %.1f m\n%s\n%s" % [global_position.y - _altura_terreno(global_position), estado, linha_dash]
-	var cor_direita := HUD_ALERTA if _aviso_tempo > 0.0 or explodindo or ameaca != "" else (HUD_ENERGIA if gerando else HUD_AZUL)
+	var cor_direita := HUD_ALERTA if _aviso_tempo > 0.0 or explodindo or ameaca != "" else (HUD_ENERGIA if nitro_ativo else HUD_AZUL)
 	# Na câmera livre de debug o visor não faz sentido
 	capacete.visible = _ativo() and not em_transicao
 	capacete.escrever(esquerda, cor_esquerda, km_h, direita, cor_direita)
@@ -1384,14 +1290,13 @@ func _atualizar_painel():
 func preparar_vida(t: Transform3D):
 	em_ritual = true
 	segurado = false
-	if gerando:
-		_sair_da_energia(false)
+	_desligar_nitro()
 	freeze = true
 	_esperando_chao = false
 	_reposicionar(t)
 	vida = VIDA_MAX
-	# Primeira vida da sessão: energia cheia para já experimentar o voo
-	energia = float(energia_max) if _primeira_vida else 0.0
+	# Primeira vida da sessão: tanque cheio para já experimentar o nitro
+	nitro = float(nitro_max) if _primeira_vida else 0.0
 	_primeira_vida = false
 	velocidade = 0.0
 	direcao = 0.0
@@ -1399,7 +1304,6 @@ func preparar_vida(t: Transform3D):
 	freio = 0.0
 	derrapagem = 0.0
 	raspagem = 0.0
-	carregando = false
 	drift = false
 	_puxao = Vector3.ZERO
 	_puxao_hud = 0.0
@@ -1410,7 +1314,6 @@ func preparar_vida(t: Transform3D):
 	_ultimo_gatilho = -10.0
 	_recarga = 0.0
 	_energia_visual = 0.0
-	_brilho_carga = 0.0
 	_aviso_tempo = 0.0
 	tempo_no_lobby = 0.0
 	_tocando.fill(false)
@@ -1437,8 +1340,7 @@ func liberar_partida(t: Transform3D):
 ## Congela a física durante o loading sem bloquear o rastreamento da cabeça.
 ## Toda troca de mapa (ida para a corrida ou volta) zera a contagem do lobby.
 func iniciar_transicao():
-	if gerando:
-		_sair_da_energia(false)
+	_desligar_nitro()
 	_sair_do_trilho()
 	tempo_no_lobby = 0.0
 	em_transicao = true
@@ -1457,8 +1359,7 @@ func terminar_transicao():
 
 ## Prende o carro no grid até a largada (a física para, o motor e o visor não)
 func segurar():
-	if gerando:
-		_sair_da_energia(false)
+	_desligar_nitro()
 	_sair_do_trilho()
 	segurado = true
 	raspagem = 0.0

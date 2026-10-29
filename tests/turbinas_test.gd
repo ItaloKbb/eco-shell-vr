@@ -38,7 +38,9 @@ func _testar():
 	await mundos.entrar_mapa(verde, "Vale das Turbinas")
 	var vale: ValeTurbinas = mundos.turbinas
 	assert(vale != null and mundos.mapa_atual == vale and not mundos.no_deserto)
-	assert(carro.hex_world == vale and not carro.pode_voar)
+	assert(carro.hex_world == vale)
+	# Quatro turbos de nitro flutuando na pista
+	assert(vale.nitros != null and vale.nitros.turbos.size() == 4)
 	var corrida: Corrida = vale.corrida
 	var pista: PistaCorrida = vale.pista
 	var obstaculos: ObstaculosPista = vale.obstaculos

@@ -142,6 +142,7 @@ func receber_telemetria(item: Dictionary):
 		carro.reiniciar()
 	carro.visible = not escondido
 	carro.receber(t, item.get("pos", Vector3.ZERO), item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
+	carro.ver_nitro(int(item.get("nitros", 0)))
 	if pronto and peer == foco:
 		_atualizar_foco_rivais()
 
@@ -547,7 +548,7 @@ class HudEspectador extends CanvasLayer:
 				texto += "  ·  NO GRID"
 			_local.text = texto
 		else:
-			_local.text = "MUNDO NEON" + ("  ·  MODO ENERGIA" if item.get("energia", false) else "")
+			_local.text = "MUNDO NEON" + ("  ·  NITRO" if item.get("nitro", false) else "")
 		if item.get("explodindo", false):
 			TemaEvento.mudar_pilula(_situacao, "EXPLODIU", TemaEvento.ALERTA)
 		elif item.get("na_esfera", false):

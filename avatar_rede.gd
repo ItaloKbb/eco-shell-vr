@@ -1,7 +1,8 @@
 class_name AvatarRede
 extends Node3D
 ## Avatar de um jogador no lobby compartilhado. A raiz é só rede: um
-## MultiplayerSynchronizer com a pose do carro, cuja autoridade é o próprio dono.
+## MultiplayerSynchronizer com a pose do carro e o contador de nitros (o ronco toca no
+## avatar quando o dono liga o nitro), cuja autoridade é o próprio dono.
 ## O servidor cria e remove (Rede._criar_avatar, pelo MultiplayerSpawner); o visual
 ## (casco neon e o nome por cima) só existe nos clientes, e nunca no do próprio dono,
 ## que já tem o carro de verdade.
@@ -15,6 +16,9 @@ var peer := 0
 var nome := ""
 ## Relógio do dono quando a pose foi tirada (sincronizado junto com ela)
 var t := 0.0
+## Quantas vezes o dono ligou o nitro (sincronizado); -1 visto = ainda não recebido
+var nitros := 0
+var _nitros_visto := -1
 var _visual: Node3D
 var _carro: Node3D
 var _interpolador := InterpoladorRede.new()
@@ -25,7 +29,7 @@ func _init(peer_: int, nome_: String, com_visual: bool):
 	nome = nome_
 	name = str(peer_)
 	var config := SceneReplicationConfig.new()
-	for propriedade in [NodePath(".:position"), NodePath(".:quaternion"), NodePath(".:t")]:
+	for propriedade in [NodePath(".:position"), NodePath(".:quaternion"), NodePath(".:t"), NodePath(".:nitros")]:
 		config.add_property(propriedade)
 		config.property_set_spawn(propriedade, false)
 		config.property_set_replication_mode(propriedade, SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
@@ -51,6 +55,7 @@ func _process(_delta: float):
 		if _carro:
 			global_transform = _carro.global_transform
 			t = InterpoladorRede.agora()
+			nitros = int(_carro.get("nitros_ligados"))
 	elif _visual:
 		# Pose nova chegou (o `t` muda junto): entra no interpolador
 		if t != _ultimo_t:
@@ -58,6 +63,11 @@ func _process(_delta: float):
 			_interpolador.adicionar(t, position, quaternion)
 		if not _interpolador.vazio():
 			_visual.global_transform = _interpolador.pose()
+		# Só depois da primeira pose: o contador chega no mesmo pacote dela
+		if t > 0.0:
+			if _nitros_visto >= 0 and nitros > _nitros_visto:
+				CarroFantasma.roncar(_visual)
+			_nitros_visto = nitros
 
 func _montar_visual() -> Node3D:
 	var raiz := Node3D.new()

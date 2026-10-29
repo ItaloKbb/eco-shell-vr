@@ -30,6 +30,7 @@ func gerar() -> Dictionary:
 		"zumbido": zumbido(),
 		"assobio": assobio(),
 		"arrancada": arrancada(),
+		"nitro": ronco_nitro(),
 		"impacto": impacto(),
 		"batida": batida(),
 		"carga": carga_eletrica(),
@@ -190,6 +191,49 @@ func assobio() -> AudioStreamWAV:
 	return _wav(_normalizar(a, 0.8), true)
 
 # --- Efeitos pontuais ---------------------------------------------------------
+
+## Nitro: ronco de V12 estilo Ferrari. O giro sobe rápido de ~3500 a ~9000 rpm, segura
+## lá em cima gritando e alivia no fim com os estalos do escapamento. Toca no carro e
+## nos carros dos outros jogadores (a rede avisa quando cada um liga o nitro)
+func ronco_nitro() -> AudioStreamWAV:
+	var dur := 2.6
+	var n := int(taxa * dur)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fase := 0.0
+	var low := 0.0
+	var band := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var sobe := 1.0 - exp(-t / 0.32)
+		var alivio := smoothstep(1.7, 2.5, t)
+		var rpm := lerpf(3500.0, 9000.0, sobe) * (1.0 - 0.45 * alivio)
+		# Quatro tempos, 12 cilindros: 6 explosões por volta do virabrequim
+		fase += TAU * rpm / 60.0 * 6.0 / taxa
+		# Tom: harmônicos do disparo e a meia ordem que dá a aspereza do V12
+		var tom := sin(fase) + 0.55 * sin(2.0 * fase + 0.3) + 0.35 * sin(3.0 * fase + 0.9) \
+			+ 0.18 * sin(4.0 * fase + 1.7) + 0.3 * sin(0.5 * fase)
+		# Pulso do escapamento a cada explosão: o "rasgado" do grito
+		var pulso := pow(0.5 + 0.5 * sin(fase), 6.0)
+		# Admissão: ruído filtrado subindo com o giro
+		var fc := 900.0 + 2200.0 * sobe * (1.0 - 0.5 * alivio)
+		var fk := 2.0 * sin(PI * fc / taxa)
+		var high := _ruido() - low - 0.6 * band
+		band += fk * high
+		low += fk * band
+		var carga := 1.0 - 0.6 * alivio
+		var env := minf(t / 0.04, 1.0) * (1.0 - smoothstep(2.25, dur, t))
+		var x := (tom * 0.45 + pulso * 0.7 * carga + band * 0.15) * env
+		# Saturação suave: o escapamento "estoura" sem clipar
+		a[i] = tanh(x * 2.4)
+	# Estalos do escapamento no alívio
+	for k in 6:
+		var inicio := int((1.8 + k * 0.1 + _sorteio() * 0.05) * taxa)
+		var forca := 0.9 - k * 0.1
+		for j in int(taxa * 0.035):
+			if inicio + j < n:
+				a[inicio + j] += _ruido() * exp(-float(j) / (taxa * 0.007)) * forca
+	return _wav(_normalizar(a, 0.9), false)
 
 ## Dash: golfada de ar macia, um "whoom" tonal subindo e um baque grave
 func arrancada() -> AudioStreamWAV:

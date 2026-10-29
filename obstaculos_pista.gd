@@ -10,7 +10,7 @@ extends Node3D
 ## Filho da pista: tudo em coordenadas locais dela.
 
 ## Força do choque que conta 1 barra de dano em car.gd (entre choque_minimo e choque_medio)
-const FORCA_BATIDA := 5.0
+const FORCA_BATIDA := 7.0
 ## Velocidade com que o carro é jogado para trás e para o lado na batida (m/s)
 const RECUO := 4.0
 const EMPURRAO_LATERAL := 2.5

@@ -80,7 +80,7 @@ func _portal(portal: Portal):
 	else:
 		# Os outros ainda não levam a lugar nenhum: avisa no visor
 		carro._avisar("PORTAL FECHADO", 2.0)
-		carro.sem_energia.emit()
+		carro.sem_nitro.emit()
 
 func entrar_deserto(portal: Portal):
 	await entrar_mapa(portal, "Deserto")
@@ -175,7 +175,6 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	sol.shadow_enabled = not OS.has_feature("android")
 
 	carro.hex_world = mapa
-	carro.pode_voar = false
 	var vaga := mapa.preparar_corrida(grupo)
 	# No grid o carro já fica assentado nas rodas: desconta a folga que teleportar põe
 	carro.teleportar(mapa.largada(vaga).translated(Vector3.DOWN * 0.3))
@@ -228,7 +227,6 @@ func voltar():
 	var pos := centro + fora.normalized() * (Portal.ALCANCE_PUXAO + 6.0)
 	pos.y = hex_world.altura(pos.x, pos.z) + 0.5
 	carro.hex_world = hex_world
-	carro.pode_voar = true
 	carro.teleportar(Transform3D(Basis.looking_at(fora.normalized(), Vector3.UP), pos), true)
 	carro.atualizar_ambiente_traseira()
 	mapa_atual = null

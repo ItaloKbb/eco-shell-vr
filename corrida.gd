@@ -336,6 +336,7 @@ func receber_remoto(item: Dictionary):
 	var pos: Vector3 = item.get("pos", Vector3.ZERO)
 	remoto.carro.visible = not item.get("explodindo", false) and str(item.get("mapa", "")) == pista.get_parent().nome
 	remoto.carro.receber(t, pos, item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
+	remoto.carro.ver_nitro(int(item.get("nitros", 0)))
 	remoto.progresso = float(item.get("progresso", -INF))
 	remoto.chegou = item.get("chegou", false)
 	remoto.visto_em = InterpoladorRede.agora()

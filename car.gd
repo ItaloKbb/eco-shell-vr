@@ -86,6 +86,9 @@ const FOLGA_RODA := 0.35
 @export var atrito_pneu := 1.1
 ## Quão rápido o pneu anula o escorregamento lateral (1/s)
 @export var aderencia_lateral := 8.0
+## Barra estabilizadora do eixo dianteiro (N/m de diferença entre as duas rodas): segura
+## a rolagem da carroceria nas curvas, que a câmera VR herda e causa vertigem
+@export var barra_estabilizadora := 8000.0
 
 @export_group("Pista de energia")
 @export var aceleracao_energia := 6.0
@@ -96,8 +99,9 @@ const FOLGA_RODA := 0.35
 ## Velocidade com que Espaço/Shift mudam a inclinação (rad/s)
 @export var taxa_inclinacao := 0.7
 @export var raio_curva := 15.0
-## Inclinação lateral máxima nas curvas, como numa montanha-russa (rad)
-@export var giro_max := 0.7
+## Inclinação lateral máxima nas curvas (rad). Pequena de propósito: a câmera VR herda
+## o giro inteiro, e os ~40° de antes davam vertigem
+@export var giro_max := 0.2
 @export var taxa_giro := 1.5
 ## Atração magnética da pista, em g; somada à força centrípeta segura o carro invertido
 @export var aderencia_energia := 0.35
@@ -723,6 +727,14 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, freio_mao: bool):
 		var atrito := Vector2(f_long, -v_lat * parte * grip).limit_length(atrito_pneu * carga)
 		apply_force(cima * carga + frente_roda * atrito.x + lado_roda * atrito.y, braco)
 
+	# Barra estabilizadora: a roda dianteira mais comprimida empurra a carroceria para
+	# cima e a outra puxa para baixo, então o carro rola menos sem endurecer a suspensão
+	if _tocando[0] and _tocando[1]:
+		var torcao := barra_estabilizadora * (_distancias[1] - _distancias[0])
+		for i in 2:
+			var ponto_barra: Vector3 = global_transform * _ancoras[i] - cima * _distancias[i]
+			apply_force(cima * (torcao if i == 0 else -torcao), ponto_barra - global_position)
+
 	# Derrapagem de lado (não vale travar a roda indo reto) carrega a energia do voo
 	carregando = rodas_no_chao >= 2 and _deriva_lateral > derrapagem_minima and energia < energia_max
 	if carregando:
@@ -1240,7 +1252,7 @@ func telemetria() -> Dictionary:
 		var mapa: MapaCorrida = hex_world
 		dados.mapa = mapa.nome
 		dados.volta = mapa.corrida.volta
-		dados.voltas = Corrida.VOLTAS
+		dados.voltas = mapa.pista.voltas
 		dados.posicao = mapa.corrida.posicao
 		dados.total = mapa.corrida.total_carros()
 		dados.progresso = mapa.trafego.jogador.progresso

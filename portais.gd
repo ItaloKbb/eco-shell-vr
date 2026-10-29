@@ -29,7 +29,11 @@ const AMBAR := 3
 const CARMESIM := 1
 ## O verde-ácido leva ao Vale das Turbinas (a usina de energia limpa)
 const VERDE := 2
-const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto", VERDE: "Vale das Turbinas" }
+## O ciano leva ao Sistema S (o S largo) e o violeta ao Parque Industrial (o i com rampas)
+const CIANO := 0
+const VIOLETA := 4
+const CORRIDAS := { CARMESIM: "Deserto", AMBAR: "Deserto", VERDE: "Vale das Turbinas",
+	CIANO: "Sistema S", VIOLETA: "Parque Industrial" }
 
 var _portais: Array[Portal] = []
 var _relogio := 0.0

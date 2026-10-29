@@ -199,13 +199,14 @@ func mostrar_contagem(texto: String, calor: float):
 	_legenda_contagem.add_theme_color_override("font_color", cor.lightened(0.2))
 	redesenhar("n|" + texto)
 
-func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String):
+## `sprint`: pista ponta a ponta, sem "melhor volta" e com o portal no fim da pista
+func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String, sprint := false):
 	_pagina(Pagina.CHEGADA)
 	etapa.text = "RESULTADO"
 	_resultado[0].text = "%dº / %d" % [posicao, total_carros]
 	_resultado[1].text = total
-	_resultado[2].text = melhor
+	_resultado[2].text = "—" if sprint else melhor
 	_resultado[3].text = vencedor
 	_resultado[3].add_theme_color_override("font_color", COR_QUENTE if vencedor == "VOCÊ" else Color.WHITE)
-	definir_dicas(_dicas_chegada, [["PORTAL", "VOLTE PELO PORTAL AZUL NO MIOLO"]])
+	definir_dicas(_dicas_chegada, [["PORTAL", "SIGA ATÉ O PORTAL AZUL NO FIM DA PISTA" if sprint else "VOLTE PELO PORTAL AZUL NO MIOLO"]])
 	redesenhar("r|%d|%s|%s|%s" % [posicao, total, melhor, vencedor])

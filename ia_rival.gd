@@ -206,7 +206,7 @@ func _conduzir(t: TrafegoCorrida):
 			d = _linha(t)
 			v = _seguir(t, _ritmo(t), d)
 		Estado.ULTRAPASSAR:
-			d = clampf(alvo.d + _lado * FOLGA_ULTRAPASSAGEM, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
+			d = clampf(alvo.d + _lado * FOLGA_ULTRAPASSAGEM, -t.pista.meia_util, t.pista.meia_util)
 			v = _seguir(t, _ritmo(t) * 1.04, d)
 		Estado.DEFENDER:
 			d = lerpf(_linha(t), alvo.d, clampf(perfil.defesa, 0.0, 0.9))
@@ -219,11 +219,17 @@ func _conduzir(t: TrafegoCorrida):
 			d = lerpf(carro.d, _linha(t), 0.3)
 			v = _seguir(t, _ritmo(t) * 0.7, d)
 		Estado.ERRO:
-			d = _lado * PistaCorrida.MEIA_UTIL * 0.95
+			d = _lado * t.pista.meia_util * 0.95
 			v = _seguir(t, _ritmo(t) * 0.82, d)
 		Estado.VOLTA_LENTA:
-			d = PistaCorrida.MEIA_UTIL * 0.6
+			d = t.pista.meia_util * 0.6
 			v = _seguir(t, 7.0, d)
+			if t.pista.aberta:
+				# Ponta a ponta: estaciona encostado num dos muros depois da chegada, em
+				# fila, deixando o meio livre para quem ainda vai até o portal do fim
+				d = t.pista.meia_util * (0.9 if carro.numero % 2 == 1 else -0.9)
+				var vaga := t.pista.s_chegada + 25.0 + ((carro.numero - 1) / 2) * 9.0
+				v = minf(v, maxf((vaga - carro.s) * 0.6, 0.0))
 	carro.v_alvo = v
 	carro.d_alvo = d
 
@@ -240,8 +246,13 @@ func _ritmo(t: TrafegoCorrida) -> float:
 ## Linha de corrida: abre na entrada, tangencia por dentro (a curvatura olhando um
 ## pouco à frente diz para que lado é a curva)
 func _linha(t: TrafegoCorrida) -> float:
+	# Rampa logo à frente: dois de cada três adversários vão para a faixa dela
+	if t.pista.rampas and carro.numero % 3 != 0:
+		var rampa := t.pista.rampas.proxima(carro.s, 90.0)
+		if not rampa.is_empty():
+			return clampf(float(rampa.d), -t.pista.meia_util, t.pista.meia_util)
 	var k := t.pista.curvatura(carro.s + 10.0 + carro.v * 0.8)
-	return clampf(k * 160.0, -1.0, 1.0) * PistaCorrida.MEIA_UTIL * perfil.linha
+	return clampf(k * 160.0, -1.0, 1.0) * t.pista.meia_util * perfil.linha
 
 ## Não bate em quem está na frente na faixa d: se aproxima até a distância de segurança
 func _seguir(t: TrafegoCorrida, v: float, d: float) -> float:

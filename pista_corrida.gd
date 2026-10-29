@@ -10,6 +10,11 @@ extends Node3D
 ## Outros circuitos herdam daqui e trocam só o traçado: _centro(t) (t de 0 a 2π, uma
 ## volta), _t_largada() e, se a pista tiver relevo, _chao(x, z) com o terreno embaixo
 ## dela (muros, pilares e saias medem a altura a partir dele).
+##
+## Pista aberta (`aberta`, ver PistaAberta): ponta a ponta, sem dar a volta. A amostra 0
+## é o começo do trecho do grid, a corrida vai de s_largada a s_chegada e o último
+## portão é a chegada. Corrida, IA e tráfego perguntam à pista (voltas, distancia_corrida,
+## avancar, delta) em vez de supor um laço fechado.
 
 signal portao(indice: int)
 
@@ -29,6 +34,8 @@ const T_LARGADA := 5.162
 ## Meia largura (em parâmetro) do topo plano do viaduto e das rampas
 const VIADUTO_TOPO := 0.2
 const VIADUTO_RAMPA := 0.68
+## Pista aberta: até onde os adversários andam antes da mureta do fim (m)
+const FOLGA_FIM := 6.0
 ## Grid de largada: distância entre fileiras e afastamento do centro (m)
 const GRID_FILEIRA := 6.5
 const GRID_LADO := 3.0
@@ -45,6 +52,22 @@ var inclinacoes := PackedFloat32Array()
 ## para frear antes das curvas e escolher a linha de corrida
 var curvaturas := PackedFloat32Array()
 var comprimento := 0.0
+## Largura do asfalto (m) e meia largura onde o centro de um carro ainda cabe sem
+## raspar no muro: as pistas largas mudam as duas
+var largura := LARGURA
+var meia_util := MEIA_UTIL
+## Ponta a ponta (sem dar a volta): ver PistaAberta
+var aberta := false
+## Voltas da corrida (pista aberta: 1, da largada à chegada)
+var voltas := 3
+## Muro dos dois lados em toda a pista (senão só por fora das curvas e no viaduto)
+var muro_dos_dois_lados := false
+## Onde ficam a linha de largada e a de chegada (m desde a amostra 0). Fechada: a
+## amostra 0 é a linha e a chegada é a mesma linha depois de `voltas` voltas
+var s_largada := 0.0
+var s_chegada := 0.0
+## Rampas de salto (Parque Industrial); null nas pistas sem elas
+var rampas: RampasPista
 ## Texto da viga do pórtico de largada
 var letreiro := "SENAI 326 · LARGADA"
 ## Quanto a saia de concreto nas bordas da pista desce abaixo de _chao (0 = sem saia).
@@ -53,6 +76,7 @@ var saia := 0.0
 var _lampadas: Array[StandardMaterial3D] = []
 
 func _ready():
+	meia_util = largura * 0.5 - 0.9
 	_calcular()
 	_malha_pista()
 	_suportes()
@@ -79,23 +103,35 @@ func _t_largada() -> float:
 func _chao(_x: float, _z: float) -> float:
 	return 0.0
 
+## Amostra `passo` à frente (ou atrás, negativo) de i: dá a volta no laço fechado e
+## para nas pontas da pista aberta
+func _vizinho(i: int, passo: int) -> int:
+	if aberta:
+		return clampi(i + passo, 0, AMOSTRAS - 1)
+	return posmod(i + passo, AMOSTRAS)
+
+## Centro da pista nas AMOSTRAS amostras, a 0 na linha de largada
+func _amostras_brutas() -> PackedVector3Array:
+	var brutos := PackedVector3Array()
+	var t0 := _t_largada()
+	for i in AMOSTRAS:
+		brutos.append(_centro(t0 + TAU * i / AMOSTRAS))
+	return brutos
+
 ## Quanto a amostra i está acima do terreno (viaduto, aterro)
 func _elevacao(i: int) -> float:
 	return pontos[i].y - _chao(pontos[i].x, pontos[i].z)
 
 func _calcular():
 	var n := AMOSTRAS
-	var brutos := PackedVector3Array()
-	var t0 := _t_largada()
-	for i in n:
-		brutos.append(_centro(t0 + TAU * i / n))
+	var brutos := _amostras_brutas()
 	# Inclinação pela curvatura no plano (positiva = curva para a direita)
 	var crua := PackedFloat32Array()
 	crua.resize(n)
 	for i in n:
-		var a := brutos[(i - 1 + n) % n]
+		var a := brutos[_vizinho(i, -1)]
 		var b := brutos[i]
-		var c := brutos[(i + 1) % n]
+		var c := brutos[_vizinho(i, 1)]
 		var f1 := Vector2(b.x - a.x, b.z - a.z)
 		var f2 := Vector2(c.x - b.x, c.z - b.z)
 		var lado := -f1.y * f2.x + f1.x * f2.y
@@ -108,7 +144,7 @@ func _calcular():
 		for i in n:
 			var soma := 0.0
 			for j in range(-12, 13):
-				soma += crua[(i + j + n) % n]
+				soma += crua[_vizinho(i, j)]
 			lisa[i] = soma / 25.0
 		crua = lisa
 	inclinacoes = crua
@@ -120,7 +156,7 @@ func _calcular():
 	frentes.resize(n)
 	distancias.resize(n + 1)
 	for i in n:
-		var t := (brutos[(i + 1) % n] - brutos[(i - 1 + n) % n]).normalized()
+		var t := (brutos[_vizinho(i, 1)] - brutos[_vizinho(i, -1)]).normalized()
 		var lado := t.cross(Vector3.UP).normalized()
 		var cima := lado.cross(t).normalized()
 		var ang := inclinacoes[i]
@@ -128,17 +164,20 @@ func _calcular():
 		lados[i] = lado.rotated(t, ang)
 		cimas[i] = cima.rotated(t, ang)
 		# Ergue o centro para a borda de baixo da curva ficar no chão
-		pontos[i] = brutos[i] + Vector3.UP * (LARGURA * 0.5 * absf(sin(ang)) + 0.08)
+		pontos[i] = brutos[i] + Vector3.UP * (largura * 0.5 * absf(sin(ang)) + 0.08)
 	comprimento = 0.0
 	for i in n:
 		distancias[i] = comprimento
-		comprimento += pontos[i].distance_to(pontos[(i + 1) % n])
+		comprimento += pontos[i].distance_to(pontos[_vizinho(i, 1)])
 	distancias[n] = comprimento
+	if not aberta:
+		s_largada = 0.0
+		s_chegada = comprimento
 
 ## Pista, fundo do viaduto e muros; colisão da pista e da parte de dentro dos muros
 func _malha_pista():
 	var n := AMOSTRAS
-	var meia := LARGURA * 0.5
+	var meia := largura * 0.5
 	var pista := SurfaceTool.new()
 	var fundo := SurfaceTool.new()
 	var muro := SurfaceTool.new()
@@ -147,7 +186,8 @@ func _malha_pista():
 	muro.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var colisao := PackedVector3Array()
 
-	for i in n:
+	# Aberta: a última amostra não se liga à primeira
+	for i in (n - 1 if aberta else n):
 		var j := (i + 1) % n
 		var dj := distancias[i + 1]
 		var e0 := pontos[i] - lados[i] * meia
@@ -179,7 +219,7 @@ func _malha_pista():
 		for lado_sinal: float in [-1.0, 1.0]:
 			var fora_i := inclinacoes[i] * lado_sinal < -0.05
 			var fora_j := inclinacoes[j] * lado_sinal < -0.05
-			if not ((fora_i and fora_j) or alto):
+			if not ((fora_i and fora_j) or alto or muro_dos_dois_lados):
 				continue
 			var b0 := pontos[i] + lados[i] * meia * lado_sinal
 			var b1 := pontos[j] + lados[j] * meia * lado_sinal
@@ -210,6 +250,8 @@ func _malha_pista():
 	var concreto := StandardMaterial3D.new()
 	concreto.albedo_color = Color(0.55, 0.52, 0.48)
 	concreto.roughness = 0.9
+	if aberta:
+		_muretas_pontas(muro, colisao)
 	for par in [[pista, material_pista], [fundo, concreto], [muro, material_muro]]:
 		var st: SurfaceTool = par[0]
 		var malha := MeshInstance3D.new()
@@ -227,6 +269,32 @@ func _malha_pista():
 	forma.shape = concava
 	corpo.add_child(forma)
 	add_child(corpo)
+
+## Pista aberta: mureta atravessada nas pontas (atrás do grid e no fim), para ninguém
+## sair pelo fim do asfalto. Sem _mureta_no_fim() o fim fica livre (uma praça, por exemplo)
+func _muretas_pontas(muro: SurfaceTool, colisao: PackedVector3Array):
+	var meia := largura * 0.5 + MURO_ESPESSURA
+	for ponta in ([0, AMOSTRAS - 1] if _mureta_no_fim() else [0]):
+		var p := pontos[ponta]
+		var lado := lados[ponta]
+		var fora := frentes[ponta] * (-1.0 if ponta == 0 else 1.0)
+		var h := Vector3.UP * MURO_ALTURA * 1.4
+		var base := Vector3.DOWN * 0.6
+		var e := p - lado * meia
+		var d := p + lado * meia
+		var o := fora * MURO_ESPESSURA
+		var faces := [[d + base, e + base, e + h, d + h], [e + h, e + h + o, d + h + o, d + h],
+			[e + base + o, d + base + o, d + h + o, e + h + o]]
+		var normais := [-fora, Vector3.UP, fora]
+		for k in faces.size():
+			var face: Array = faces[k]
+			if ponta == 0:
+				face.reverse()
+			_quad(muro, face, [Vector2(0, 0), Vector2(0, largura), Vector2(1, largura), Vector2(1, 0)], normais[k])
+			colisao.append_array([face[0], face[1], face[2], face[0], face[2], face[3]])
+
+func _mureta_no_fim() -> bool:
+	return true
 
 ## Quatro vértices em sentido anti-horário visto de quem olha a face
 func _quad(st: SurfaceTool, v: Array, uv: Array, normal: Vector3):
@@ -249,7 +317,7 @@ func _suportes():
 		if _elevacao(i) < 1.8 or _sob_viaduto(p):
 			continue
 		for lado_sinal: float in [-1.0, 1.0]:
-			var base := p + lados[i] * (LARGURA * 0.5 - 1.0) * lado_sinal
+			var base := p + lados[i] * (largura * 0.5 - 1.0) * lado_sinal
 			var chao := _chao(base.x, base.z)
 			var altura := base.y - 0.6 - chao
 			transformacoes.append(Transform3D(Basis.from_scale(Vector3(1.0, altura, 1.0)), Vector3(base.x, chao + altura * 0.5, base.z)))
@@ -269,27 +337,36 @@ func _suportes():
 func _sob_viaduto(p: Vector3) -> bool:
 	return Vector2(p.x, p.z).length() < 13.0
 
-## Portões invisíveis de passagem: o 0 é a linha de largada/chegada
+## Portões invisíveis de passagem: o 0 é a linha de largada/chegada. Na pista aberta
+## vão da largada à chegada, e o último (total_portoes() - 1) é a linha de chegada
 func _portoes():
-	for k in PORTOES:
+	for k in total_portoes():
 		var i := k * AMOSTRAS / PORTOES
+		if aberta:
+			i = amostra_em(s_largada + (s_chegada - s_largada) * k / PORTOES)
 		var area := Area3D.new()
 		area.collision_layer = 0
 		area.collision_mask = 4
 		area.monitorable = false
 		var forma := CollisionShape3D.new()
 		var caixa := BoxShape3D.new()
-		caixa.size = Vector3(LARGURA + 2.0, 6.0, 2.0)
+		caixa.size = Vector3(largura + 2.0, 6.0, 2.0)
 		forma.shape = caixa
 		area.add_child(forma)
 		area.transform = Transform3D(Basis(lados[i], cimas[i], -frentes[i]), pontos[i] + cimas[i] * 2.0)
 		area.body_entered.connect(func(_corpo): portao.emit(k))
 		add_child(area)
 
-## Pórtico da largada: dois pilares e a viga quadriculada com o nome
+## Pórtico da largada (com o semáforo) e, na pista aberta, o da chegada
 func _portico():
-	var p := pontos[0]
-	var lado := Vector3(lados[0].x, 0.0, lados[0].z).normalized()
+	_montar_portico(amostra_em(s_largada), letreiro, true)
+	if aberta:
+		_montar_portico(amostra_em(s_chegada), "CHEGADA", false)
+
+## Dois pilares e a viga quadriculada com o nome na amostra i
+func _montar_portico(i: int, texto: String, com_semaforo: bool):
+	var p := pontos[i]
+	var lado := Vector3(lados[i].x, 0.0, lados[i].z).normalized()
 	var base := Basis(lado, Vector3.UP, lado.cross(Vector3.UP))
 	var pilar := BoxMesh.new()
 	pilar.size = Vector3(0.8, 8.0, 0.8)
@@ -301,17 +378,20 @@ func _portico():
 	for lado_sinal: float in [-1.0, 1.0]:
 		var m := MeshInstance3D.new()
 		m.mesh = pilar
-		m.position = p + lado * (LARGURA * 0.5 + 1.2) * lado_sinal + Vector3.UP * 4.0
+		m.position = p + lado * (largura * 0.5 + 1.2) * lado_sinal + Vector3.UP * 4.0
 		add_child(m)
 	var viga := MeshInstance3D.new()
 	var caixa := BoxMesh.new()
-	caixa.size = Vector3(LARGURA + 3.2, 1.4, 0.5)
+	caixa.size = Vector3(largura + 3.2, 1.4, 0.5)
 	var xadrez := ShaderMaterial.new()
 	xadrez.shader = preload("res://xadrez.gdshader")
 	caixa.material = xadrez
 	viga.mesh = caixa
 	viga.transform = Transform3D(base, p + Vector3.UP * 7.5)
 	add_child(viga)
+	_letreiros(texto, base, p)
+	if not com_semaforo:
+		return
 	# Semáforo: três lâmpadas embaixo da viga, visíveis dos dois lados
 	var bola := SphereMesh.new()
 	bola.radius = 0.32
@@ -326,10 +406,12 @@ func _portico():
 			lampada.position = p + Vector3.UP * 6.5 + lado * (k - 1) * 1.2 + base.z * 0.2 * face
 			add_child(lampada)
 	semaforo(-1)
-	# Um letreiro de cada lado da viga, cada um só visível pela frente
+
+## Um letreiro de cada lado da viga, cada um só visível pela frente
+func _letreiros(texto: String, base: Basis, p: Vector3):
 	for virado: bool in [false, true]:
 		var nome := Label3D.new()
-		nome.text = letreiro
+		nome.text = texto
 		nome.font_size = 96
 		nome.pixel_size = 0.012
 		nome.outline_size = 16
@@ -352,8 +434,8 @@ func grid(posicao: int) -> Transform3D:
 func _amostra_atras(inicio: int, metros: float) -> int:
 	var j := inicio
 	var andado := 0.0
-	while andado < metros:
-		var anterior := (j - 1 + AMOSTRAS) % AMOSTRAS
+	while andado < metros and not (aberta and j == 0):
+		var anterior := _vizinho(j, -1)
 		andado += pontos[j].distance_to(pontos[anterior])
 		j = anterior
 	return j
@@ -365,12 +447,12 @@ func amostra_perto(p: Vector3, dica := -1) -> int:
 	var menor := INF
 	if dica >= 0:
 		for d in range(-24, 25):
-			var i := (dica + d + AMOSTRAS) % AMOSTRAS
+			var i := _vizinho(dica, d)
 			var dist := p.distance_squared_to(pontos[i])
 			if dist < menor:
 				menor = dist
 				melhor = i
-		if menor < LARGURA * LARGURA:
+		if menor < largura * largura:
 			return melhor
 	for i in AMOSTRAS:
 		var dist := p.distance_squared_to(pontos[i])
@@ -391,7 +473,7 @@ func semaforo(estado: int):
 
 # --- Navegação (IA dos adversários) -------------------------------------------
 
-## Meia largura onde o centro de um carro ainda cabe sem raspar no muro (m)
+## Meia largura útil da pista padrão (m); cada pista usa a sua em `meia_util`
 const MEIA_UTIL := LARGURA * 0.5 - 0.9
 
 func _calcular_curvaturas(brutos: PackedVector3Array):
@@ -399,9 +481,9 @@ func _calcular_curvaturas(brutos: PackedVector3Array):
 	var k := PackedFloat32Array()
 	k.resize(n)
 	for i in n:
-		var a := brutos[(i - 1 + n) % n]
+		var a := brutos[_vizinho(i, -1)]
 		var b := brutos[i]
-		var c := brutos[(i + 1) % n]
+		var c := brutos[_vizinho(i, 1)]
 		var f1 := Vector2(b.x - a.x, b.z - a.z)
 		var f2 := Vector2(c.x - b.x, c.z - b.z)
 		var lado := -f1.y * f2.x + f1.x * f2.y
@@ -412,14 +494,14 @@ func _calcular_curvaturas(brutos: PackedVector3Array):
 		for i in n:
 			var soma := 0.0
 			for j in range(-8, 9):
-				soma += k[(i + j + n) % n]
+				soma += k[_vizinho(i, j)]
 			lisa[i] = soma / 17.0
 		k = lisa
 	curvaturas = k
 
 ## Amostra e fração (0 a 1) até a próxima para a distância s ao longo da volta
 func _indice(s: float) -> Vector2:
-	s = fposmod(s, comprimento)
+	s = clampf(s, 0.0, comprimento) if aberta else fposmod(s, comprimento)
 	var baixo := 0
 	var alto := AMOSTRAS
 	while alto - baixo > 1:
@@ -436,7 +518,7 @@ func _indice(s: float) -> Vector2:
 func quadro(s: float) -> Transform3D:
 	var ix := _indice(s)
 	var i := int(ix.x)
-	var j := (i + 1) % AMOSTRAS
+	var j := _vizinho(i, 1)
 	var frente := frentes[i].lerp(frentes[j], ix.y).normalized()
 	var cima := cimas[i].lerp(cimas[j], ix.y).normalized()
 	return Transform3D(Basis.looking_at(frente, cima), pontos[i].lerp(pontos[j], ix.y))
@@ -444,7 +526,7 @@ func quadro(s: float) -> Transform3D:
 func curvatura(s: float) -> float:
 	var ix := _indice(s)
 	var i := int(ix.x)
-	return lerpf(curvaturas[i], curvaturas[(i + 1) % AMOSTRAS], ix.y)
+	return lerpf(curvaturas[i], curvaturas[_vizinho(i, 1)], ix.y)
 
 ## Ponto (local da pista) em coordenadas da pista: x = distância s, y = desvio lateral d
 ## (positivo à direita), z = amostra mais próxima (para usar de dica na próxima vez)
@@ -452,7 +534,7 @@ func projetar(p: Vector3, dica := -1) -> Vector3:
 	var i := amostra_perto(p, dica)
 	var rel := p - pontos[i]
 	var s := distancias[i] + rel.dot(frentes[i])
-	return Vector3(fposmod(s, comprimento), rel.dot(lados[i]), i)
+	return Vector3(clampf(s, 0.0, comprimento) if aberta else fposmod(s, comprimento), rel.dot(lados[i]), i)
 
 ## Maior velocidade com que dá para estar em s e ainda frear a tempo para as curvas
 ## dos próximos `olhar` metros, com aceleração lateral `lateral` e frenagem `frenagem`
@@ -467,8 +549,46 @@ func velocidade_segura(s: float, lateral: float, frenagem: float, olhar := 60.0)
 		x += 5.0
 	return limite
 
-## Vaga do grid em coordenadas da pista (s, d), a mesma de grid()
+## Vaga do grid em coordenadas da pista (s, d), a mesma de grid(). Na pista aberta o
+## grid inteiro fica atrás da linha de largada, e afasta do centro com a largura
 func grid_sd(posicao: int) -> Vector2:
 	var recuo := (posicao / 2) * GRID_FILEIRA + (posicao % 2) * GRID_FILEIRA * 0.5
-	var i := _amostra_atras(GRID_FRENTE, recuo)
-	return Vector2(distancias[i], -GRID_LADO if posicao % 2 == 0 else GRID_LADO)
+	var lado := GRID_LADO * largura / LARGURA
+	lado = -lado if posicao % 2 == 0 else lado
+	# Aberta: amostras espaçadas (~2,5 m), então a vaga vai direto em metros
+	if aberta:
+		return Vector2(s_largada - 4.0 - recuo, lado)
+	return Vector2(distancias[_amostra_atras(GRID_FRENTE, recuo)], lado)
+
+# --- Ponta a ponta ou em voltas -------------------------------------------------
+
+## Amostra mais próxima da distância s
+func amostra_em(s: float) -> int:
+	var ix := _indice(s)
+	return mini(int(ix.x) + (1 if ix.y > 0.5 else 0), AMOSTRAS - 1)
+
+## Quantos portões a pista tem (na aberta o último é a linha de chegada)
+func total_portoes() -> int:
+	return PORTOES + 1 if aberta else PORTOES
+
+## Metros entre a largada e a bandeirada
+func distancia_corrida() -> float:
+	return s_chegada - s_largada if aberta else voltas * comprimento
+
+## Progresso de quem está parado em s antes da largada (atrás da linha é negativo)
+func progresso_inicial(s: float) -> float:
+	if aberta:
+		return s - s_largada
+	return s - comprimento if s > comprimento * 0.5 else s
+
+## Anda ds metros a partir de s: dá a volta no laço; na aberta para antes da mureta do fim
+func avancar(s: float, ds: float) -> float:
+	if aberta:
+		return clampf(s + ds, 0.0, comprimento - FOLGA_FIM)
+	return fposmod(s + ds, comprimento)
+
+## Metros de a até b ao longo da pista (positivo = b na frente), pelo caminho curto
+func delta(a: float, b: float) -> float:
+	if aberta:
+		return b - a
+	return wrapf(b - a, -comprimento * 0.5, comprimento * 0.5)

@@ -23,7 +23,6 @@ const TRANCO_ATAQUE := 2.2
 var pista: PistaCorrida
 var carro: RigidBody3D
 var rivais: Array[CarroRival] = []
-var voltas := 3
 ## Obstáculos móveis da pista (Vale das Turbinas); null nas pistas sem eles
 var obstaculos: ObstaculosPista
 
@@ -141,13 +140,13 @@ func _ver_jogador():
 	var frente: Vector3 = pista.global_basis * -pista.quadro(proj.x).basis.z
 	jogador.v = carro.linear_velocity.dot(frente)
 	jogador.presente = ativo and not carro.em_transicao and not carro.explodindo \
-		and absf(proj.y) < PistaCorrida.LARGURA and absf(local.y - pista.quadro(proj.x).origin.y) < 4.0
+		and absf(proj.y) < pista.largura and absf(local.y - pista.quadro(proj.x).origin.y) < 4.0
 
 # --- Perguntas da IA ------------------------------------------------------------
 
 ## Metros de a até b ao longo da pista (positivo = b está na frente), pelo caminho curto
 func delta_s(a: CarroNaPista, b: CarroNaPista) -> float:
-	return wrapf(b.s - a.s, -pista.comprimento * 0.5, pista.comprimento * 0.5)
+	return pista.delta(a.s, b.s)
 
 ## Carro mais próximo à frente, até `alcance` m, cuja faixa cruza a faixa d
 func a_frente(eu: CarroNaPista, alcance: float, d: float, faixa: float) -> CarroNaPista:
@@ -181,7 +180,7 @@ func lado_livre(eu: CarroNaPista, outro: CarroNaPista, linha: float) -> float:
 	var primeiro := 1.0 if linha >= outro.d else -1.0
 	for lado: float in [primeiro, -primeiro]:
 		var faixa := outro.d + lado * IARival.FOLGA_ULTRAPASSAGEM
-		if absf(faixa) > PistaCorrida.MEIA_UTIL:
+		if absf(faixa) > pista.meia_util:
 			continue
 		var livre := true
 		for terceiro in carros:
@@ -228,8 +227,8 @@ func _contatos_entre_rivais():
 				continue
 			var lado := signf(dd) if dd != 0.0 else (1.0 if randf() < 0.5 else -1.0)
 			var sobra := CarroRival.LARGURA - absf(dd)
-			a.d = clampf(a.d - lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
-			b.d = clampf(b.d + lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
+			a.d = clampf(a.d - lado * sobra * 0.5, -pista.meia_util, pista.meia_util)
+			b.d = clampf(b.d + lado * sobra * 0.5, -pista.meia_util, pista.meia_util)
 			var tras := a if ds > 0.0 else b
 			var frente := b if ds > 0.0 else a
 			var choque := maxf(tras.v - frente.v, 0.0)
@@ -291,7 +290,7 @@ func _tranco_no_jogador(rival: CarroRival, lado: float, por_tras: bool):
 	jogador_atacado.emit(rival)
 
 func _ver_chegadas():
-	var linha := voltas * pista.comprimento
+	var linha := pista.distancia_corrida()
 	for rival in rivais:
 		if not rival.terminou and rival.progresso >= linha:
 			rival.terminou = true

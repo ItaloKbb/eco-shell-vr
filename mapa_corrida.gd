@@ -122,3 +122,55 @@ func largada(posicao := ADVERSARIOS) -> Transform3D:
 	var vaga := pista.grid(posicao)
 	vaga.origin += vaga.basis.y * 0.3
 	return global_transform * vaga
+
+# --- Ajudantes de cenário ---------------------------------------------------------
+
+## Chão plano (mapas ponta a ponta): piso grande com um ruído suave na cor e um plano de
+## colisão infinito na altura 0, embaixo da pista
+func _chao_plano(cor: Color, tamanho := 3200.0):
+	var piso := MeshInstance3D.new()
+	var plano := PlaneMesh.new()
+	plano.size = Vector2(tamanho, tamanho)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = cor
+	material.roughness = 0.95
+	var ruido := FastNoiseLite.new()
+	ruido.frequency = 0.02
+	var textura := NoiseTexture2D.new()
+	textura.noise = ruido
+	textura.seamless = true
+	material.albedo_texture = textura
+	material.uv1_scale = Vector3(tamanho / 40.0, tamanho / 40.0, 1.0)
+	plano.material = material
+	piso.mesh = plano
+	add_child(piso)
+	var corpo := StaticBody3D.new()
+	corpo.collision_layer = 1
+	corpo.collision_mask = 0
+	var forma := CollisionShape3D.new()
+	forma.shape = WorldBoundaryShape3D.new()
+	corpo.add_child(forma)
+	add_child(corpo)
+
+## Distância no plano do ponto (local do mapa) até o centro da pista
+func distancia_pista(x: float, z: float) -> float:
+	var i := pista.amostra_perto(Vector3(x, 0.0, z))
+	return Vector2(x - pista.pontos[i].x, z - pista.pontos[i].z).length()
+
+## Várias cópias de uma malha numa MultiMesh (uma chamada de desenho só, leve no Quest),
+## com cor por cópia se `cores` vier preenchida
+func _instancias(malha: Mesh, pecas: Array[Transform3D], cores: Array[Color] = []):
+	if pecas.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = not cores.is_empty()
+	mm.mesh = malha
+	mm.instance_count = pecas.size()
+	for k in pecas.size():
+		mm.set_instance_transform(k, pecas[k])
+		if mm.use_colors:
+			mm.set_instance_color(k, cores[k])
+	var no := MultiMeshInstance3D.new()
+	no.multimesh = mm
+	add_child(no)

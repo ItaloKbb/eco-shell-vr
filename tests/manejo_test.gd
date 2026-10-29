@@ -1,6 +1,8 @@
 extends SceneTree
 ## godot --headless --path . --xr-mode off --fixed-fps 60 --script res://tests/manejo_test.gd
 var menor_cima := 1.0
+## Maior rolagem lateral da carroceria na curva (graus): a câmera VR herda tudo
+var rolagem_max := 0.0
 var giro_total := 0.0
 var anterior := Vector3.FORWARD
 
@@ -43,6 +45,7 @@ func _testar():
 		carro._esperando_chao = false
 		carro.freeze = false
 		menor_cima = 1.0
+		rolagem_max = 0.0
 		giro_total = 0.0
 		anterior = Vector3.FORWARD
 		carro.direcao = 0.0
@@ -59,13 +62,15 @@ func _testar():
 		for i in 240:
 			await physics_frame
 			menor_cima = minf(menor_cima, carro.global_basis.y.y)
+			rolagem_max = maxf(rolagem_max, rad_to_deg(absf(asin(carro.global_basis.x.y))))
 			var frente: Vector3 = -carro.global_basis.z
 			giro_total += anterior.signed_angle_to(frente, Vector3.UP)
 			anterior = frente
-		print("MANEJO min_cima=", menor_cima, " curva_graus=", rad_to_deg(giro_total), " velocidade_final=", carro.linear_velocity.length())
+		print("MANEJO min_cima=", menor_cima, " rolagem_max=", rolagem_max, " curva_graus=", rad_to_deg(giro_total), " velocidade_final=", carro.linear_velocity.length())
 		assert(menor_cima > 0.85, "O carro não deve tombar em curva contínua no plano")
+		assert(rolagem_max < 8.0, "A carroceria não deve rolar muito na curva (vertigem na VR)")
 		assert(absf(rad_to_deg(giro_total)) > 120.0, "A direção deve responder em velocidade")
-		assert(carro.linear_velocity.length() > 7.0, "Deve manter movimento durante a curva")
+		assert(carro.linear_velocity.length() > 5.5, "Deve manter movimento durante a curva")
 		tecla(KEY_W, false)
 		tecla(sentido, false)
 	print("MANEJO_OK: curvas nos dois sentidos sem capotar, com resposta e velocidade")

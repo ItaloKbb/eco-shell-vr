@@ -22,6 +22,8 @@ const PINTURAS_JOGADOR := CarroFantasma.PINTURAS_JOGADOR
 var _destinos := {
 	"Deserto": [Deserto, Mundos.ORIGEM_DESERTO],
 	"Vale das Turbinas": [ValeTurbinas, Mundos.ORIGEM_TURBINAS],
+	"Sistema S": [SistemaS, Mundos.ORIGEM_SISTEMA_S],
+	"Parque Industrial": [ParqueIndustrial, Mundos.ORIGEM_INDUSTRIAL],
 }
 var ambiente: WorldEnvironment
 var sol: DirectionalLight3D
@@ -534,8 +536,12 @@ class HudEspectador extends CanvasLayer:
 		if mapa != "":
 			var texto := mapa.to_upper()
 			var volta := int(item.get("volta", 0))
-			if volta > 0:
-				texto += "  ·  VOLTA %d/%d  ·  %dº DE %d" % [mini(volta, int(item.get("voltas", 3))), int(item.get("voltas", 3)), int(item.get("posicao", 0)), int(item.get("total", 0))]
+			var voltas := int(item.get("voltas", 3))
+			if volta > 0 and voltas <= 1:
+				# Ponta a ponta: não tem volta para contar
+				texto += "  ·  SPRINT  ·  %dº DE %d" % [int(item.get("posicao", 0)), int(item.get("total", 0))]
+			elif volta > 0:
+				texto += "  ·  VOLTA %d/%d  ·  %dº DE %d" % [mini(volta, voltas), voltas, int(item.get("posicao", 0)), int(item.get("total", 0))]
 			else:
 				texto += "  ·  NO GRID"
 			_local.text = texto

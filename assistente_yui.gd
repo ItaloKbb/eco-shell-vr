@@ -71,8 +71,9 @@ func falar(ids: Array):
 ## Entrada numa corrida (mundos.gd): uma fala de encorajamento, sem repetir a última,
 ## depois de `chegada` (a apresentação do mapa, se houver).
 ## Corta o que estiver falando: a corrida é o que importa agora
-func falar_corrida(chegada := ""):
-	var opcoes := FALAS_CORRIDA.filter(func(id): return id != _ultima_corrida)
+## `sprint`: pista ponta a ponta, sem a fala que conta as três voltas
+func falar_corrida(chegada := "", sprint := false):
+	var opcoes := FALAS_CORRIDA.filter(func(id): return id != _ultima_corrida and not (sprint and id == "corrida_2"))
 	_ultima_corrida = opcoes.pick_random()
 	_fila.clear()
 	_player.stop()

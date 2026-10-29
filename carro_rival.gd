@@ -54,6 +54,11 @@ var d_alvo := 0.0
 ## Multiplicador da agilidade (o cérebro aumenta na hora de atacar)
 var agilidade_extra := 1.0
 
+## Rampa de onde saltou (s da borda) enquanto está no ar; -INF no chão
+var salto_s := -INF
+## Turbo de placa (rampa) ainda valendo (s): segura a velocidade alta
+var _turbo := 0.0
+
 var _vel_lateral := 0.0
 ## Empurrão lateral de batidas (m/s), que vai sumindo
 var _empurrao := 0.0
@@ -210,8 +215,10 @@ func estacionar(s_: float, d_: float):
 	_recarga_dash = 0.0
 	_tempo_dash = 0.0
 	_trilhas_dash.visible = false
+	salto_s = -INF
+	_turbo = 0.0
 	# Atrás da linha conta como negativo: ainda não começou a primeira volta
-	progresso = s - pista.comprimento if s > pista.comprimento * 0.5 else s
+	progresso = pista.progresso_inicial(s)
 	ia.parar()
 	_posar()
 	_sincronizar()
@@ -221,8 +228,13 @@ func mover(dt: float):
 	_recarga_dash = maxf(_recarga_dash - dt, 0.0)
 	_tempo_dash = maxf(_tempo_dash - dt, 0.0)
 	_trilhas_dash.visible = _tempo_dash > 0.0
+	_turbo = maxf(_turbo - dt, 0.0)
 	var alvo_movimento := maxf(v_alvo, perfil.velocidade_max * 1.12) if _tempo_dash > 0.0 else v_alvo
 	var freio_dash := perfil.frenagem * (0.25 if _tempo_dash > 0.0 else 1.0)
+	# Turbo de placa e voo da rampa: a velocidade cai devagar, como no carro do jogador
+	if _turbo > 0.0 or salto_s > -INF:
+		alvo_movimento = maxf(alvo_movimento, v)
+		freio_dash = perfil.frenagem * 0.08
 	v += clampf(alvo_movimento - v, -freio_dash * dt, perfil.aceleracao * dt)
 	v = maxf(v, 0.0)
 	var agil := perfil.agilidade * agilidade_extra
@@ -231,7 +243,7 @@ func mover(dt: float):
 	d += (_vel_lateral + _empurrao) * dt
 	_empurrao = move_toward(_empurrao, 0.0, 5.0 * dt)
 	# Muro: raspa, perde um pouco e para de ir para o lado
-	var limite := PistaCorrida.MEIA_UTIL
+	var limite := pista.meia_util
 	if absf(d) > limite:
 		d = signf(d) * limite
 		if v > 2.0:
@@ -240,8 +252,14 @@ func mover(dt: float):
 		_empurrao = 0.0
 		_vel_lateral = 0.0
 		v *= 1.0 - 0.6 * dt
-	s = fposmod(s + v * dt, pista.comprimento)
+	var antes := s
+	s = pista.avancar(s, v * dt)
+	# Pista aberta: chegou na mureta do fim e parou
+	if pista.aberta and s < antes + v * dt - 0.001:
+		v = 0.0
 	progresso += v * dt
+	if pista.rampas:
+		pista.rampas.passar(self, antes)
 	_posar()
 	for giro in _giros:
 		giro.rotation.x -= v * dt / RAIO_RODA
@@ -253,6 +271,11 @@ func mover(dt: float):
 	_espera_passagem = maxf(_espera_passagem - dt, 0.0)
 	_som()
 	_sincronizar()
+
+## Placa de turbo: garante `alvo` m/s e segura por um tempo
+func turbo(alvo: float):
+	v = maxf(v, alvo)
+	_turbo = 2.5
 
 func pode_usar_dash() -> bool:
 	return _recarga_dash <= 0.0 and _tempo_dash <= 0.0 and not terminou and v > 5.0
@@ -307,7 +330,8 @@ func _posar():
 	# Aponta o bico para onde o carro está indo (frente + deslize lateral)
 	var guinada := atan2(_vel_lateral + _empurrao, maxf(v, 1.5))
 	var base := q.basis.rotated(q.basis.y, -guinada)
-	global_transform = pista.global_transform * Transform3D(base, q.origin + q.basis.x * d)
+	var alto := pista.rampas.altura(self) if pista.rampas else 0.0
+	global_transform = pista.global_transform * Transform3D(base, q.origin + q.basis.x * d + q.basis.y * alto)
 
 func _sincronizar():
 	info.s = s

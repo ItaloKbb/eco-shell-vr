@@ -2,9 +2,11 @@
 	"boas_vindas": "Oi, piloto! Eu sou a Yui, a assistente do SENAI. Que bom ter você aqui! Escolha o seu nome e carregue a esfera para nascer.",
 	"lugar_1": "Este é o Mundo Neon, um laboratório de energia do SENAI. O seu Eco Shell é um protótipo de três rodas, feito para gastar o mínimo de energia.",
 	"lugar_2": "Derrape para carregar o neon e voe pela pista de luz! Mais à frente tem um abismo: atravesse pelas pontes, ou pegue o turbo e salte!",
-	"lugar_3": "Os portais coloridos levam a outros lugares. O âmbar e o carmesim abrem a corrida no deserto. Divirta-se!",
+	"lugar_3": "Os portais coloridos levam às corridas. O âmbar e o carmesim abrem o deserto, o verde o Vale das Turbinas, o ciano o Sistema S e o violeta o Parque Industrial. Divirta-se!",
 	"corrida_1": "Hora da corrida! Respira fundo, você treinou para isso. Eu acredito em você!",
 	"corrida_2": "Três voltas, dez rivais. Calma nas curvas, coragem nas retas. Você consegue!",
 	"corrida_3": "Não precisa ser perfeito, é só dar o seu melhor. Estou torcendo por você!",
-	"turbinas": "Bem-vindo ao Vale das Turbinas, a usina de energia limpa do SENAI! Aqui a pista se mexe: o guindaste balança a carga, as turbinas varrem a pista e as comportas abrem uma de cada vez. Espere a sua hora e acelere!"
+	"turbinas": "Bem-vindo ao Vale das Turbinas, a usina de energia limpa do SENAI! Aqui a pista se mexe: o guindaste balança a carga, as turbinas varrem a pista e as comportas abrem uma de cada vez. Espere a sua hora e acelere!",
+	"sistema_s": "Bem-vindo ao Sistema S! Aqui é uma corrida só, de ponta a ponta, numa pista enorme em forma de S. Ela é bem larga: escolha a sua linha e não tire o pé!",
+	"parque_industrial": "Bem-vindo ao Parque Industrial! É uma reta longa, de ponta a ponta. Passe pelas rampas: o salto é curtinho e o pouso dá turbo. O portal de volta fica na praça depois da chegada."
 }

@@ -180,7 +180,7 @@ func _proximo(s: float) -> ObstaculoPista:
 func _faixa_livre(obstaculo: ObstaculoPista, rival: CarroRival, ate_entrada: float, vel: float, dentro: bool, inicio_ds: float) -> float:
 	var melhor := NAN
 	var menor := INF
-	var limite := PistaCorrida.MEIA_UTIL
+	var limite := pista.meia_util
 	var alcance_lateral := rival.perfil.agilidade * ate_entrada * 0.8 + 0.3
 	var d := -limite
 	while d <= limite + 0.01:

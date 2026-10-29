@@ -2,9 +2,10 @@ class_name Corrida
 extends Node
 ## Corrida do circuito: o piloto entra preso na última vaga do grid, vê os controles
 ## do dispositivo em uso, passa pela contagem (3, 2, 1, VAI! com o semáforo do pórtico)
-## e corre VOLTAS voltas. A volta só vale passando por todos os portões da pista na
-## ordem (sem atalho pelo miolo); a primeira passagem pela linha, logo depois do grid,
-## só arma a contagem. Ao fechar a última volta mostra o resultado, e o piloto segue
+## e corre as voltas da pista (pista.voltas). A volta só vale passando por todos os
+## portões da pista na ordem (sem atalho pelo miolo); a primeira passagem pela linha,
+## logo depois do grid, só arma a contagem. Pista aberta (ponta a ponta): uma "volta"
+## só, da largada até o último portão, que é a linha de chegada. Ao fechar a última volta mostra o resultado, e o piloto segue
 ## livre para sair pelo portal. O texto do visor vai em car.gd painel_corrida.
 ## Os adversários correm por conta própria (TrafegoCorrida + IARival): ficam parados
 ## no grid até o VAI!, e a posição compara o progresso deles com o do piloto.
@@ -14,6 +15,7 @@ extends Node
 ## na visão da IA, e nos outros Quests os adversários seguem o que o anfitrião manda.
 
 enum Fase { PARADA, CONTROLES, CONTAGEM, CORRENDO, CHEGADA }
+## Voltas dos circuitos fechados (PistaCorrida.voltas)
 const VOLTAS := 3
 ## Quanto tempo os controles ficam na tela antes de a contagem começar sozinha (s)
 const TEMPO_CONTROLES := 8.0
@@ -87,7 +89,6 @@ func iniciar(grupo_ := {}):
 	_total = -1.0
 	_usando_controle = not Input.get_connected_joypads().is_empty()
 	trafego.carro = carro
-	trafego.voltas = VOLTAS
 	trafego.preparar()
 	carro.segurar()
 	pista.semaforo(-1)
@@ -230,7 +231,10 @@ func _largar():
 func _portao(k: int):
 	if fase != Fase.CORRENDO or carro == null or carro.em_transicao or k != _proximo:
 		return
-	_proximo = (k + 1) % PistaCorrida.PORTOES
+	_proximo = (k + 1) % pista.total_portoes()
+	if pista.aberta:
+		_portao_sprint(k)
+		return
 	if k != 0:
 		_tocar("clique", 1.5, -8.0)
 		return
@@ -244,12 +248,24 @@ func _portao(k: int):
 	if recorde:
 		_melhor = _ultima
 	_inicio = agora
-	if volta >= VOLTAS:
+	if volta >= pista.voltas:
 		_chegar()
 		return
 	volta += 1
 	_tocar("volta", 1.25 if recorde else 1.0, -4.0)
-	carro._avisar("ÚLTIMA VOLTA!" if volta == VOLTAS else "VOLTA %d/%d" % [volta, VOLTAS], 2.0)
+	carro._avisar("ÚLTIMA VOLTA!" if volta == pista.voltas else "VOLTA %d/%d" % [volta, pista.voltas], 2.0)
+
+## Ponta a ponta: o 0 é a largada (só arma os portões), o último é a bandeirada
+func _portao_sprint(k: int):
+	if k == 0:
+		_cruzou_largada = true
+		return
+	if k < pista.total_portoes() - 1:
+		_tocar("clique", 1.5, -8.0)
+		return
+	_ultima = _relogio - _inicio
+	_melhor = _ultima
+	_chegar()
 
 func _chegar():
 	_total = _relogio - _largada
@@ -264,17 +280,20 @@ func _chegar():
 		vencedor = trafego.chegada[0].nome()
 	elif not jogadores_antes.is_empty():
 		vencedor = jogadores_antes[0].nome
-	_painel.mostrar_chegada(posicao, total_carros(), _tempo(_total), _tempo(_melhor), vencedor)
+	_painel.mostrar_chegada(posicao, total_carros(), _tempo(_total), _tempo(_melhor), vencedor, pista.aberta)
 	_painel.mostrar()
 	terminou.emit(_total, _melhor)
 
 ## Posição: 1 + adversários com mais progresso. O do piloto soma as voltas fechadas
-## à distância desde a linha (antes de cruzá-la pela primeira vez, ele fica negativo).
+## à distância desde a linha (antes de cruzá-la pela primeira vez, ele fica negativo;
+## na pista aberta é só a distância desde a largada).
 ## O tráfego usa esse progresso para o "elástico" dos adversários
 func _atualizar_posicao():
 	var d := trafego.jogador.s
 	var meu: float
-	if not _cruzou_largada:
+	if pista.aberta:
+		meu = d - pista.s_largada
+	elif not _cruzou_largada:
 		meu = d - pista.comprimento if d > pista.comprimento * 0.5 else d
 	else:
 		# Logo antes de fechar a volta já é o fim da pista: não dá volta a mais
@@ -329,7 +348,7 @@ func receber_remoto(item: Dictionary):
 		info.v = float(item.get("vel", 0.0)) / 3.6
 		info.progresso = remoto.progresso
 		info.nome_remoto = remoto.nome
-		info.presente = remoto.carro.visible and absf(proj.y) < PistaCorrida.LARGURA
+		info.presente = remoto.carro.visible and absf(proj.y) < pista.largura
 	elif item.has("rivais"):
 		for r in item.rivais:
 			var i := int(r[0]) - 1
@@ -367,7 +386,7 @@ func _process(_delta):
 		Fase.CONTROLES:
 			if grupo.is_empty():
 				_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES - _tempo_fase)
-				carro.painel_corrida = "GRID %d/%d\n%d VOLTAS\nAGUARDE" % [total, total, VOLTAS]
+				carro.painel_corrida = "GRID %d/%d\n%s\nAGUARDE" % [total, total, _formato()]
 			else:
 				var restante := float(_status.get("restante", -1.0))
 				var prontos := "PRONTOS %d/%d" % [int(_status.get("prontos", 0)), int(_status.get("total", grupo.jogadores.size()))]
@@ -375,12 +394,22 @@ func _process(_delta):
 				_painel.mostrar_controles(_dispositivo(), maxf(restante, 0.0), espera, _pronto_enviado)
 				carro.painel_corrida = "GRID %d/%d\n%s\n%s" % [total, total, prontos, "AGUARDE" if _pronto_enviado else "APERTE A"]
 		Fase.CONTAGEM:
-			carro.painel_corrida = "GRID %d/%d\n%d VOLTAS\nLARGADA %d" % [total, total, VOLTAS, 3 - maxi(_passo_contagem, 0)]
+			carro.painel_corrida = "GRID %d/%d\n%s\nLARGADA %d" % [total, total, _formato(), 3 - maxi(_passo_contagem, 0)]
 		Fase.CORRENDO:
 			var atual := _relogio - _inicio
-			carro.painel_corrida = "VOLTA %d/%d POS %d/%d\nT   %s\nULT %s\nMEL %s" % [volta, VOLTAS, posicao, total, _tempo(atual), _tempo(_ultima), _tempo(_melhor)]
+			if pista.aberta:
+				var falta := maxf(pista.distancia_corrida() - trafego.jogador.progresso, 0.0)
+				carro.painel_corrida = "SPRINT POS %d/%d\nT   %s\nFALTAM %d m" % [posicao, total, _tempo(atual), roundi(falta)]
+			else:
+				carro.painel_corrida = "VOLTA %d/%d POS %d/%d\nT   %s\nULT %s\nMEL %s" % [volta, pista.voltas, posicao, total, _tempo(atual), _tempo(_ultima), _tempo(_melhor)]
 		Fase.CHEGADA:
 			carro.painel_corrida = "CHEGOU %dº/%d\nTOT %s\nMEL %s\nSAIA: PORTAL" % [posicao, total, _tempo(_total), _tempo(_melhor)]
+
+## "3 VOLTAS" ou, ponta a ponta, "SPRINT 1600 m"
+func _formato() -> String:
+	if pista.aberta:
+		return "SPRINT %d m" % roundi(pista.distancia_corrida())
+	return "%d VOLTAS" % pista.voltas
 
 func _tempo(s: float) -> String:
 	if s < 0.0:

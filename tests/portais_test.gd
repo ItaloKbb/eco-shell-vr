@@ -51,13 +51,10 @@ func _testar():
 		assert(not carro.em_transicao and not mundos._transicao.visible)
 		assert(mundos._transicao._destino == "Mundo Neon")
 		assert(not mapa.get_node("HexWorld").carregando())
-	# Um portal sem corrida permanece sem marcador e não abre o deserto.
-	var fechado: Portal = portais._portais[0]
-	carro.teleportar(Transform3D(Basis.IDENTITY, fechado.global_position))
-	carro.freeze = true
-	fechado._physics_process(0.0)
-	assert(not mundos.no_deserto and not mundos._trocando)
-	print("PORTAIS_OK: entrada real no carmesim e âmbar; marcador apenas em corridas")
+	# Todo portal leva a uma corrida (ciano: Sistema S, violeta: Parque Industrial)
+	assert(portais.CORRIDAS.size() == portais.CORES.size())
+	assert(portais.CORRIDAS[portais.CIANO] == "Sistema S" and portais.CORRIDAS[portais.VIOLETA] == "Parque Industrial")
+	print("PORTAIS_OK: entrada real no carmesim e âmbar; marcador em todos os portais de corrida")
 	mapa.queue_free()
 	for i in 5:
 		await process_frame

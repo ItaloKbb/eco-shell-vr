@@ -1,6 +1,6 @@
 extends Node
 ## Troca de mapa pelos portais. O mundo neon e os mapas de corrida (MapaCorrida: o
-## Deserto e o Vale das Turbinas) ficam na mesma cena: cada mapa é montado longe, na
+## Deserto, o Vale das Turbinas, o Sistema S e o Parque Industrial) ficam na mesma cena: cada mapa é montado longe, na
 ## sua ORIGEM, na primeira visita. Atravessar um portal de corrida cobre a visão,
 ## desliga o mundo neon (chão, névoa, portais), troca céu e sol, e leva o
 ## carro para a largada do circuito; o portal de volta faz o caminho contrário,
@@ -8,10 +8,14 @@ extends Node
 
 const ORIGEM_DESERTO := Vector3(4000.0, 0.0, 0.0)
 const ORIGEM_TURBINAS := Vector3(-4000.0, 0.0, 0.0)
+const ORIGEM_SISTEMA_S := Vector3(0.0, 0.0, 4000.0)
+const ORIGEM_INDUSTRIAL := Vector3(0.0, 0.0, -4000.0)
 ## Destino do portal (Portal.destino_corrida) -> [classe do mapa, onde fica]
 var _destinos := {
 	"Deserto": [Deserto, ORIGEM_DESERTO],
 	"Vale das Turbinas": [ValeTurbinas, ORIGEM_TURBINAS],
+	"Sistema S": [SistemaS, ORIGEM_SISTEMA_S],
+	"Parque Industrial": [ParqueIndustrial, ORIGEM_INDUSTRIAL],
 }
 
 @export var carro: RigidBody3D
@@ -30,6 +34,10 @@ var deserto: Deserto:
 	get: return mapas.get("Deserto")
 var turbinas: ValeTurbinas:
 	get: return mapas.get("Vale das Turbinas")
+var sistema_s: SistemaS:
+	get: return mapas.get("Sistema S")
+var industrial: ParqueIndustrial:
+	get: return mapas.get("Parque Industrial")
 var no_deserto: bool:
 	get: return mapa_atual != null and mapa_atual == deserto
 var no_mapa_corrida: bool:
@@ -174,7 +182,7 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	mapa.corrida.iniciar(grupo)
 	var yui := get_tree().get_first_node_in_group("yui")
 	if yui:
-		yui.falar_corrida(mapa.fala_chegada)
+		yui.falar_corrida(mapa.fala_chegada, mapa.pista.aberta)
 	if musica:
 		musica.tocar_corrida(mapa.faixa_corrida)
 	_trocando = false

@@ -1,8 +1,9 @@
 extends Node
-## Óculos conectados ao servidor (autoload; só usado no modo servidor): estado, nome do
-## jogador liberado, ping, bateria e último heartbeat de cada peer. O apelido ("Óculos 3")
-## fica preso ao OS.get_unique_id() do aparelho em user://dispositivos.json, e por isso
-## sobrevive a reinicializações e a outros dias de evento.
+## Óculos e notebooks conectados ao servidor (autoload; só usado no modo servidor):
+## estado, nome do jogador liberado, ping, bateria e último heartbeat de cada peer. O
+## apelido ("Óculos 3", ou "Notebook 2" para PC jogando no teclado) fica preso ao
+## OS.get_unique_id() do aparelho em user://dispositivos.json, e por isso sobrevive a
+## reinicializações e a outros dias de evento.
 
 const ARQUIVO := "user://dispositivos.json"
 const ESTADOS := ["idle", "lobby", "correndo", "menu"]
@@ -10,10 +11,12 @@ const ESTADOS := ["idle", "lobby", "correndo", "menu"]
 const LIMITE_HEARTBEAT := 10.0
 ## Telemetria mais velha que isso (s) não vai para o espectador nem para o painel
 const LIMITE_TELEMETRIA := 2.0
+## tipo do aparelho (enviado no registro) -> prefixo do apelido
+const PREFIXOS := {"oculos": "Óculos", "notebook": "Notebook"}
 
 signal mudou
 
-## peer -> {peer, ip, unique_id, modelo, aparelho, versao, apelido, jogador, liberado,
+## peer -> {peer, ip, unique_id, tipo, modelo, aparelho, versao, apelido, jogador, liberado,
 ## estado, bateria, fps, conectado_em, ultimo_heartbeat, telemetria, telemetria_em}
 ## (telemetria: car.gd telemetria(), a ~10 Hz enquanto liberado)
 var lista := {}
@@ -29,7 +32,7 @@ func _ready():
 func adicionar(peer: int, ip: String):
 	var agora := _agora()
 	lista[peer] = {
-		"peer": peer, "ip": ip, "unique_id": "", "modelo": "", "aparelho": "", "versao": "",
+		"peer": peer, "ip": ip, "unique_id": "", "tipo": "oculos", "modelo": "", "aparelho": "", "versao": "",
 		"apelido": "", "jogador": "", "liberado": false, "estado": "idle",
 		"bateria": -1, "fps": 0, "conectado_em": agora, "ultimo_heartbeat": agora,
 		"telemetria": {}, "telemetria_em": 0.0,
@@ -43,13 +46,16 @@ func remover(peer: int):
 func obter(peer: int) -> Dictionary:
 	return lista.get(peer, {})
 
-## Devolve o apelido do aparelho (cria "Óculos N" na primeira vez que ele aparece)
+## Devolve o apelido do aparelho (cria "Óculos N"/"Notebook N" na primeira vez que ele aparece)
 func registrar(peer: int, info: Dictionary) -> String:
 	var d := obter(peer)
 	if d.is_empty():
 		return ""
 	var unico := str(info.get("unique_id", ""))
 	d.unique_id = unico
+	d.tipo = str(info.get("tipo", "oculos"))
+	if d.tipo not in PREFIXOS:
+		d.tipo = "oculos"
 	d.modelo = str(info.get("modelo", ""))
 	d.aparelho = str(info.get("aparelho", ""))
 	d.versao = str(info.get("versao", ""))
@@ -57,7 +63,7 @@ func registrar(peer: int, info: Dictionary) -> String:
 	if unico != "" and _apelidos.has(unico):
 		d.apelido = _apelidos[unico]
 	else:
-		d.apelido = _proximo_apelido()
+		d.apelido = _proximo_apelido(PREFIXOS[d.tipo])
 		if unico != "":
 			_apelidos[unico] = d.apelido
 			_salvar()
@@ -126,16 +132,16 @@ func encerrar(peer: int):
 func sem_resposta(d: Dictionary) -> bool:
 	return _agora() - float(d.ultimo_heartbeat) > LIMITE_HEARTBEAT
 
-func _proximo_apelido() -> String:
+func _proximo_apelido(prefixo: String) -> String:
 	var usados := {}
 	for apelido in _apelidos.values():
 		usados[apelido] = true
 	for d in lista.values():
 		usados[d.apelido] = true
 	var n := 1
-	while usados.has("Óculos %d" % n):
+	while usados.has("%s %d" % [prefixo, n]):
 		n += 1
-	return "Óculos %d" % n
+	return "%s %d" % [prefixo, n]
 
 func _salvar():
 	var arquivo := FileAccess.open(ARQUIVO, FileAccess.WRITE)

@@ -556,8 +556,11 @@ func _conectou():
 		print("Conectado ao servidor do evento como espectador")
 		sessao_mudou.emit()
 		return
+	var xr := XRServer.find_interface("OpenXR")
 	registrar_dispositivo.rpc_id(1, {
 		"unique_id": OS.get_unique_id(),
+		# Sem XR é um PC jogando no teclado (modo jogo): vira "Notebook N" no painel
+		"tipo": "oculos" if xr != null and xr.is_initialized() else "notebook",
 		"modelo": OS.get_model_name(),
 		"aparelho": "%s (%s)" % [OS.get_model_name(), OS.get_name()],
 		"versao": VERSAO,

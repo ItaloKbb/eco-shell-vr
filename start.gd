@@ -152,8 +152,9 @@ func _unhandled_input(event):
 		var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# Tab alterna entre o carro e a câmera livre de debug
-	elif event.keycode == KEY_TAB and not get_viewport().use_xr and not carro.em_ritual and not carro.em_transicao:
+	# Tab alterna entre o carro e a câmera livre de debug (fora do evento: no notebook
+	# do modo GAME o público não pode sair voando pelo mapa)
+	elif event.keycode == KEY_TAB and not get_viewport().use_xr and Rede.modo != Rede.Modo.CLIENTE 			and not carro.em_ritual and not carro.em_transicao:
 		if camera_carro.current:
 			camera_debug.global_transform = camera_carro.global_transform
 			camera_debug.set("rot_x", camera_debug.rotation.x)

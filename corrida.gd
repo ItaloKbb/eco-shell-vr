@@ -6,8 +6,9 @@ extends Node
 ## portões da pista na ordem (sem atalho pelo miolo); a primeira passagem pela linha,
 ## logo depois do grid, só arma a contagem. Pista aberta (ponta a ponta): uma "volta"
 ## só, da largada até o último portão, que é a linha de chegada. Ao fechar a última volta
-## mostra o resultado e, passado TEMPO_RESULTADO, a corrida acaba (mundos.gd leva o
-## piloto de volta ao mundo neon; não tem portal de saída). O texto do visor vai em car.gd painel_corrida.
+## mostra o ranking e o carro segue sozinho, fantasma; com todos os jogadores na
+## chegada, TEMPO_SAIDA depois a corrida encerra (o piloto volta para o ovo, ver
+## mundos.gd; não tem portal de saída). O texto do visor vai em car.gd painel_corrida.
 ## Os adversários correm por conta própria (TrafegoCorrida + IARival): ficam parados
 ## no grid até o VAI!, e a posição compara o progresso deles com o do piloto.
 ## Em grupo (Rede.sala): a contagem só sai quando o servidor dá a largada (todos
@@ -21,13 +22,17 @@ const VOLTAS := 3
 ## Quanto tempo os controles ficam na tela antes de a contagem começar sozinha (s)
 const TEMPO_CONTROLES := 8.0
 const TEMPO_CONTAGEM := 3.0
-## Quanto o resultado fica na frente do piloto antes de recolher (s)
-const TEMPO_RESULTADO := 7.0
+## Todos os jogadores com a bandeirada: quanto tempo até sair da pista (s)
+const TEMPO_SAIDA := 3.0
+## Piloto automático depois da chegada: volta lenta (em grupo, esperando os outros)
+const VOLTA_LENTA := 12.0
 ## Jogador da corrida em grupo sem telemetria há mais que isso (s) saiu: o fantasma some
 const SUMIR_REMOTO := 2.0
 
 signal fase_mudou(fase: Fase)
 signal terminou(total: float, melhor: float)
+## Todos os jogadores receberam a bandeirada e o tempo de saída passou: hora de sair
+signal encerrada
 
 var pista: PistaCorrida
 var carro: RigidBody3D
@@ -45,6 +50,9 @@ var _ultima := -1.0
 var _melhor := -1.0
 var _total := -1.0
 var _tempo_fase := 0.0
+## Quanto tempo todos os jogadores já estão com a bandeirada (s)
+var _todos_chegaram_ha := 0.0
+var _encerrada := false
 var _passo_contagem := -1
 var _som: AudioStreamPlayer
 var _painel: PainelCorrida
@@ -120,6 +128,7 @@ func abortar():
 		trafego.preparar()
 	if carro:
 		carro.painel_corrida = ""
+		carro.autopiloto = false
 		if carro.segurado:
 			carro.soltar()
 
@@ -213,8 +222,13 @@ func _physics_process(delta: float):
 			if _painel.visible and _tempo_fase > 0.8:
 				_painel.fechar()
 		Fase.CHEGADA:
-			if _painel.visible and _tempo_fase > TEMPO_RESULTADO:
-				_painel.fechar()
+			# O ranking fica na frente do piloto até sair; o carro anda sozinho, fantasma
+			_dirigir_sozinho()
+			if _todos_chegaram():
+				_todos_chegaram_ha += delta
+				if _todos_chegaram_ha >= TEMPO_SAIDA and not _encerrada:
+					_encerrada = true
+					encerrada.emit()
 
 func _contar():
 	_mudar(Fase.CONTAGEM)
@@ -272,12 +286,43 @@ func _portao_sprint(k: int):
 	_melhor = _ultima
 	_chegar()
 
+## Todos os jogadores da corrida (sozinho: só este) já receberam a bandeirada
+func _todos_chegaram() -> bool:
+	for remoto in remotos.values():
+		if not remoto.chegou:
+			return false
+	return fase == Fase.CHEGADA
+
+## Piloto automático depois da chegada, como a IA: segue a pista olhando um ponto à
+## frente. Em grupo num circuito fica rodando devagar; sozinho ou na pista ponta a
+## ponta freia até parar
+func _dirigir_sozinho():
+	var info := trafego.jogador
+	var v: float = carro.linear_velocity.dot(-carro.global_basis.z)
+	var rodando := not grupo.is_empty() and not pista.aberta
+	var alvo_v := VOLTA_LENTA if rodando else 0.0
+	var d_alvo := clampf(info.d, -pista.meia_util * 0.6, pista.meia_util * 0.6)
+	var q := pista.quadro(info.s + maxf(8.0, absf(v) * 0.8))
+	var ponto := carro.to_local(pista.global_transform * (q.origin + q.basis.x * d_alvo))
+	var vira := clampf(atan2(-ponto.x, -ponto.z) * 2.5, -1.0, 1.0)
+	var acel := clampf((alvo_v - v) * 0.3, -0.6, 1.0)
+	if alvo_v == 0.0 and v < 0.5:
+		acel = 0.0
+	carro.comando_automatico = Vector2(acel, vira)
+
 func _chegar():
 	_total = _relogio - _largada
 	# Quem já recebeu a bandeirada chegou antes (adversários e outros jogadores)
 	var jogadores_antes := remotos.values().filter(func(r): return r.chegou)
 	posicao = trafego.chegada.size() + jogadores_antes.size() + 1
 	_mudar(Fase.CHEGADA)
+	_todos_chegaram_ha = 0.0
+	_encerrada = false
+	# Fantasma no piloto automático: atravessa todo mundo, sem nitro
+	carro._desligar_nitro()
+	carro.autopiloto = true
+	carro.comando_automatico = Vector2.ZERO
+	trafego.jogador_fantasma()
 	_tocar("volta", 1.5, -2.0)
 	carro._avisar("BANDEIRADA!", 2.5)
 	var vencedor := "VOCÊ"
@@ -285,7 +330,9 @@ func _chegar():
 		vencedor = trafego.chegada[0].nome()
 	elif not jogadores_antes.is_empty():
 		vencedor = jogadores_antes[0].nome
-	_painel.mostrar_chegada(posicao, total_carros(), _tempo(_total), _tempo(_melhor), vencedor, pista.aberta)
+	var falta_alguem := remotos.values().any(func(r): return not r.chegou)
+	_painel.mostrar_chegada(posicao, total_carros(), _tempo(_total), _tempo(_melhor), vencedor, pista.aberta,
+		"ESPERANDO OS OUTROS PILOTOS" if falta_alguem else "FIM DA CORRIDA")
 	_painel.mostrar()
 	terminou.emit(_total, _melhor)
 
@@ -409,7 +456,7 @@ func _process(_delta):
 			else:
 				carro.painel_corrida = "VOLTA %d/%d POS %d/%d\nT   %s\nULT %s\nMEL %s" % [volta, pista.voltas, posicao, total, _tempo(atual), _tempo(_ultima), _tempo(_melhor)]
 		Fase.CHEGADA:
-			carro.painel_corrida = "CHEGOU %dº/%d\nTOT %s\nMEL %s\nSAIA: PORTAL" % [posicao, total, _tempo(_total), _tempo(_melhor)]
+			carro.painel_corrida = "CHEGOU %dº/%d\nTOT %s\nMEL %s" % [posicao, total, _tempo(_total), _tempo(_melhor)]
 
 ## "3 VOLTAS" ou, ponta a ponta, "SPRINT 1600 m"
 func _formato() -> String:

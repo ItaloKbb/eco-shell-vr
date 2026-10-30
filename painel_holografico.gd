@@ -21,6 +21,8 @@ var opaco := false
 var _fundo: StyleBoxFlat
 var _cabecalho: Array[Control] = []
 var _abertura: Tween
+## Fechando (a animação já está rodando: chamar fechar() de novo não a reinicia)
+var _fechando := false
 var _assinatura := ""
 
 func _init(resolucao: Vector2i, tamanho: Vector2, vr: bool, titulo := "ECO SHELL"):
@@ -178,6 +180,7 @@ func definir_dicas(caixa: HBoxContainer, dicas: Array):
 func mostrar():
 	if _abertura and _abertura.is_valid():
 		_abertura.kill()
+	_fechando = false
 	visible = true
 	scale = Vector3(1.0, 0.04, 1.0)
 	_abertura = create_tween()
@@ -186,13 +189,16 @@ func mostrar():
 
 ## Desliga fechando para uma linha
 func fechar():
-	if not visible:
+	if not visible or _fechando:
 		return
+	_fechando = true
 	if _abertura and _abertura.is_valid():
 		_abertura.kill()
 	_abertura = create_tween()
 	_abertura.tween_property(self, "scale", Vector3(1.0, 0.04, 1.0), 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	_abertura.tween_callback(hide)
+	_abertura.tween_callback(func():
+		_fechando = false
+		hide())
 
 ## Monitor: redesenha sempre (pisca/pulsa); VR: só quando a assinatura do conteúdo muda
 func redesenhar(assinatura := ""):

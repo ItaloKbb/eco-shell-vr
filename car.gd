@@ -233,6 +233,10 @@ var em_ritual := false
 var em_transicao := false
 ## Parado no grid esperando a largada (corrida.gd): comandos lidos, carro preso
 var segurado := false
+## Depois da bandeirada a corrida (corrida.gd) dirige: acelerador e esterço (-1 a 1)
+## vêm de `comando_automatico` em vez dos controles
+var autopiloto := false
+var comando_automatico := Vector2.ZERO
 var nickname := "PILOTO"
 ## Texto da corrida (corrida.gd); quando tem, ocupa o lado esquerdo do visor
 var painel_corrida := ""
@@ -621,6 +625,12 @@ func _physics_process(delta):
 		freio_mao = freio_mao or mao_esquerda.is_button_pressed("ax_button")
 	pedal = minf(pedal, 1.0)
 	pedal_freio = minf(pedal_freio, 1.0)
+	if autopiloto:
+		pedal = maxf(comando_automatico.x, 0.0)
+		pedal_freio = maxf(-comando_automatico.x, 0.0)
+		vira = comando_automatico.y
+		sobe = 0.0
+		freio_mao = false
 	drift = pedal > 0.5 and pedal_freio > 0.5
 	acel += pedal if drift else pedal - pedal_freio
 	acel = clamp(acel, -1.0, 1.0)

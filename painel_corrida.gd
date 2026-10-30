@@ -200,7 +200,7 @@ func mostrar_contagem(texto: String, calor: float):
 	redesenhar("n|" + texto)
 
 ## `sprint`: pista ponta a ponta, sem "melhor volta"
-func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String, sprint := false):
+func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String, sprint := false, dica := "FIM DA CORRIDA"):
 	_pagina(Pagina.CHEGADA)
 	etapa.text = "RESULTADO"
 	_resultado[0].text = "%dº / %d" % [posicao, total_carros]
@@ -208,5 +208,5 @@ func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: Str
 	_resultado[2].text = "—" if sprint else melhor
 	_resultado[3].text = vencedor
 	_resultado[3].add_theme_color_override("font_color", COR_QUENTE if vencedor == "VOCÊ" else Color.WHITE)
-	definir_dicas(_dicas_chegada, [["FIM", "VOLTANDO AO MUNDO NEON"]])
+	definir_dicas(_dicas_chegada, [["FIM", dica]])
 	redesenhar("r|%d|%s|%s|%s" % [posicao, total, melhor, vencedor])

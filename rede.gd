@@ -28,7 +28,7 @@ extends Node
 ## ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.2"
+const VERSAO := "1.3"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -469,6 +469,15 @@ func informar_estado(novo: String):
 	while conectado and _confirmado != novo and Time.get_ticks_msec() < limite:
 		await get_tree().process_frame
 
+## Fim da vida do piloto (explodiu ou terminou a corrida): a sessão acaba aqui mesmo
+## (sem esperar o servidor, a esfera já fica em espera) e o servidor põe o Quest em idle
+func terminar_sessao():
+	if not conectado or not liberado:
+		return
+	liberado = false
+	nome_jogador = ""
+	pedir_encerramento.rpc_id(1)
+
 ## Fim da corrida: só conta para o ranking com o Quest liberado pelo operador
 func registrar_tempo(tempo: float, pista: String):
 	if conectado and liberado:
@@ -619,6 +628,15 @@ func registrar_dispositivo(info: Dictionary):
 	definir_apelido.rpc_id(peer, novo)
 	atualizar_ranking.rpc_id(peer, Ranking.top)
 	registrar_evento("dispositivo", "%s registrado: %s" % [novo, info.get("aparelho", "?")])
+
+## O Quest acabou a vida do piloto (explodiu ou terminou a corrida): encerra como o
+## operador faria, voltando para idle
+@rpc("any_peer", "call_remote", "reliable")
+func pedir_encerramento():
+	if modo != Modo.SERVIDOR:
+		return
+	pacotes_recebidos += 1
+	encerrar(multiplayer.get_remote_sender_id())
 
 ## O peer é um telão: sai da lista de óculos e passa a receber os quadros
 @rpc("any_peer", "call_remote", "reliable")

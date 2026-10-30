@@ -19,10 +19,6 @@ signal jogador_atacado(rival: CarroRival)
 const ALCANCE_ATAQUE := 18.0
 ## Tranco extra de um ataque no jogador (m/s de variação de velocidade)
 const TRANCO_ATAQUE := 2.2
-## Adversário logo atrás do jogador encosta no máximo isso mais rápido que ele (m/s)
-const TOQUE_TRASEIRA := 3.0
-## Quanto da folga até a traseira do jogador o adversário ainda pode fechar por segundo
-const FECHAR_POR_METRO := 4.0
 
 var pista: PistaCorrida
 var carro: RigidBody3D
@@ -86,6 +82,8 @@ func preparar():
 	for i in rivais.size():
 		var vaga := pista.grid_sd(i)
 		rivais[i].estacionar(vaga.x, vaga.y)
+		if carro:
+			carro.remove_collision_exception_with(rivais[i])
 
 func largar():
 	ativo = true
@@ -124,8 +122,6 @@ func _physics_process(dt: float):
 		if obstaculos:
 			obstaculos.guiar(rival)
 	for rival in rivais:
-		if jogador.presente:
-			limitar_atras(rival)
 		rival.mover(dt)
 	if obstaculos:
 		obstaculos.colidir_rivais()
@@ -145,7 +141,8 @@ func _ver_jogador():
 	jogador.d = proj.y
 	var frente: Vector3 = pista.global_basis * -pista.quadro(proj.x).basis.z
 	jogador.v = carro.linear_velocity.dot(frente)
-	jogador.presente = ativo and not carro.em_transicao and not carro.explodindo \
+	# Já recebeu a bandeirada: é fantasma, a IA não o enxerga mais
+	jogador.presente = ativo and not carro.em_transicao and not carro.explodindo and not carro.autopiloto \
 		and absf(proj.y) < pista.largura and absf(local.y - pista.quadro(proj.x).origin.y) < 4.0
 
 # --- Perguntas da IA ------------------------------------------------------------
@@ -290,21 +287,6 @@ func _contatos_com_jogador():
 		if atacando and rival_atras:
 			_tranco_no_jogador(rival, -lado, rival_atras)
 
-## Adversário vindo por trás na faixa do jogador (até de turbo) freia antes: encosta
-## no máximo TOQUE_TRASEIRA m/s mais rápido. O corpo dele é animável e, rápido demais,
-## entrava no carro do jogador de um passo para o outro; a física desfazia isso
-## levantando e girando o carro (enjoo em VR)
-func limitar_atras(rival: CarroRival):
-	var atras := -delta_s(jogador, rival.info)
-	if atras <= 0.0 or atras > CarroRival.COMPRIMENTO + 12.0:
-		return
-	if absf(rival.d - jogador.d) >= CarroRival.LARGURA + 0.4:
-		return
-	var folga := maxf(atras - CarroRival.COMPRIMENTO, 0.0)
-	var permitida := maxf(jogador.v, 0.0) + TOQUE_TRASEIRA + folga * FECHAR_POR_METRO
-	if rival.v > permitida:
-		rival.v = permitida
-
 ## Pancada de brigão: empurra o carro do jogador (para a frente se veio por trás,
 ## para o lado se veio de lado) e treme o controle. Nunca gira o carro: rodar com
 ## batida na traseira enjoa em VR
@@ -316,10 +298,22 @@ func _tranco_no_jogador(rival: CarroRival, lado: float, por_tras: bool):
 	carro._avisar("%s TE ACERTOU!" % rival.perfil.nome, 1.2)
 	jogador_atacado.emit(rival)
 
+## Quem passou da chegada vira fantasma: meio transparente e sem colidir com o jogador
+func fantasma(rival: CarroRival):
+	rival.fantasma(true)
+	if carro:
+		carro.add_collision_exception_with(rival)
+
+## O jogador passou da chegada: atravessa todos os adversários
+func jogador_fantasma():
+	for rival in rivais:
+		carro.add_collision_exception_with(rival)
+
 func _ver_chegadas():
 	var linha := pista.distancia_corrida()
 	for rival in rivais:
 		if not rival.terminou and rival.progresso >= linha:
 			rival.terminou = true
+			fantasma(rival)
 			chegada.append(rival.info)
 			rival_chegou.emit(rival, chegada.size())

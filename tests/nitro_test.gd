@@ -201,8 +201,8 @@ func _testar():
 	assert(materiais.has(&"rival"), "Não encostou no adversário")
 	assert(carro.vida == carro.VIDA_MAX, "Levou dano batendo na traseira: vida %d" % carro.vida)
 
-	# Adversário a 34 m/s vindo na traseira do jogador parado: freia e só encosta,
-	# empurra sem jogar o carro para o alto nem rodar (o carro dele é animável)
+	# Adversário a 34 m/s acertando a traseira do jogador parado: empurra, mas não
+	# joga o carro para o alto (o carro dele é animável, massa "infinita")
 	var batedor: CarroRival = mapa.rivais[1]
 	batedor.ativar(true)
 	var s_jogador := pista.s_largada + 1300.0
@@ -217,9 +217,6 @@ func _testar():
 		batedor.v_alvo = 34.0
 		batedor.v = 34.0
 		batedor.d_alvo = 0.0
-		# O tráfego faz o adversário frear antes de entrar na traseira do jogador
-		mapa.trafego._ver_jogador()
-		mapa.trafego.limitar_atras(batedor)
 		batedor.mover(1.0 / 60.0)
 		await physics_frame
 		var local: Vector3 = pista.to_local(carro.global_position)

@@ -163,7 +163,7 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 		mapa.portal_volta.process_mode = Node.PROCESS_MODE_DISABLED
 		mapa.corrida.carro = carro
 		mapa.corrida.terminou.connect(func(total: float, _melhor: float): Rede.registrar_tempo(total, destino))
-		mapa.corrida.terminou.connect(_fim_da_corrida.bind(mapa).unbind(2))
+		mapa.corrida.encerrada.connect(_fim_da_corrida)
 		mapas[destino] = mapa
 	_transicao.atualizar_loading(titulo, "Posicionando piloto na largada")
 	await get_tree().process_frame
@@ -194,10 +194,13 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 		musica.tocar_corrida(mapa.faixa_corrida)
 	_trocando = false
 
-## Bandeirada: o resultado fica na frente do piloto um tempo e ele volta ao mundo neon
-func _fim_da_corrida(mapa: MapaCorrida):
-	await get_tree().create_timer(Corrida.TEMPO_RESULTADO).timeout
-	if mapa_atual == mapa and mapa.corrida.fase == Corrida.Fase.CHEGADA:
+## Todos receberam a bandeirada: a vida do piloto acaba e ele volta para o ovo (sem
+## o ritual, nos testes, só volta ao mundo neon)
+func _fim_da_corrida():
+	var ritual = get_parent().get("ritual")
+	if ritual:
+		ritual.voltar_ao_ovo()
+	else:
 		voltar()
 
 func voltar():

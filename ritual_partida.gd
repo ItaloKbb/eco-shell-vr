@@ -69,7 +69,7 @@ func _ready():
 	_usando_controle = not Input.get_connected_joypads().is_empty()
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
-	carro.retorno_solicitado.connect(_nova_vida)
+	carro.retorno_solicitado.connect(voltar_ao_ovo)
 	carro.visao_recentralizada.connect(_visao_recentralizada)
 	carro.mao_direita.button_pressed.connect(_botao_vr)
 	Rede.sessao_mudou.connect(_sessao_mudou)
@@ -102,6 +102,12 @@ func _sanitizar(valor: String) -> String:
 		if letra in LETRAS and resultado.length() < 8:
 			resultado += letra
 	return resultado.strip_edges()
+
+## Explodiu ou terminou a corrida: a vida acaba, o piloto volta para o ovo e, no
+## evento, a sessão encerra (servidor em idle, esfera esperando o operador)
+func voltar_ao_ovo():
+	Rede.terminar_sessao()
+	_nova_vida()
 
 func _nova_vida():
 	if _reiniciando:

@@ -219,6 +219,7 @@ func estacionar(s_: float, d_: float):
 	_empurrao = 0.0
 	agilidade_extra = 1.0
 	terminou = false
+	fantasma(false)
 	turbos_usados = 0
 	nitro = 0.0
 	_tempo_turbo = 0.0
@@ -362,6 +363,17 @@ func _sincronizar():
 	info.progresso = progresso
 
 # --- Corrida em grupo -----------------------------------------------------------------
+
+## Modo fantasma (já recebeu a bandeirada): meio transparente; quem tira a colisão
+## com o jogador é o TrafegoCorrida
+func fantasma(sim: bool):
+	_transparencia(self, 0.55 if sim else 0.0)
+
+func _transparencia(no: Node, valor: float):
+	for filho in no.get_children():
+		if filho is GeometryInstance3D and not filho is Label3D:
+			filho.transparency = valor
+		_transparencia(filho, valor)
 
 ## Fora do grid (no grupo sobram menos vagas para a IA): some, para e não colide
 func ativar(sim: bool):

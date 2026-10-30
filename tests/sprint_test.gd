@@ -2,7 +2,7 @@ extends SceneTree
 ## Pistas ponta a ponta: o portal ciano abre o Sistema S (S largo), o violeta o Parque
 ## Industrial (reta com rampas) e o carmesim o I de Incrível (reta na lava com minas). Traçado sem se cruzar, grid atrás da largada, portões até
 ## a bandeirada, adversários chegando e estacionando antes do fim, salto da rampa (jogador
-## e adversários), minas (faixa livre, detonação e rearme) e o portal de volta no fim.
+## e adversários), minas (faixa livre, detonação e rearme) e o fim sozinho (fantasma, de volta ao ovo).
 ## godot --headless --path . --xr-mode off --fixed-fps 60 --script res://tests/sprint_test.gd
 
 ## Passos extras da IA por quadro (a corrida inteira dos adversários sem esperar o relógio)
@@ -21,7 +21,7 @@ func tecla(codigo: Key, pressionada: bool):
 	Input.flush_buffered_events()
 
 func _testar():
-	create_timer(420.0).timeout.connect(func():
+	create_timer(600.0).timeout.connect(func():
 		push_error("Timeout no teste das sprints")
 		quit(1))
 	var mapa = load("res://menu.tscn").instantiate()
@@ -71,9 +71,8 @@ func _testar():
 			var rival: CarroRival = sprint.rivais[i]
 			assert((rival.global_position - carro.global_position).dot(frente) > 3.0)
 			assert(rival.progresso < 0.0, "No grid o progresso é negativo")
-		# Portal de volta depois da chegada, longe do puxão de quem ainda corre
-		var chegada_mundo: Vector3 = sprint.global_transform * pista.pontos[pista.amostra_em(pista.s_chegada)]
-		assert(sprint.portal_volta.global_position.distance_to(chegada_mundo) > Portal.ALCANCE_PUXAO + 30.0)
+		# Sem portal de saída: passou da chegada, a corrida acaba sozinha
+		assert(not sprint.portal_volta.visible)
 
 		if sprint is Vulcao:
 			_testar_minas(sprint, carro)
@@ -118,23 +117,8 @@ func _testar():
 			assert(saltaram.size() >= 4, "Os adversários devem saltar nas rampas (%d saltaram)" % saltaram.size())
 			print("%d adversários saltaram nas rampas" % saltaram.size())
 
-		# Jogador: portões em ordem até a bandeirada
-		carro.freeze = false
-		var resultado := []
-		corrida.terminou.connect(func(total: float, _melhor: float): resultado.append(total), CONNECT_ONE_SHOT)
-		pista.portao.emit(0)
-		assert(corrida._cruzou_largada)
-		pista.portao.emit(PistaCorrida.PORTOES)
-		assert(corrida.fase == Corrida.Fase.CORRENDO, "Pular portões não chega")
-		for k in range(1, PistaCorrida.PORTOES + 1):
-			pista.portao.emit(k)
-		assert(corrida.fase == Corrida.Fase.CHEGADA and resultado.size() == 1)
-		assert(corrida.posicao == sprint.rivais.size() + 1, "Chegou depois de todos")
-		for i in 2:
-			await process_frame
-		assert(carro.painel_corrida.begins_with("CHEGOU"), carro.painel_corrida)
-
 		# Salto da rampa com o carro do jogador: sai do chão, pousa sem dano e com turbo
+		carro.freeze = false
 		if pista.rampas:
 			var rampa: Dictionary = pista.rampas.lista[0]
 			var antes := pista.quadro(float(rampa.s) - 35.0)
@@ -168,8 +152,40 @@ func _testar():
 			assert(carro.vida == vida, "Pouso sem dano")
 			assert(mais_rapido > RampasPista.TURBO - 1.5, "Turbo no pouso: %.1f m/s" % mais_rapido)
 
-		await mundos.voltar()
-		assert(mundos.mapa_atual == null and corrida.fase == Corrida.Fase.PARADA)
+		# Jogador: portões em ordem até a bandeirada
+		carro.freeze = false
+		var resultado := []
+		corrida.terminou.connect(func(total: float, _melhor: float): resultado.append(total), CONNECT_ONE_SHOT)
+		pista.portao.emit(0)
+		assert(corrida._cruzou_largada)
+		pista.portao.emit(PistaCorrida.PORTOES)
+		assert(corrida.fase == Corrida.Fase.CORRENDO, "Pular portões não chega")
+		for k in range(1, PistaCorrida.PORTOES + 1):
+			pista.portao.emit(k)
+		assert(corrida.fase == Corrida.Fase.CHEGADA and resultado.size() == 1)
+		assert(corrida.posicao == sprint.rivais.size() + 1, "Chegou depois de todos")
+		for i in 2:
+			await process_frame
+		assert(carro.painel_corrida.begins_with("CHEGOU"), carro.painel_corrida)
+
+		# Fantasma no piloto automático, freando até parar; sozinho, 3 s depois volta
+		# para o ovo (sessão encerrada)
+		assert(carro.autopiloto)
+		for rival in sprint.rivais:
+			assert(rival in carro.get_collision_exceptions(), "Depois da chegada atravessa os adversários")
+		for i in 60 * 6:
+			if mundos.mapa_atual == null:
+				break
+			await physics_frame
+		assert(mundos.mapa_atual == null and corrida.fase == Corrida.Fase.PARADA, "Não saiu sozinho da corrida")
+		assert(not carro.autopiloto)
+		for i in 60 * 2:
+			if not mapa.ritual._reiniciando:
+				break
+			await physics_frame
+		mapa.ritual.estado = mapa.ritual.Estado.PARTIDA
+		mapa.ritual._painel.hide()
+		carro.em_ritual = false
 		for i in 10:
 			await physics_frame
 

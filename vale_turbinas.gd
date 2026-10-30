@@ -36,6 +36,7 @@ func _etapas() -> Array:
 	return [
 		["Traçando o circuito", _montar_circuito],
 		["Esculpindo o vale", _terreno],
+		["Aterrando o acostamento", _acostamento],
 		["Erguendo as turbinas", _turbinas],
 		["Instalando painéis solares", _paineis],
 		["Ligando os obstáculos", _montar_obstaculos],
@@ -144,6 +145,58 @@ func _terreno():
 	malha.material_override = material
 	add_child(malha)
 	var corpo := StaticBody3D.new()
+	corpo.collision_layer = 1
+	corpo.collision_mask = 0
+	var forma := CollisionShape3D.new()
+	var concava := ConcavePolygonShape3D.new()
+	concava.backface_collision = true
+	concava.set_faces(faces)
+	forma.shape = concava
+	corpo.add_child(forma)
+	add_child(corpo)
+
+## Acostamento com colisão dos dois lados da pista: rampa de terra da borda do asfalto
+## até o chão do vale. O aterro deixa a pista 1,5 a 6 m acima do terreno e a saia de
+## concreto é só visual: sem isso quem saía pelo lado sem muro passava por baixo da
+## pista. Comprimento conforme o desnível, para a rampa não ficar íngreme (~20°)
+func _acostamento():
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var faces := PackedVector3Array()
+	var meia := pista.largura * 0.5
+	var n := PistaCorrida.AMOSTRAS
+	var passo := 2
+	for lado: float in [-1.0, 1.0]:
+		var bordas: Array[Vector3] = []
+		var pes: Array[Vector3] = []
+		for i in range(0, n, passo):
+			var borda := pista.pontos[i] + pista.lados[i] * meia * lado
+			var fora := Vector3(pista.lados[i].x, 0.0, pista.lados[i].z).normalized() * lado
+			var chao := altura(borda.x + global_position.x, borda.z + global_position.z) - global_position.y
+			var comprimento := clampf((borda.y - chao) * 2.8, 6.0, 20.0)
+			var pe := borda + fora * comprimento
+			# O pé entra um pouco no chão: sem fresta entre a rampa e o terreno
+			pe.y = altura(pe.x + global_position.x, pe.z + global_position.z) - global_position.y - 0.2
+			bordas.append(borda + Vector3.DOWN * 0.03)
+			pes.append(pe)
+		for k in bordas.size():
+			var j := (k + 1) % bordas.size()
+			var quad := [bordas[k], pes[k], pes[j], bordas[j]]
+			for v in [quad[0], quad[1], quad[2], quad[0], quad[2], quad[3]]:
+				st.add_vertex(v)
+				faces.append(v)
+	st.generate_normals()
+	var malha := MeshInstance3D.new()
+	malha.name = "Acostamento"
+	malha.mesh = st.commit()
+	var terra := StandardMaterial3D.new()
+	terra.albedo_color = Color(0.4, 0.36, 0.26)
+	terra.roughness = 1.0
+	terra.cull_mode = BaseMaterial3D.CULL_DISABLED
+	malha.material_override = terra
+	add_child(malha)
+	var corpo := StaticBody3D.new()
+	corpo.name = "AcostamentoColisao"
 	corpo.collision_layer = 1
 	corpo.collision_mask = 0
 	var forma := CollisionShape3D.new()

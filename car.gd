@@ -267,6 +267,8 @@ var _tremor := 0.0
 var _conforto_vr
 ## Pose rastreada da cabeça (no espaço da origem XR) na hora de recentralizar
 var _cabeca_ref := Vector3.ZERO
+## Última amostra da pista perto do carro (acelera a busca de _sob_a_pista)
+var _dica_pista := -1
 var _ultimo_dano := -10.0
 var _fumaca: GPUParticles3D
 var _faiscas: GPUParticles3D
@@ -659,6 +661,8 @@ func _physics_process(delta):
 		return
 	if global_position.y < -30.0:
 		_reposicionar(_ultimo_seguro)
+		_avisar("REPOSICIONADO", 1.5)
+	elif _sob_a_pista():
 		_avisar("REPOSICIONADO", 1.5)
 	_aplicar_puxao()
 	_animar(delta)
@@ -1133,6 +1137,31 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 	if vida == 0:
 		_explodir()
 
+## Rede de segurança dos mapas de corrida: o carro foi parar embaixo do asfalto (no vão
+## do aterro, atravessou a pista numa pancada). Volta para cima dela, no mesmo ponto e
+## na mesma faixa. Confere a cada 10 passos: projetar na pista custa
+func _sob_a_pista() -> bool:
+	if not hex_world is MapaCorrida or not _trilho.is_empty() or Engine.get_physics_frames() % 10 != 0:
+		return false
+	var circuito: PistaCorrida = hex_world.pista
+	if circuito == null:
+		return false
+	var local := circuito.to_local(global_position)
+	var proj := circuito.projetar(local, _dica_pista)
+	_dica_pista = int(proj.z)
+	if absf(proj.y) > circuito.largura * 0.5:
+		return false
+	var q := circuito.quadro(proj.x)
+	# Quanto o carro está abaixo da superfície, medido na vertical da pista
+	if (q.origin - local).dot(q.basis.y) < 0.9:
+		return false
+	q.origin += q.basis.x * clampf(proj.y, -circuito.meia_util, circuito.meia_util) + q.basis.y * 0.3
+	var antes := linear_velocity.length()
+	_reposicionar(circuito.global_transform * q)
+	# Segue andando para a frente da pista, sem perder a corrida inteira
+	linear_velocity = -global_basis.z * minf(antes, velocidade_max * 0.5)
+	return true
+
 ## No mundo neon (não nos mapas de corrida): caiu abaixo do piso ou passou da borda dele
 func _fora_do_lobby() -> bool:
 	if hex_world == null or hex_world is MapaCorrida:
@@ -1257,6 +1286,9 @@ func _reposicionar(t: Transform3D):
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_capotado = 0.0
+	# Depois de um salto de lugar a dica não vale (no Deserto ela poderia apontar o
+	# viaduto acima da pista de baixo)
+	_dica_pista = -1
 
 func _avisar(texto: String, tempo: float):
 	_aviso = texto

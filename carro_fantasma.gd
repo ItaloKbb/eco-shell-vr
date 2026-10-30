@@ -22,12 +22,16 @@ var vel := 0.0
 var explodindo := false
 ## Quantas vezes o dono ligou o nitro (telemetria "nitros"); -1 = ainda não visto
 var _nitros := -1
+## Cor do jogador no mapa do painel (MapaPainel, grupo "jogador_mapa"): o filete
+var cor_mapa := Color.WHITE
 
 func _init(pintura: Array, nome: String, numero: int, jogador: bool, translucido := false):
 	var visual := CarroRival.montar_visual(self, pintura, nome, numero)
 	giros = visual.giros
 	rotulo = visual.nome
 	if jogador:
+		add_to_group("jogador_mapa")
+		cor_mapa = pintura[1]
 		# Jogador: nome do mesmo tamanho na tela em qualquer distância, branco com
 		# contorno, sempre por cima do cenário
 		rotulo.fixed_size = true

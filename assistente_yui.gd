@@ -2,7 +2,7 @@ class_name AssistenteYui
 extends Node
 ## Yui, a assistente do SENAI: ao abrir o jogo ela se apresenta (dentro da esfera de
 ## nascimento), na primeira largada conta que lugar é este, e ao entrar numa corrida
-## encoraja o piloto. Aparece num pequeno painel holográfico com o rosto dela (a boca
+## encoraja o piloto. Se ele bate na parede invisível do abismo, manda procurar uma ponte. Aparece num pequeno painel holográfico com o rosto dela (a boca
 ## acompanha a voz) e a legenda da fala.
 ##
 ## As falas ficam em voz/yui/falas.json (legenda) e voz/yui/<id>.wav (voz gravada pela
@@ -27,6 +27,9 @@ const FALAS_LUGAR := ["lugar_1", "lugar_2", "lugar_3"]
 @export var permanencia := 2.5
 ## Espera depois de abrir o jogo antes da apresentação (tempo do fade e do painel)
 @export var atraso_inicio := 2.0
+## Intervalo mínimo entre dois avisos de "procure uma ponte" (s): quem fica raspando
+## na parede não ouve o aviso em repetição
+@export var intervalo_ponte := 25.0
 
 var carro: RigidBody3D
 var musica: Node
@@ -41,6 +44,8 @@ var _rosto: RostoYui
 var _legenda: Label
 var _apresentou_lugar := false
 var _ultima_corrida := ""
+## Tempo (s, relógio do jogo) do último aviso de procurar uma ponte
+var _aviso_ponte := -INF
 ## Segundos até recolher o painel (-1 = aberto enquanto fala)
 var _fechar_em := -1.0
 
@@ -56,6 +61,7 @@ func _ready():
 	if carro:
 		_montar_painel.call_deferred()
 		carro.largou.connect(_largou)
+		carro.bateu_barreira.connect(_bateu_barreira)
 		get_tree().create_timer(atraso_inicio).timeout.connect(func():
 			if carro.em_ritual:
 				falar(["boas_vindas"]))
@@ -90,6 +96,14 @@ func _largou():
 		_player.stop()
 		falando = false
 	falar(FALAS_LUGAR)
+
+## Bateu na parede do abismo: aviso para procurar uma ponte, sem cortar outra fala
+func _bateu_barreira():
+	var agora := Time.get_ticks_msec() / 1000.0
+	if falando or agora - _aviso_ponte < intervalo_ponte:
+		return
+	_aviso_ponte = agora
+	falar(["procure_ponte"])
 
 func _proxima():
 	if _fila.is_empty():

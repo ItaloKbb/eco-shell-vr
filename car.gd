@@ -50,6 +50,8 @@ signal visao_recentralizada
 ## Pegou um turbo de nitro; recusa (nitro vazio, portal fechado): bip grave
 signal nitro_coletado(barras: int)
 signal sem_nitro
+## Encostou na parede invisível do abismo (EstruturasNeon): a Yui manda procurar uma ponte
+signal bateu_barreira
 
 const VIDA_MAX := 8
 const CONFORTO_VR := preload("res://conforto_vr.gd")
@@ -276,9 +278,14 @@ var _tremor := 0.0
 var _conforto_vr
 ## Pose rastreada da cabeça (no espaço da origem XR) na hora de recentralizar
 var _cabeca_ref := Vector3.ZERO
+## Mapa do painel (MapaPainel): a tela onde ele é desenhado
+var _tela_mapa: SubViewport
+var _mapa: MapaPainel
 ## Mostrador do painel do carro: velocidade e (vida, volta)
 var _mostrador_vel: Label3D
 var _mostrador_info: Label3D
+## Encostou na parede invisível do abismo neste passo de física
+var _na_barreira := false
 ## Velocidade no passo anterior (limita o tranco de uma batida com adversário)
 var _vel_anterior := Vector3.ZERO
 ## Giro (em torno do eixo do carro) antes de encostar num adversário
@@ -385,9 +392,13 @@ func _process(delta):
 	if em_ritual or em_transicao:
 		tela_traseira.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		return
-	# Câmera de ré a meia taxa de quadros: metade do custo, e ainda fluida no painel
+	# Câmera de ré a meia taxa de quadros: metade do custo, e ainda fluida no painel.
+	# O mapa, nos quadros de entremeio
 	if Engine.get_process_frames() % 2 == 0:
 		tela_traseira.render_target_update_mode = SubViewport.UPDATE_ONCE
+	else:
+		_mapa.redesenhar()
+		_tela_mapa.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if get_viewport().use_xr:
 		_apertar_botao()
 
@@ -654,6 +665,9 @@ func _physics_process(delta):
 		_choque = 0.0
 		if forca > 1.5:
 			_registrar_choque(forca, _ponto_choque, 0.0, _material_choque)
+	if _na_barreira:
+		_na_barreira = false
+		bateu_barreira.emit()
 	_atualizar_atrito()
 	if explodindo or em_ritual or em_transicao:
 		return
@@ -1109,8 +1123,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 		return
 	var com_rival := false
 	for i in state.get_contact_count():
-		if state.get_contact_collider_object(i) is CarroRival:
+		var tocado := state.get_contact_collider_object(i)
+		if tocado is CarroRival:
 			com_rival = true
+		elif tocado is Node and tocado.is_in_group("barreira_abismo"):
+			_na_barreira = true
 		var forca := state.get_contact_impulse(i).length() / mass
 		if forca > _choque:
 			_choque = forca
@@ -1157,6 +1174,8 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 	var ataque := material == &"ataque"
 	if ataque:
 		material = &"rival"
+	# Parede invisível do abismo: bate (som, faísca), mas não estraga o carro
+	var sem_dano := ataque or material == &"barreira"
 	impacto.emit(forca, ponto, material)
 	var agora := Time.get_ticks_msec() / 1000.0
 	if forca >= 3.0 and agora - _ultimo_efeito_impacto >= 0.08 and not explodindo and not em_ritual and not em_transicao:
@@ -1164,7 +1183,7 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 		_soltar_faiscas_impacto(ponto, forca)
 		_efeitos_choque(forca, ponto, material, folga > 0.0)
 	var f := forca - folga
-	if ataque or explodindo or em_ritual or em_transicao or f < choque_minimo:
+	if sem_dano or explodindo or em_ritual or em_transicao or f < choque_minimo:
 		return
 	# Um choque dura alguns passos de física: conta uma vez só
 	if agora - _ultimo_dano < 0.4:
@@ -1228,6 +1247,8 @@ func _soltar_faiscas_impacto(ponto: Vector3, forca: float):
 func _material_de(corpo: Object) -> StringName:
 	if corpo is CarroRival:
 		return &"rival"
+	if corpo is Node and corpo.is_in_group("barreira_abismo"):
+		return &"barreira"
 	if corpo is Node and corpo.get_parent() is EstruturasNeon:
 		return &"estrutura"
 	return &"chao"
@@ -1444,6 +1465,45 @@ func _montar_painel_carro():
 	unidade.text = "KM/H"
 	_mostrador_info = _rotulo_painel(30, Vector3(-0.128, -0.029, 0.017))
 	_mostrador_info.line_spacing = -6.0
+	_montar_mapa()
+
+## Mapa (MapaPainel) numa telinha quadrada presa à esquerda do painel, virada um pouco
+## para o piloto, como um GPS. Desenhado em 2D numa SubViewport, só quando o carro pede
+func _montar_mapa():
+	var lado := 192 if OS.has_feature("android") else 256
+	_tela_mapa = SubViewport.new()
+	_tela_mapa.name = "TelaMapa"
+	_tela_mapa.size = Vector2i(lado, lado)
+	_tela_mapa.disable_3d = true
+	_tela_mapa.render_target_update_mode = SubViewport.UPDATE_ONCE
+	_mapa = MapaPainel.new()
+	_mapa.carro = self
+	# Desenha sempre em 256 unidades; no Quest a tela é menor e só escala
+	_mapa.scale = Vector2.ONE * (float(lado) / 256.0)
+	_tela_mapa.add_child(_mapa)
+	add_child(_tela_mapa)
+	# Caixa da tela, no mesmo acabamento do painel
+	var caixa := MeshInstance3D.new()
+	caixa.name = "Mapa"
+	var forma := BoxMesh.new()
+	forma.size = Vector3(0.1, 0.1, 0.03)
+	forma.material = ($Painel.mesh as BoxMesh).material
+	caixa.mesh = forma
+	caixa.position = Vector3(-0.235, 0.004, 0.0)
+	caixa.rotation.y = 0.3
+	$Painel.add_child(caixa)
+	var tela := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.09, 0.09)
+	tela.mesh = quad
+	tela.position.z = 0.016
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_texture = _tela_mapa.get_texture()
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+	tela.material_override = material
+	tela.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	caixa.add_child(tela)
 
 func _rotulo_painel(tamanho: int, onde: Vector3) -> Label3D:
 	var rotulo := Label3D.new()

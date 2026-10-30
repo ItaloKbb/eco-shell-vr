@@ -8,6 +8,12 @@ extends Node3D
 ## Tudo é gerado por código: fitas (pista com mureta extrudada ao longo de um caminho)
 ## e prismas (perfil lateral extrudado na largura), com colisão de malha na camada do
 ## chão, então as rodas do carro sobem nelas como no piso.
+##
+## Ninguém cai no abismo: uma parede invisível corre pelas duas bordas (com vão só nas
+## pontes e no salto) e pelos lados das pontes, marcada no chão por uma cortina de luz.
+## Quem bate nela (grupo "barreira_abismo") não leva dano; o carro avisa
+## (bateu_barreira) e a Yui manda procurar uma ponte.
+## `tracados` guarda a planta de cada peça para o mapa do painel (MapaPainel).
 
 const SHADER := preload("res://estrutura_neon.gdshader")
 const SHADER_IMPULSO := preload("res://impulso_neon.gdshader")
@@ -25,6 +31,30 @@ const MURETA := 0.4
 const MURETA_LARGURA := 0.25
 ## Topo das pistas no começo e no fim, rente ao piso (evita z-fighting)
 const RENTE := 0.03
+## Parede invisível do abismo e das pontes: altura acima do piso/tabuleiro (m), alta o
+## bastante para nenhum salto das rampas passar por cima
+const ALTURA_BARREIRA := 12.0
+## Cortina de luz que marca a parede no chão: altura (m) e cor
+const ALTURA_CORTINA := 1.6
+const COR_BEIRADA := Color(1.0, 0.25, 0.85)
+## Largura do salto (rampa de subida) e da rampa de pouso (m): os vãos da parede
+const LARGURA_SALTO := 6.0
+const LARGURA_POUSO := 8.0
+const SHADER_CORTINA := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+// Cortina da beirada do abismo: linha forte rente ao chão e um véu que some para cima,
+// com pulsos correndo ao longo dela (UV.x em metros, UV.y de 0 no chão a 1 no topo)
+uniform vec3 cor : source_color;
+uniform float energia = 2.2;
+void fragment() {
+	float h = UV.y;
+	float linha = 1.0 - smoothstep(0.0, 0.07, h);
+	float veu = (1.0 - h) * (1.0 - h);
+	float pulso = 0.55 + 0.45 * sin(UV.x * 0.6 - TIME * 2.5);
+	ALBEDO = cor * (linha * 2.5 + veu * 0.6 * pulso) * energia;
+}
+"""
 
 @export_flags_3d_physics var collision_layer := 1
 ## Velocidade que o turbo garante na direção da placa (m/s)
@@ -42,17 +72,26 @@ var _material: ShaderMaterial
 var _material_parede: ShaderMaterial
 ## Áreas ocupadas (centro xz, raio), para os portais não nascerem dentro de nada
 var _ocupado: Array = []
+## Planta das peças para o mapa: {"pontos": PackedVector2Array (xz local), "largura": m}
+var tracados: Array[Dictionary] = []
+## Vãos da parede em cada borda do abismo: Vector2(x do centro, meia largura)
+var _vaos_sul: Array[Vector2] = []
+var _vaos_norte: Array[Vector2] = []
+## Pé da rampa de pouso: quem vem do norte andando para o abismo é barrado aqui (o vão
+## da parede é o caminho de quem chega voando do salto)
+var _guarda_pouso: Area3D
 
 func _ready():
 	_material = ShaderMaterial.new()
 	_material.shader = SHADER
 	_material_parede = ShaderMaterial.new()
 	_material_parede.shader = SHADER
-	_material_parede.set_shader_parameter("edge_color", Color(0.95, 0.2, 0.85))
-	_material_parede.set_shader_parameter("emission_energy", 1.2)
+	_material_parede.set_shader_parameter("edge_color", COR_BEIRADA)
+	_material_parede.set_shader_parameter("emission_energy", 2.2)
 	_montar_abismo()
 	_montar_pontes()
 	_montar_salto(260.0)
+	_montar_barreira()
 	_montar_loop("LoopSul", Vector3(-160.0, 0.0, -60.0), 0.0)
 	_montar_loop("LoopNorte", Vector3(80.0, 0.0, -360.0), 0.0)
 	for r in [
@@ -98,6 +137,129 @@ func _montar_abismo():
 	fundo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(fundo)
 
+# --- Barreira do abismo -------------------------------------------------------
+
+## Parede invisível nas duas bordas, com vão só onde passam as pontes e o salto, e a
+## cortina de luz no mesmo traçado. Depois das pontes e do salto (que marcam os vãos)
+func _montar_barreira():
+	var tamanho: float = get_parent().world_size if "world_size" in get_parent() else 6000.0
+	var faces := PackedVector3Array()
+	var cortina := SurfaceTool.new()
+	cortina.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for borda in [[ABISMO_Z + ABISMO_MEIA, _vaos_sul], [ABISMO_Z - ABISMO_MEIA, _vaos_norte]]:
+		var z: float = borda[0]
+		for trecho in _trechos(borda[1], tamanho * 0.5):
+			var a := Vector3(trecho.x, -2.0, z)
+			var b := Vector3(trecho.y, -2.0, z)
+			var alto := Vector3.UP * (ALTURA_BARREIRA + 2.0)
+			faces.append_array([a, b, b + alto, a, b + alto, a + alto])
+			_faixa_cortina(cortina, Vector3(trecho.x, 0.0, z), Vector3(trecho.y, 0.0, z))
+	_corpo_barreira("BarreiraAbismo", faces)
+	_malha_cortina("CortinaAbismo", cortina)
+
+## Trechos (x inicial, x final) de -meio a meio, sem os vãos
+func _trechos(vaos: Array[Vector2], meio: float) -> Array[Vector2]:
+	var ordenados := vaos.duplicate()
+	ordenados.sort_custom(func(a: Vector2, b: Vector2): return a.x < b.x)
+	var trechos: Array[Vector2] = []
+	var x := -meio
+	for vao in ordenados:
+		if vao.x - vao.y > x:
+			trechos.append(Vector2(x, vao.x - vao.y))
+		x = maxf(x, vao.x + vao.y)
+	trechos.append(Vector2(x, meio))
+	return trechos
+
+## Onde a ponte cruza a borda em `z`: x do centro e meia largura do vão (a ponte cruza
+## inclinada, então o vão na borda é mais largo que o tabuleiro)
+func _vao_ponte(pontos: PackedVector3Array, z: float) -> Vector2:
+	for i in range(1, pontos.size()):
+		var a := pontos[i - 1]
+		var b := pontos[i]
+		if (a.z - z) * (b.z - z) <= 0.0 and a.z != b.z:
+			var x := lerpf(a.x, b.x, (z - a.z) / (b.z - a.z))
+			var rumo := Vector2(b.x - a.x, b.z - a.z).normalized()
+			return Vector2(x, LARGURA * 0.5 / maxf(absf(rumo.y), 0.3))
+	return Vector2(pontos[0].x, LARGURA * 0.5)
+
+## Paredes invisíveis dos dois lados da ponte, de ponta a ponta (a mureta é baixa: um
+## tranco jogaria o carro por cima dela), e a cortina de luz ao longo delas
+func _laterais_ponte(pontos: PackedVector3Array):
+	var faces := PackedVector3Array()
+	var cortina := SurfaceTool.new()
+	cortina.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := pontos.size()
+	for lado_sinal: float in [-1.0, 1.0]:
+		var borda := PackedVector3Array()
+		for i in n:
+			var t := pontos[mini(i + 1, n - 1)] - pontos[maxi(i - 1, 0)]
+			var lado := Vector3(-t.z, 0.0, t.x).normalized()
+			borda.append(pontos[i] + lado * LARGURA * 0.5 * lado_sinal)
+		for i in n - 1:
+			var a := borda[i] + Vector3.DOWN * ESPESSURA
+			var b := borda[i + 1] + Vector3.DOWN * ESPESSURA
+			var alto := Vector3.UP * (ALTURA_BARREIRA + ESPESSURA)
+			faces.append_array([a, b, b + alto, a, b + alto, a + alto])
+			_faixa_cortina(cortina, borda[i] + Vector3.UP * MURETA, borda[i + 1] + Vector3.UP * MURETA)
+	_corpo_barreira("BarreiraPonte", faces)
+	_malha_cortina("CortinaPonte", cortina)
+
+## Corpo da parede invisível: na camada do chão (o carro bate nela), sem malha
+func _corpo_barreira(nome: String, faces: PackedVector3Array):
+	var corpo := StaticBody3D.new()
+	corpo.name = nome
+	corpo.collision_layer = collision_layer
+	corpo.collision_mask = 0
+	corpo.add_to_group("barreira_abismo")
+	var forma := CollisionShape3D.new()
+	var concava := ConcavePolygonShape3D.new()
+	concava.backface_collision = true
+	concava.set_faces(faces)
+	forma.shape = concava
+	corpo.add_child(forma)
+	add_child(corpo, true)
+
+## Um trecho reto da cortina de luz, de `a` a `b` (pés da cortina)
+func _faixa_cortina(st: SurfaceTool, a: Vector3, b: Vector3):
+	var alto := Vector3.UP * ALTURA_CORTINA
+	var ua := a.x if absf(b.x - a.x) > absf(b.z - a.z) else a.z
+	var ub := ua + a.distance_to(b)
+	for v in [[a, Vector2(ua, 0.0)], [b, Vector2(ub, 0.0)], [b + alto, Vector2(ub, 1.0)],
+			[a, Vector2(ua, 0.0)], [b + alto, Vector2(ub, 1.0)], [a + alto, Vector2(ua, 1.0)]]:
+		st.set_uv(v[1])
+		st.add_vertex(v[0])
+
+func _malha_cortina(nome: String, st: SurfaceTool):
+	var material := ShaderMaterial.new()
+	material.shader = _shader_cortina()
+	material.set_shader_parameter("cor", COR_BEIRADA)
+	var vista := MeshInstance3D.new()
+	vista.name = nome
+	vista.mesh = st.commit()
+	vista.material_override = material
+	vista.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	vista.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	add_child(vista, true)
+
+static var _cortina: Shader
+
+static func _shader_cortina() -> Shader:
+	if _cortina == null:
+		_cortina = Shader.new()
+		_cortina.code = SHADER_CORTINA
+	return _cortina
+
+## Quem anda do norte para o abismo pelo topo da rampa de pouso volta para trás (quem
+## chega do salto vem no sentido contrário, para o norte, e passa direto)
+func _physics_process(_delta: float):
+	if _guarda_pouso == null:
+		return
+	for corpo in _guarda_pouso.get_overlapping_bodies():
+		if corpo is RigidBody3D and corpo.linear_velocity.z > 0.0:
+			corpo.linear_velocity.z = -maxf(corpo.linear_velocity.z * 0.3, 1.5)
+			if corpo.has_signal("bateu_barreira"):
+				corpo.bateu_barreira.emit()
+
 # --- Pontes ------------------------------------------------------------------
 
 ## Três pontes de borda a borda, cada uma entrando 8 m no chão de cada lado
@@ -130,6 +292,10 @@ func _montar_pontes():
 		c_pts.append(Vector3(140.0 + 24.0 * barriga, RENTE + 3.0 * barriga * barriga, lerpf(z0, z1, s)))
 		cima_c.append(Vector3.UP.rotated(Vector3.FORWARD, -0.35 * barriga * barriga))
 	_fita("PonteCurva", c_pts, cima_c)
+	for pts in [arco, s_pts, c_pts]:
+		_vaos_sul.append(_vao_ponte(pts, ABISMO_Z + ABISMO_MEIA))
+		_vaos_norte.append(_vao_ponte(pts, ABISMO_Z - ABISMO_MEIA))
+		_laterais_ponte(pts)
 	for x in [-70.0, 40.0, 152.0]:
 		_ocupado.append([Vector2(x, ABISMO_Z), 45.0])
 
@@ -153,14 +319,19 @@ func _montar_salto(x: float):
 		perfil.append(Vector2(d, y))
 	var altura := perfil[perfil.size() - 1].y
 	perfil.append(Vector2(comprimento, 0.0))
-	_prisma("RampaSalto", perfil, 6.0, Transform3D(Basis(), Vector3(x, 0.0, borda_sul + comprimento)), [0, 13])
+	_prisma("RampaSalto", perfil, LARGURA_SALTO, Transform3D(Basis(), Vector3(x, 0.0, borda_sul + comprimento)), [0, 13])
 	var saida := Vector3(0.0, sin(angulo_salto), -cos(angulo_salto))
 	var lancador := _area("Lancador", Transform3D(Basis(), Vector3(x, altura - 1.2, borda_sul + 1.5)), Vector3(6.0, 3.0, 3.0))
 	lancador.body_entered.connect(func(corpo: Node3D):
 		if corpo.has_method("impulsionar"):
 			corpo.impulsionar(saida, velocidade_salto, true))
-	_prisma("RampaPouso", _perfil_pouso(altura), 8.0, Transform3D(Basis(), Vector3(x, 0.0, borda_norte)), [1, 24])
+	_prisma("RampaPouso", _perfil_pouso(altura), LARGURA_POUSO, Transform3D(Basis(), Vector3(x, 0.0, borda_norte)), [1, 24])
 	_turbo(Vector3(x, 0.0, borda_sul + comprimento + 10.0), 0.0, turbo_salto)
+	_vaos_sul.append(Vector2(x, LARGURA_SALTO * 0.5))
+	_vaos_norte.append(Vector2(x, LARGURA_POUSO * 0.5))
+	# Topo da rampa de pouso, junto da borda: alto para pegar também quem sobe a rampa
+	_guarda_pouso = _area("GuardaPouso", Transform3D(Basis(), Vector3(x, 0.0, borda_norte - 3.0)),
+		Vector3(LARGURA_POUSO, ALTURA_BARREIRA, 6.0))
 	_ocupado.append([Vector2(x, ABISMO_Z), 70.0])
 
 ## Perfil (distância depois da borda norte, altura) da rampa de pouso. Simula o voo do
@@ -356,6 +527,10 @@ func _fita(nome: String, pontos: PackedVector3Array, cimas: PackedVector3Array):
 			st.set_uv2(caixa_tampa)
 			st.add_vertex(anel[ponta][idx])
 	_corpo(nome, st.commit(), Transform3D.IDENTITY, _material, true)
+	var planta := PackedVector2Array()
+	for p in pontos:
+		planta.append(Vector2(p.x, p.z))
+	tracados.append({"pontos": planta, "largura": LARGURA})
 
 ## Perfil lateral (distância para a frente, altura) extrudado na largura. A frente é -Z
 ## local; `rodagem` lista as arestas do perfil por onde o carro anda (ganham faixas)
@@ -394,6 +569,9 @@ func _prisma(nome: String, perfil: PackedVector2Array, largura: float, t: Transf
 			st.set_uv2(maximo - minimo)
 			st.add_vertex(p3.call(perfil[idx], x))
 	_corpo(nome, st.commit(), t, _material, true)
+	var inicio := t * Vector3(0.0, 0.0, -minimo.x)
+	var fim := t * Vector3(0.0, 0.0, -maximo.x)
+	tracados.append({"pontos": PackedVector2Array([Vector2(inicio.x, inicio.z), Vector2(fim.x, fim.z)]), "largura": largura})
 
 func _comprimento_rodagem(perfil: PackedVector2Array, rodagem: Array) -> float:
 	var total := 0.0

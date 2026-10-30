@@ -611,7 +611,7 @@ func _physics_process(delta):
 		pedal_freio += _analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT))
 		vira -= _analogico(eixo_controle(JOY_AXIS_LEFT_X))
 		# No Godot o eixo Y dos analógicos é positivo para baixo
-		sobe -= _analogico(eixo_controle(JOY_AXIS_RIGHT_Y))
+		sobe -= _analogico(eixo_manche())
 		freio_mao = freio_mao or botao_controle(JOY_BUTTON_X)
 		var olhar_x := _analogico(eixo_controle(JOY_AXIS_RIGHT_X))
 		if olhar_x != 0.0 and not get_viewport().use_xr:
@@ -1061,6 +1061,22 @@ func _vibrar(mao: XRController3D, forca: float, tempo: float):
 func eixo_controle(eixo: JoyAxis) -> float:
 	var maior := 0.0
 	for pad in Input.get_connected_joypads():
+		var v := Input.get_joy_axis(pad, eixo)
+		if absf(v) > absf(maior):
+			maior = v
+	return maior
+
+## Volante EcoShell (Raspberry Pi + EV3): manda curva e manche no analógico esquerdo.
+## Reconhecido pelo nome no Bluetooth, que precisa conter "EcoShell"
+func volante_ecoshell(pad: int) -> bool:
+	return Input.get_joy_name(pad).containsn("ecoshell")
+
+## Manche (subir/descer): analógico direito Y nos gamepads comuns e analógico
+## esquerdo Y no volante EcoShell. Eixo de maior amplitude, sem zona morta
+func eixo_manche() -> float:
+	var maior := 0.0
+	for pad in Input.get_connected_joypads():
+		var eixo := JOY_AXIS_LEFT_Y if volante_ecoshell(pad) else JOY_AXIS_RIGHT_Y
 		var v := Input.get_joy_axis(pad, eixo)
 		if absf(v) > absf(maior):
 			maior = v

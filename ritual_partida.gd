@@ -2,6 +2,8 @@ extends Node
 ## Uma vida começa na esfera, com identificação e lançamento, no PC e no XR.
 ## No evento (conectado ao servidor) a esfera fica em AGUARDANDO, mostrando o apelido
 ## do óculos, até o operador liberar; o nick vem do painel e pula a identificação.
+## No notebook (fora da VR) o jogador já digita o próprio nome na espera, e ele aparece
+## no painel do operador como sugestão para a liberação.
 ## Encerrar a sessão devolve o piloto à esfera, em espera para a próxima pessoa.
 enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE, AGUARDANDO }
 const ARQUIVO := "user://piloto.cfg"
@@ -59,6 +61,8 @@ var _puxado := false
 var _modo_vr := false
 ## Fora da VR: o último comando veio de um gamepad (muda a edição do nick e os textos)
 var _usando_controle := false
+## O nick atual foi digitado na espera (sobrevive a uma queda do servidor)
+var _nome_da_espera := false
 var _fade_spawn: Transicao
 @onready var mapa = get_parent()
 @onready var carro = mapa.get_node("Carro")
@@ -136,6 +140,8 @@ func _nova_vida():
 	estado = _estado_na_esfera()
 	if estado == Estado.CARGA:
 		_usar_nome_do_operador()
+	elif estado == Estado.AGUARDANDO:
+		_limpar_nome_da_espera()
 	carga = 0.0
 	_resetar_carga()
 	cursor = 0
@@ -173,7 +179,20 @@ func _estado_na_esfera() -> Estado:
 func _usar_nome_do_operador():
 	var limpo := _sanitizar(Rede.nome_jogador)
 	nick = limpo if not limpo.is_empty() else "PILOTO"
+	_nome_da_espera = false
 	carro.nickname = nick
+
+## Espera em que o jogador digita o nome no teclado (notebook; na VR só o operador)
+func _digitando_na_espera() -> bool:
+	return estado == Estado.AGUARDANDO and not _modo_vr
+
+## Próxima pessoa na espera: começa sem nome (nem o do jogador anterior)
+func _limpar_nome_da_espera():
+	nick = ""
+	cursor = 0
+	_nome_da_espera = false
+	if not _modo_vr:
+		Rede.enviar_nome_sugerido("")
 
 func _informar_sessao():
 	Rede.informar_estado("lobby" if Rede.liberado else "idle")
@@ -186,10 +205,15 @@ func _sessao_mudou():
 		var novo := _estado_na_esfera()
 		if novo != estado:
 			estado = novo
+			if estado == Estado.AGUARDANDO and not _nome_da_espera:
+				_limpar_nome_da_espera()
 			carga = 0.0
 			carro.comando_acel = 0.0
 			_resetar_carga()
 		_informar_sessao()
+		# Reconectou com um nome já digitado: o servidor novo ainda não o conhece
+		if _digitando_na_espera() and not nick.is_empty():
+			Rede.enviar_nome_sugerido(nick)
 	elif Rede.conectado and not Rede.liberado:
 		# Fora da esfera sem liberação (sessão encerrada): volta para a espera
 		_nova_vida()
@@ -213,6 +237,9 @@ func _input(event: InputEvent):
 		_usando_controle = false
 	if _usando_controle != era_controle:
 		_atualizar_texto()
+	if _pronto and _digitando_na_espera():
+		_digitar_na_espera(event)
+		return
 	if not _pronto or estado != Estado.ESCOLHA:
 		return
 	if event is InputEventJoypadButton and event.pressed:
@@ -237,6 +264,25 @@ func _input(event: InputEvent):
 				cursor = mini(nick.length(), 7)
 		_atualizar_texto()
 		get_viewport().set_input_as_handled()
+
+## Teclado na espera: letras e ⌫ editam o nome, que vai para o painel a cada mudança
+func _digitar_na_espera(event: InputEvent):
+	if not (event is InputEventKey and event.pressed):
+		return
+	var antes := nick
+	if event.keycode == KEY_BACKSPACE:
+		nick = nick.left(maxi(0, nick.length() - 1))
+	elif event.unicode >= 32 and event.unicode < 127 and nick.length() < 8:
+		var letra := String.chr(event.unicode).to_upper()
+		if letra in LETRAS and not (letra == " " and nick.is_empty()):
+			nick += letra
+	else:
+		return
+	get_viewport().set_input_as_handled()
+	if nick != antes:
+		_nome_da_espera = true
+		Rede.enviar_nome_sugerido(nick.strip_edges())
+		_atualizar_texto()
 
 func _botao_vr(nome: String):
 	if nome in ["primary_click", "menu_button"]:
@@ -470,8 +516,9 @@ func _montar_painel():
 
 func _atualizar_texto():
 	var agora := Time.get_ticks_msec() * 0.001
-	var escolha := estado == Estado.ESCOLHA
-	var espera := estado == Estado.AGUARDANDO
+	var digitando := _digitando_na_espera()
+	var escolha := estado == Estado.ESCOLHA or digitando
+	var espera := estado == Estado.AGUARDANDO and not digitando
 	_caixa_nick.visible = escolha
 	_caixa_espera.visible = espera
 	_caixa_carga.visible = not escolha and not espera
@@ -481,8 +528,11 @@ func _atualizar_texto():
 		_painel.definir_dicas(_dicas, [["L3/R3", "CENTRALIZAR"]] if _modo_vr else [])
 	elif escolha:
 		_etapa.text = "IDENTIFICAÇÃO"
+		if digitando:
+			var aparelho := Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
+			_etapa.text = "%s · AGUARDE A LIBERAÇÃO" % aparelho
 		# Teclado: destaca onde a próxima letra entra; controle/VR: a letra em edição
-		var ativo := cursor if _modo_vr or _usando_controle else mini(nick.length(), 7)
+		var ativo := cursor if (_modo_vr or _usando_controle) and not digitando else mini(nick.length(), 7)
 		# Piscar só no monitor: na VR o painel só redesenha quando algo muda
 		var brilho := 1.0 if _modo_vr else 0.75 + 0.25 * sin(agora * 6.0)
 		for i in 8:
@@ -498,7 +548,9 @@ func _atualizar_texto():
 				estilo.bg_color = Color(COR_CIANO, 0.06)
 				estilo.border_color = Color(COR_CIANO, 0.3)
 				estilo.set_border_width_all(2)
-		if _modo_vr:
+		if digitando:
+			_painel.definir_dicas(_dicas, [["A-Z", "DIGITE SEU NOME"], ["⌫", "APAGAR"]])
+		elif _modo_vr:
 			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"], ["L3/R3", "CENTRALIZAR"]])
 		elif _usando_controle:
 			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["B", "APAGAR"], ["A", "CONFIRMAR"]])

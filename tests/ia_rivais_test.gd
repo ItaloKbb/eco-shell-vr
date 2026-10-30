@@ -60,7 +60,7 @@ func _testar():
 		for rival in deserto.rivais:
 			vistos[rival.ia.estado] = true
 			maior_turbo = maxi(maior_turbo, rival.turbos_usados)
-			if absf(rival.d) > PistaCorrida.MEIA_UTIL + 0.01:
+			if absf(rival.d) > deserto.pista.meia_util + 0.01:
 				fora += 1
 			if rival.terminou and not tempo_chegada.has(rival.perfil.nome):
 				tempo_chegada[rival.perfil.nome] = trafego.tempo_corrida

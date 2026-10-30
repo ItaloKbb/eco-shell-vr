@@ -22,6 +22,11 @@ func _init():
 	super()
 	largura = LARGURA_V
 	letreiro = "SENAI 326 · I DE INCRÍVEL"
+	# Paleta da pista: basalto com neon de lava
+	paleta = {
+		"asfalto": Color("221d20"), "faixa": Color("b8321e"), "linha": Color("ffd2a8"),
+		"neon": Color("ff6a1a"), "muro": Color("5a4a48"),
+	}
 	raio_pingo = RAIO_PINGO
 	cor_piso_pingo = Color(0.1, 0.09, 0.09)
 	cor_anel_pingo = Color(1.0, 0.25, 0.05)

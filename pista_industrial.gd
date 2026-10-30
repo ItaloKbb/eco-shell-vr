@@ -23,6 +23,11 @@ func _init():
 	super()
 	largura = LARGURA_I
 	letreiro = "SENAI 326 · PARQUE INDUSTRIAL"
+	# Paleta da pista: amarelo de segurança com neon verde
+	paleta = {
+		"asfalto": Color("30343a"), "faixa": Color("f2c230"), "linha": Color("f0f0e8"),
+		"neon": Color("3dff8a"), "muro": Color("e9e6dc"),
+	}
 	raio_pingo = RAIO_PINGO
 
 func _ready():

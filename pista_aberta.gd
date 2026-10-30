@@ -125,6 +125,8 @@ func _pingo():
 	bloco.size = Vector3(arco + 0.2, MURO_ALTURA * 1.4, MURO_ESPESSURA)
 	var muro := ShaderMaterial.new()
 	muro.shader = preload("res://muro_corrida.gdshader")
+	muro.set_shader_parameter("corpo", paleta.muro)
+	muro.set_shader_parameter("neon", paleta.neon)
 	bloco.material = muro
 	for k in blocos:
 		var a := TAU * (k + 0.5) / blocos

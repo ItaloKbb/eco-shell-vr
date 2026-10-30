@@ -148,22 +148,18 @@ func largada(posicao := ADVERSARIOS) -> Transform3D:
 
 # --- Ajudantes de cenário ---------------------------------------------------------
 
-## Chão plano (mapas ponta a ponta): piso grande com um ruído suave na cor e um plano de
-## colisão infinito na altura 0, embaixo da pista
-func _chao_plano(cor: Color, tamanho := 3200.0):
+## Chão plano (mapas ponta a ponta): piso grande em manchas largas de dois tons
+## chapados (chao_campo.gdshader, sem textura: não cintila no headset) e um plano de
+## colisão infinito na altura 0, embaixo da pista. Sem `cor_b`, o segundo tom é o
+## primeiro um pouco mais claro
+func _chao_plano(cor: Color, tamanho := 3200.0, cor_b := Color(0, 0, 0, 0)):
 	var piso := MeshInstance3D.new()
 	var plano := PlaneMesh.new()
 	plano.size = Vector2(tamanho, tamanho)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = cor
-	material.roughness = 0.95
-	var ruido := FastNoiseLite.new()
-	ruido.frequency = 0.02
-	var textura := NoiseTexture2D.new()
-	textura.noise = ruido
-	textura.seamless = true
-	material.albedo_texture = textura
-	material.uv1_scale = Vector3(tamanho / 40.0, tamanho / 40.0, 1.0)
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://chao_campo.gdshader")
+	material.set_shader_parameter("cor_a", cor)
+	material.set_shader_parameter("cor_b", cor_b if cor_b.a > 0.0 else cor.lightened(0.12))
 	plano.material = material
 	piso.mesh = plano
 	add_child(piso)
@@ -181,8 +177,9 @@ func distancia_pista(x: float, z: float) -> float:
 	return Vector2(x - pista.pontos[i].x, z - pista.pontos[i].z).length()
 
 ## Várias cópias de uma malha numa MultiMesh (uma chamada de desenho só, leve no Quest),
-## com cor por cópia se `cores` vier preenchida
-func _instancias(malha: Mesh, pecas: Array[Transform3D], cores: Array[Color] = []):
+## com cor por cópia se `cores` vier preenchida. `material`: no lugar do da malha
+## (malhas de LowPoly.facetar vêm sem material)
+func _instancias(malha: Mesh, pecas: Array[Transform3D], cores: Array[Color] = [], material: Material = null):
 	if pecas.is_empty():
 		return
 	var mm := MultiMesh.new()
@@ -196,4 +193,5 @@ func _instancias(malha: Mesh, pecas: Array[Transform3D], cores: Array[Color] = [
 			mm.set_instance_color(k, cores[k])
 	var no := MultiMeshInstance3D.new()
 	no.multimesh = mm
+	no.material_override = material
 	add_child(no)

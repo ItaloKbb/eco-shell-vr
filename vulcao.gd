@@ -6,6 +6,10 @@ extends MapaCorrida
 ## O vulcão fumegando fica no horizonte, à frente e à esquerda: ele acompanha o piloto
 ## (como o sol), porque a reta tem 2 km e a câmera só enxerga 600 m. Colunas de basalto
 ## e pedras no meio da lava, e brasas subindo em volta do carro.
+## Estilo low poly: vulcão, pedras e colunas facetados em basalto violeta chapado, a
+## lava em placas grandes com veios suaves (lava.gdshader, sem ruído fino), céu de
+## anoitecer violeta e vermelho e glow contido (bloom forte cansa em VR). Os marcos
+## são o vulcão, sempre à frente e à esquerda, e a praça do pingo no fim da reta.
 
 ## Lava um pouco abaixo do asfalto (a saia da pista fecha a borda)
 const NIVEL_LAVA := -0.45
@@ -21,6 +25,12 @@ const CRATERA := 34.0
 const ALCANCE_CENARIO := 220.0
 const PEDRAS := 140
 const COLUNAS := 45
+## Paleta do anoitecer na lava: céu violeta para vermelho, basalto violeta e o laranja
+## da lava (o neon da pista é o mesmo laranja)
+const CEU_ALTO := Color("1b1035")
+const CEU_HORIZONTE := Color("ff5a2a")
+const NEBLINA := Color("6a2418")
+const BASALTOS: Array[Color] = [Color("3a2c33"), Color("4a3640"), Color("2e2329"), Color("553d47")]
 ## Campos minados: [fração da corrida, padrão, espelhado]
 const CAMPOS := [[0.12, 0, false], [0.27, 1, false], [0.42, 2, false],
 	[0.58, 1, true], [0.74, 2, true], [0.9, 1, true]]
@@ -63,12 +73,15 @@ func _posicao_portal_volta() -> Vector3:
 	return (pista as PistaAberta).centro_pingo()
 
 func _montar_ambiente():
+	# Céu em gradiente forte (ProceduralSky, sem textura): violeta fundo em cima,
+	# vermelho de brasa no horizonte
 	var ceu := ProceduralSkyMaterial.new()
-	ceu.sky_top_color = Color(0.07, 0.04, 0.06)
-	ceu.sky_horizon_color = Color(0.55, 0.16, 0.06)
-	ceu.ground_horizon_color = Color(0.45, 0.12, 0.04)
-	ceu.ground_bottom_color = Color(0.08, 0.03, 0.02)
-	ceu.sun_angle_max = 18.0
+	ceu.sky_top_color = CEU_ALTO
+	ceu.sky_horizon_color = CEU_HORIZONTE
+	ceu.sky_curve = 0.15
+	ceu.ground_horizon_color = Color("b8321e")
+	ceu.ground_bottom_color = Color("120a10")
+	ceu.sun_angle_max = 14.0
 	ceu.sun_curve = 0.08
 	var sky := Sky.new()
 	sky.sky_material = ceu
@@ -77,13 +90,14 @@ func _montar_ambiente():
 	ambiente.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	ambiente.ambient_light_energy = 0.9
 	ambiente.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# Glow contido: a lava já brilha no chão todo, bloom forte cansa em VR
 	ambiente.glow_enabled = true
-	ambiente.glow_intensity = 0.7
-	ambiente.glow_hdr_threshold = 1.0
+	ambiente.glow_intensity = 0.45
+	ambiente.glow_hdr_threshold = 1.15
 	# Cinza e fumaça no ar, avermelhadas pela lava
 	ambiente.fog_enabled = true
 	ambiente.fog_mode = Environment.FOG_MODE_DEPTH
-	ambiente.fog_light_color = Color(0.4, 0.12, 0.06)
+	ambiente.fog_light_color = NEBLINA
 	ambiente.fog_depth_begin = 140.0
 	ambiente.fog_depth_end = 900.0
 	ambiente.fog_sky_affect = 0.5
@@ -146,16 +160,14 @@ func _lava():
 func _basalto():
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1883
-	var rocha := StandardMaterial3D.new()
-	rocha.albedo_color = Color(0.09, 0.08, 0.08)
-	rocha.roughness = 0.95
+	# Pedras low poly: esfera de poucos gomos, facetada, em tons de basalto violeta
 	var pedra := SphereMesh.new()
 	pedra.radius = 1.0
 	pedra.height = 2.0
-	pedra.radial_segments = 7
-	pedra.rings = 4
-	pedra.material = rocha
+	pedra.radial_segments = 6
+	pedra.rings = 3
 	var pecas: Array[Transform3D] = []
+	var cores: Array[Color] = []
 	var x_max := PistaVulcao.CORRIDA * 0.5 + 200.0
 	var tentativas := 0
 	while pecas.size() < PEDRAS and tentativas < 3000:
@@ -166,7 +178,8 @@ func _basalto():
 			continue
 		var giro := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.2, 0.2))
 		pecas.append(Transform3D(giro * Basis.from_scale(tamanho), Vector3(p.x, NIVEL_LAVA, p.y)))
-	_instancias(pedra, pecas)
+		cores.append(BASALTOS[rng.randi() % BASALTOS.size()])
+	_instancias(LowPoly.facetar(pedra), pecas, cores, LowPoly.liso(Color.WHITE, true))
 
 	var coluna := CylinderMesh.new()
 	coluna.top_radius = 1.0
@@ -174,12 +187,8 @@ func _basalto():
 	coluna.height = 1.0
 	coluna.radial_segments = 6
 	coluna.rings = 1
-	var basalto := StandardMaterial3D.new()
-	basalto.albedo_color = Color(0.13, 0.11, 0.11)
-	basalto.roughness = 0.85
-	basalto.metallic = 0.15
-	coluna.material = basalto
 	var colunas: Array[Transform3D] = []
+	var cores_colunas: Array[Color] = []
 	tentativas = 0
 	var grupos := 0
 	while grupos < COLUNAS and tentativas < 2000:
@@ -198,7 +207,9 @@ func _basalto():
 			var giro := Basis(Vector3.UP, rng.randf() * TAU)
 			colunas.append(Transform3D(giro * Basis.from_scale(Vector3(raio, h, raio)),
 				Vector3(centro.x + cos(a) * r, NIVEL_LAVA + h * 0.5, centro.y + sin(a) * r)))
-	_instancias(coluna, colunas)
+			cores_colunas.append(BASALTOS[rng.randi() % BASALTOS.size()])
+	# Prisma sextavado facetado: cada face com o seu tom ao sol baixo
+	_instancias(LowPoly.facetar(coluna), colunas, cores_colunas, LowPoly.liso(Color.WHITE, true))
 
 ## O vulcão do horizonte: cone de encosta côncava e borda irregular, cratera acesa,
 ## coluna de fumaça e brasas em volta do carro
@@ -241,6 +252,8 @@ func _malha_vulcao() -> ArrayMesh:
 	ruido.frequency = 1.4
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Low poly: normal por triângulo, as facetas da encosta aparecem com o sol baixo
+	st.set_smooth_group(-1)
 	var ponto := func(i: int, j: int) -> Vector3:
 		var a := TAU * i / voltas
 		var u := float(j) / aneis

@@ -70,6 +70,14 @@ var s_chegada := 0.0
 var rampas: RampasPista
 ## Texto da viga do pórtico de largada
 var letreiro := "SENAI 326 · LARGADA"
+## Cores da pista (pista_corrida.gdshader, muro_corrida.gdshader, xadrez do pórtico):
+## o mesmo estilo em todos os mapas, cada um com a sua identidade. asfalto: piso;
+## faixa: borda lisa; linha: linhas de faixa e da largada; neon: filete da beira, topo
+## do muro e pórtico; muro: corpo do muro. Padrão: o Deserto
+var paleta := {
+	"asfalto": Color("3a3340"), "faixa": Color("e8643a"), "linha": Color("f5e6c8"),
+	"neon": Color("2ee6ff"), "muro": Color("f2ebdd"),
+}
 ## Quanto a saia de concreto nas bordas da pista desce abaixo de _chao (0 = sem saia).
 ## Pista em aterro, acima do terreno, precisa dela para não mostrar o vão por baixo
 var saia := 0.0
@@ -249,9 +257,17 @@ func _malha_pista():
 
 	var material_pista := ShaderMaterial.new()
 	material_pista.shader = preload("res://pista_corrida.gdshader")
-	material_pista.set_shader_parameter("comprimento", comprimento)
+	material_pista.set_shader_parameter("largura", largura)
+	material_pista.set_shader_parameter("linha_largada", s_largada)
+	material_pista.set_shader_parameter("linha_chegada", s_chegada)
+	# Uma faixa de rolamento a cada ~5 m (12 m: 2 faixas; 16 m: 3; 24 m: 5)
+	material_pista.set_shader_parameter("faixas", maxf(roundf(largura / 5.0), 2.0))
+	for chave in ["asfalto", "faixa", "linha", "neon"]:
+		material_pista.set_shader_parameter(chave, paleta[chave])
 	var material_muro := ShaderMaterial.new()
 	material_muro.shader = preload("res://muro_corrida.gdshader")
+	material_muro.set_shader_parameter("corpo", paleta.muro)
+	material_muro.set_shader_parameter("neon", paleta.neon)
 	var concreto := StandardMaterial3D.new()
 	concreto.albedo_color = Color(0.55, 0.52, 0.48)
 	concreto.roughness = 0.9
@@ -425,6 +441,7 @@ func _montar_portico(i: int, texto: String, com_semaforo: bool):
 	caixa.size = Vector3(largura + 3.2, 1.4, 0.5)
 	var xadrez := ShaderMaterial.new()
 	xadrez.shader = preload("res://xadrez.gdshader")
+	xadrez.set_shader_parameter("neon", paleta.neon)
 	caixa.material = xadrez
 	viga.mesh = caixa
 	viga.transform = Transform3D(base, p + Vector3.UP * 7.5)

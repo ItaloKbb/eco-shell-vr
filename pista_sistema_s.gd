@@ -16,6 +16,11 @@ func _init():
 	super()
 	largura = LARGURA_S
 	letreiro = "SENAI 326 · SISTEMA S"
+	# Paleta da pista: azul SENAI com neon âmbar
+	paleta = {
+		"asfalto": Color("283247"), "faixa": Color("1e6ad2"), "linha": Color("e8f0ff"),
+		"neon": Color("ffb52e"), "muro": Color("eef2f8"),
+	}
 
 func _tracado() -> PackedVector2Array:
 	var centro_cima := Vector2(0.0, RAIO_CIMA)

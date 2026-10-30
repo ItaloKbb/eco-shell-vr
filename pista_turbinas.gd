@@ -14,6 +14,11 @@ const ATERRO := 1.4
 
 func _init():
 	letreiro = "SENAI 326 · VALE DAS TURBINAS"
+	# Paleta da pista: pôr do sol: laranja com neon rosa
+	paleta = {
+		"asfalto": Color("3a3346"), "faixa": Color("f28a2e"), "linha": Color("ffe2b8"),
+		"neon": Color("ff5fa2"), "muro": Color("f4e4d2"),
+	}
 	saia = ATERRO + 0.4
 
 ## Relevo do vale (local): morros largos e suaves, o bastante para a pista subir e

@@ -1,29 +1,23 @@
 shader_type spatial;
-// Areia do deserto: ondulações finas do vento, tons mais escuros nos vales das dunas e
-// um brilho de grão de quartzo que pisca conforme se move.
+// Areia do deserto, low poly: cor chapada em três tons pela altura (planície clara em
+// volta da pista, laranja nos vales das dunas, dourado nas cristas). As facetas vêm da
+// malha (normal por triângulo) e do sol. Sem ondulação fina nem brilho de grão: ruído
+// de alta frequência cintila no headset. Custo: só aritmética (impacto baixo).
 
-uniform vec3 areia : source_color = vec3(0.86, 0.66, 0.42);
-uniform vec3 sombra : source_color = vec3(0.7, 0.48, 0.3);
+uniform vec3 planicie : source_color = vec3(0.96, 0.78, 0.55);
+uniform vec3 vale : source_color = vec3(0.9, 0.56, 0.3);
+uniform vec3 crista : source_color = vec3(1.0, 0.83, 0.55);
 
-varying vec3 mundo;
+varying float altura;
 
 void vertex() {
-	mundo = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-}
-
-float hash(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+	altura = VERTEX.y;
 }
 
 void fragment() {
-	vec2 p = mundo.xz;
-	// Ondulações do vento: listras finas tortas
-	float onda = sin(p.x * 1.7 + p.y * 0.6 + sin(p.y * 0.15) * 3.0) * 0.5 + 0.5;
-	float vale = smoothstep(0.0, 6.0, mundo.y);
-	vec3 cor = mix(sombra, areia, 0.55 + 0.45 * vale);
-	cor *= 0.92 + 0.08 * onda;
-	// Brilho de grão
-	float brilho = step(0.995, hash(floor(p * 18.0))) * 0.5;
-	ALBEDO = cor + brilho;
-	ROUGHNESS = 0.95;
+	vec3 cor = mix(planicie, vale, smoothstep(0.3, 2.0, altura));
+	cor = mix(cor, crista, smoothstep(4.5, 9.0, altura));
+	ALBEDO = cor;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.15;
 }

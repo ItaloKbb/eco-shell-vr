@@ -1,5 +1,5 @@
 extends SceneTree
-## Nitro e manejo: sem voo (o nitro fica no chão e deixa 1,5x mais rápido), turbos da
+## Nitro e manejo: sem voo (o nitro fica no chão e deixa 2x mais rápido), turbos da
 ## pista enchendo o tanque, a traseira segurando ao acelerar na curva, bater na
 ## traseira de um adversário sem levar dano, limites de dano mais altos, controle no
 ## ar estilo GTA e o ronco do nitro no carro de outro jogador.
@@ -83,7 +83,7 @@ func _testar():
 	assert(not turbo.visible, "Passou pelo turbo e ele não sumiu")
 	assert(is_equal_approx(carro.nitro, carro.nitro_por_turbo), "Nitro: %.2f" % carro.nitro)
 
-	# Sem nitro, a máxima do chão; com nitro, 1,5x e no chão o tempo todo
+	# Sem nitro, a máxima do chão; com nitro, 2x e no chão o tempo todo
 	await na_pista(mapa, carro, pista.s_largada + 300.0)
 	var normal := await arrancar(carro, 9.0)
 	await na_pista(mapa, carro, pista.s_largada + 300.0)
@@ -103,7 +103,7 @@ func _testar():
 	tecla(KEY_W, false)
 	print("Máxima: %.1f m/s sem nitro, %.1f m/s com nitro" % [normal, maior])
 	assert(normal < carro.velocidade_max + 0.6)
-	assert(maior > normal * 1.4 and maior < normal * 1.6, "Nitro deve dar ~1,5x")
+	assert(maior > normal * 1.9 and maior < normal * 2.1, "Nitro deve dar ~2x")
 	assert(no_chao, "Com nitro o carro segue no chão")
 	assert(not carro.pista._trechos.is_empty(), "Linha de luz da traseira")
 	# O tanque acaba e o nitro desliga sozinho
@@ -219,7 +219,7 @@ func _testar():
 	assert(outro.find_children("*", "AudioStreamPlayer3D", false, false).size() == 1, "Ronco no carro do outro")
 	assert(carro.telemetria().has("nitros"))
 
-	print("NITRO_OK: sem voo, turbos na pista, 1,5x no chão, traseira firme, ataque sem dano, controle no ar e ronco em rede")
+	print("NITRO_OK: sem voo, turbos na pista, 2x no chão, traseira firme, ataque sem dano, controle no ar e ronco em rede")
 	await mundos.voltar()
 	cena.queue_free()
 	for i in 5:

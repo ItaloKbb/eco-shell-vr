@@ -11,7 +11,7 @@ extends RigidBody3D
 ## por acelerar numa curva.
 ##
 ## E (ou o botão no painel, apertado com o dedo em VR) liga o nitro: o carro continua
-## no chão, fica 1,5x mais rápido e deixa uma linha de luz saindo do centro da
+## no chão, fica 2x mais rápido e deixa uma linha de luz saindo do centro da
 ## traseira. O tanque enche pegando os turbos que flutuam nas pistas (NitrosPista).
 ## No ar, o analógico direito (cima/baixo) abaixa/levanta o nariz e o esquerdo gira o
 ## carro de lado, como no GTA, para acertar o pouso.
@@ -96,9 +96,9 @@ const FOLGA_RODA := 0.35
 
 @export_group("Nitro")
 ## Quanto a velocidade máxima sobe com o nitro ligado
-@export var fator_nitro := 1.5
+@export var fator_nitro := 2.0
 ## Empurrão extra do nitro (m/s²), por cima do motor: o pneu sozinho não chega lá
-@export var empuxo_nitro := 3.5
+@export var empuxo_nitro := 5.0
 ## Barras do tanque, gasto por segundo ligado e quanto cada turbo da pista enche.
 ## A primeira vida da sessão já começa com o tanque cheio
 @export var nitro_max := 5
@@ -109,6 +109,19 @@ const FOLGA_RODA := 0.35
 ## Giro máximo comandado pelos analógicos no ar (rad/s). Baixo de propósito: a câmera
 ## VR gira junto com o carro
 @export var giro_no_ar := 1.6
+
+@export_group("Anti-capotagem")
+## Capotar enjoa na VR: o carro é segurado de pé. Até `inclinacao_livre` (acima das
+## curvas inclinadas, ~22°, e das rampas) ele inclina à vontade; passando disso é
+## puxado de volta, e no chão o balanço de lado e de frente é amortecido
+@export var anti_capotagem := true
+@export_range(10.0, 80.0) var inclinacao_livre_graus := 35.0
+## Aceleração angular de volta por radiano além do livre (rad/s² por rad)
+@export var forca_endireitar := 30.0
+## Amortecimento do balanço de lado e de frente no chão (1/s)
+@export var amortece_tombo := 4.0
+## No ar sem comando: quão rápido o carro se nivela de lado para pousar nas rodas (1/s²)
+@export var nivelar_no_ar := 4.0
 
 @export_group("Dash")
 @export var dash_impulso := 8.0
@@ -125,8 +138,9 @@ const FOLGA_RODA := 0.35
 @export var choque_medio := 10.0
 ## Daqui para cima tira 3 barrinhas
 @export var choque_forte := 15.0
-## Força total: explode na hora
-@export var choque_fatal := 24.0
+## Força total: explode na hora (acima da máxima do nitro, 24 m/s: bater de frente
+## com o nitro tira 3 barras, não explode)
+@export var choque_fatal := 28.0
 ## Roda pousando mais rápido que isso também estraga o carro (m/s)
 @export var pouso_duro := 7.0
 @export var tempo_renascer := 3.0
@@ -770,16 +784,38 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 			var erro := frente.signed_angle_to(rumo_voo, direita)
 			var alvo := direita * clampf(erro * 3.0, -2.0, 2.0)
 			angular_velocity += (alvo - angular_velocity.project(direita)) * minf(1.0, 4.0 * delta)
+	_manter_de_pe(delta, _no_ar > 0.1 and comando_ar.length() > 0.05)
 
 	if rodas_no_chao == 3 and cima.y > 0.8:
 		_ultimo_seguro = global_transform
-	# Capotou e parou: desvira sozinho depois de um tempo
+	# Capotou e parou: desvira sozinho logo
 	if cima.y < 0.3 and linear_velocity.length() < 1.0:
 		_capotado += delta
-		if _capotado > 2.0:
+		if _capotado > 1.0:
 			_desvirar()
 	else:
 		_capotado = 0.0
+
+## Anti-capotagem. No chão: inclinado além do livre (em relação à vertical), gira de
+## volta no eixo que leva o teto para cima, e o balanço de lado/de frente é amortecido
+## (o giro em volta do teto, a direção, fica livre). No ar sem comando: nivela de lado
+## aos poucos, para pousar nas rodas (o nariz já acompanha a trajetória)
+func _manter_de_pe(delta: float, comandando_no_ar: bool):
+	if not anti_capotagem or not _trilho.is_empty():
+		return
+	var cima := global_basis.y
+	if rodas_no_chao > 0:
+		var eixo := cima.cross(Vector3.UP)
+		var excesso := maxf(cima.angle_to(Vector3.UP) - deg_to_rad(inclinacao_livre_graus), 0.0)
+		var tombo := angular_velocity - angular_velocity.project(cima)
+		var volta := eixo.normalized() * excesso * forca_endireitar if eixo.length() > 0.001 else Vector3.ZERO
+		angular_velocity += (volta - tombo * amortece_tombo) * delta
+	elif not comandando_no_ar:
+		var frente := -global_basis.z
+		# > 0: lado direito mais alto; girar no eixo da frente abaixa o lado direito
+		var rolagem := atan2(global_basis.x.y, cima.y)
+		var taxa := angular_velocity.dot(frente)
+		angular_velocity += frente * (rolagem * nivelar_no_ar - taxa * 2.0) * delta
 
 # --- Loops: trilho cinemático ----------------------------------------------
 

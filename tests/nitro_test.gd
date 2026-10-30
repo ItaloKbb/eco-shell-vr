@@ -188,6 +188,21 @@ func _testar():
 	assert(rolagem < -0.8, "Esquerda gira o carro para a esquerda no ar: %.2f rad/s" % rolagem)
 	print("No ar: arfagem %.2f rad/s, rolagem %.2f rad/s" % [arfagem, rolagem])
 
+	# Horizonte travado: carro tombado 25° de lado e subindo 10°, a câmera não tomba
+	# (lado na horizontal) mas acompanha a subida
+	await na_pista(mapa, carro, pista.s_largada + 1400.0)
+	carro.freeze = true
+	var reto: Basis = carro.global_basis
+	carro.global_basis = reto * Basis(Vector3.RIGHT, deg_to_rad(10.0)) * Basis(Vector3.BACK, deg_to_rad(25.0))
+	carro._nivelar_visao()
+	var cam: Basis = carro.camera.global_basis
+	assert(absf(cam.x.y) < 0.01, "A câmera tombou junto: lado.y = %.3f" % cam.x.y)
+	assert(-carro.global_basis.z.dot(-cam.z) > 0.95, "A câmera olha para onde o carro aponta")
+	# (a câmera do cockpit já olha ~9° para baixo da frente do carro)
+	assert((-cam.z).y > 0.0, "A câmera acompanha a subida")
+	carro.global_basis = reto
+	carro.freeze = false
+
 	# Outro jogador ligou o nitro: o ronco toca no carro dele
 	for i in 120:
 		if SomGerador.biblioteca.has("nitro"):

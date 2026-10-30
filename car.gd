@@ -139,6 +139,10 @@ const FOLGA_RODA := 0.35
 @export_group("VR")
 @export_range(0.0, 0.5) var zona_morta := 0.15
 @export var vibracao := true
+## Horizonte travado: a visão (VR e monitor) acompanha o rumo e a subida do carro, mas
+## não o tombo de lado (rolagem da carroceria e curvas inclinadas), que dá vertigem.
+## O cockpit inclina em volta do piloto; o horizonte fica reto
+@export var nivelar_horizonte := true
 
 ## Posição local dos olhos no cockpit. Ao recentralizar, a origem OpenXR compensa
 ## integralmente a pose física atual para colocar a câmera exatamente aqui.
@@ -247,6 +251,8 @@ var _material_choque := &"chao"
 ## Tremor da câmera depois de um choque (só no monitor: na VR enjoa; lá vibra o controle)
 var _tremor := 0.0
 var _conforto_vr
+## Pose rastreada da cabeça (no espaço da origem XR) na hora de recentralizar
+var _cabeca_ref := Vector3.ZERO
 var _ultimo_dano := -10.0
 var _fumaca: GPUParticles3D
 var _faiscas: GPUParticles3D
@@ -336,6 +342,7 @@ func _ambiente_traseira():
 
 func _process(delta):
 	_tremer(delta)
+	_nivelar_visao()
 	# Inclusive no nascimento: sem isso mãos e controles ficam visíveis na origem XR,
 	# que fica na altura dos olhos, e grudam no rosto até o rastreamento começar
 	if get_viewport().use_xr:
@@ -450,7 +457,28 @@ func _alinhar_origem_xr():
 	# A posição rastreada da câmera é relativa à origem. Deslocar a origem pelo
 	# inverso dessa pose coloca os olhos na âncora sem limitar movimentos futuros.
 	origem.position = ANCORA_CABECA_LOCAL - camera_xr.position
+	_cabeca_ref = camera_xr.position
 	visao_recentralizada.emit()
+
+## Base do carro sem a rolagem: mesma frente (rumo e subida), lado sempre na horizontal.
+## Com o bico apontando quase na vertical não há horizonte para nivelar: usa a do carro
+func base_nivelada() -> Basis:
+	var frente := -global_basis.z
+	var direita := frente.cross(Vector3.UP)
+	if direita.length() < 0.15:
+		return global_basis
+	direita = direita.normalized()
+	return Basis(direita, direita.cross(frente).normalized(), -frente)
+
+## Desfaz a rolagem do carro na visão: no monitor gira a câmera; na VR gira a origem em
+## volta da âncora da cabeça, então os olhos continuam no mesmo lugar do cockpit
+func _nivelar_visao():
+	var base := base_nivelada() if nivelar_horizonte else global_basis
+	if get_viewport().use_xr:
+		var origem := $OrigemXR as XROrigin3D
+		origem.global_transform = Transform3D(base, global_transform * ANCORA_CABECA_LOCAL - base * _cabeca_ref)
+	else:
+		camera.global_basis = base * Basis.from_euler(Vector3(_olhar.x, _olhar.y, 0.0))
 
 func _input(event):
 	if not _ativo():

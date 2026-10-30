@@ -1277,7 +1277,7 @@ func teleportar(t: Transform3D, esperar_chao := false):
 		_esperando_chao = true
 
 ## Estado para o telão e a corrida em grupo (Rede manda ao servidor 30x/s): pose,
-## velocidade, vida e, na corrida, volta, posição, progresso, os adversários e o
+## velocidade, vida e, na corrida, fase, volta, posição, progresso, os adversários e o
 ## relógio dos obstáculos
 func telemetria() -> Dictionary:
 	var dados := {
@@ -1298,6 +1298,8 @@ func telemetria() -> Dictionary:
 		dados.total = mapa.corrida.total_carros()
 		dados.progresso = mapa.trafego.jogador.progresso
 		dados.chegou = mapa.corrida.fase == Corrida.Fase.CHEGADA
+		# Grid (controles/contagem): o telão mostra a abertura da pista do céu
+		dados.fase = mapa.corrida.fase
 		# [número, posição, rotação, progresso, velocidade] dos adversários da corrida: o
 		# telão mostra; numa corrida em grupo, os outros Quests seguem os do anfitrião
 		var rivais := []

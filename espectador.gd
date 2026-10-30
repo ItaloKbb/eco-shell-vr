@@ -7,8 +7,11 @@ extends Node3D
 ## A cada TEMPO_TOMADA troca de jogador E de ângulo (topo, diagonal alta, terceira
 ## pessoa); com um jogador só, troca só o ângulo. HUD de transmissão: nome, corrida,
 ## volta/posição, vida e velocidade.
+## Abertura: jogadores que acabaram de chegar ao grid (fase de controles/contagem na
+## telemetria) tomam o telão até a largada: a pista vista do céu (panorama, sobrevoo do
+## traçado e a grua descendo no grid), com faixas de cinema e a cartela do circuito.
 ## Teclas: ←/→ jogador · espaço pausa a troca · 1/2/3 fixa o ângulo (0 volta ao
-## automático) · F11 tela cheia.
+## automático) · A pula a abertura · F11 tela cheia.
 
 const Mundos := preload("res://mundos.gd")
 
@@ -17,6 +20,18 @@ const NOMES_ANGULO := ["VISTA DE CIMA", "DIAGONAL ALTA", "TERCEIRA PESSOA"]
 const TEMPO_TOMADA := 6.0
 const TEMPO_CORTE := 0.25
 const PINTURAS_JOGADOR := CarroFantasma.PINTURAS_JOGADOR
+
+enum Abertura { PANORAMA, SOBREVOO, GRID }
+const NOMES_ABERTURA := ["VISTA AÉREA", "SOBREVOO DO CIRCUITO", "GRID DE LARGADA"]
+## Duração de cada tomada da abertura (s); repete o ciclo enquanto o grid espera
+const TEMPOS_ABERTURA := [7.0, 9.0, 6.0]
+## Sobrevoo: altura do drone sobre a pista (m) e velocidade máxima (m/s)
+const ALTURA_SOBREVOO := 38.0
+const VELOCIDADE_SOBREVOO := 110.0
+## Na abertura a câmera sobe muito acima da do Quest: a névoa do mapa recua tanto
+const NEVOA_AEREA := 3.0
+const ALCANCE_CAMERA := 1500.0
+const ALCANCE_AEREO := 4000.0
 
 ## Os mapas de corrida do jeito que os portais abrem (destino -> [classe, origem])
 var _destinos := {
@@ -45,6 +60,15 @@ var pausado := false
 var tempo_tomada := 0.0
 var pronto := false
 var mundo_atual := "-"
+## Mapa cuja abertura está no ar (vazio = diretor normal), a tomada e o tempo nela
+var abertura_mapa := ""
+var abertura_tomada := Abertura.PANORAMA
+var abertura_tempo := 0.0
+## Abertura que o operador pulou (tecla A): só volta num próximo grid desse mapa
+var _abertura_pulada := ""
+## Por mapa: o ambiente com a névoa recuada; por pista: {centro, raio} do traçado
+var _ambientes_aereos := {}
+var _formas := {}
 
 var _ambiente_neon: Environment
 var _sol_neon: Transform3D
@@ -70,7 +94,7 @@ func _ready():
 	camera = Camera3D.new()
 	camera.fov = 70.0
 	camera.near = 0.1
-	camera.far = 1500.0
+	camera.far = ALCANCE_CAMERA
 	add_child(camera)
 	camera.make_current()
 
@@ -204,6 +228,12 @@ func _process(delta: float):
 		return
 	var lista := ativos()
 	_hud.atualizar_estado(Rede.conectado, lista.is_empty())
+	var grid := _mapa_em_abertura(lista)
+	if grid != "":
+		_rodar_abertura(grid, lista, delta)
+		return
+	if abertura_mapa != "":
+		_fechar_abertura(lista)
 	if lista.is_empty():
 		foco = 0
 		_aplicar_mundo("")
@@ -282,6 +312,165 @@ func _orbitar(delta: float):
 	var posicao := Vector3(sin(_orbita) * 70.0, 32.0, cos(_orbita) * 70.0 - 20.0)
 	camera.global_transform = Transform3D(Basis.looking_at(Vector3(0.0, 8.0, -30.0) - posicao), posicao)
 
+# --- Abertura da corrida ---------------------------------------------------------------
+
+## Na telemetria: no grid, esperando a largada (controles ou contagem)
+func _no_grid(item: Dictionary) -> bool:
+	var fase := int(item.get("fase", -1))
+	return mapas.has(str(item.get("mapa", ""))) and (fase == Corrida.Fase.CONTROLES or fase == Corrida.Fase.CONTAGEM)
+
+## Mapa com jogadores no grid (o que já está no ar tem preferência); vazio = nenhum
+func _mapa_em_abertura(lista: Array) -> String:
+	var candidatos := []
+	for peer in lista:
+		var item: Dictionary = dados[peer]
+		if _no_grid(item) and str(item.mapa) not in candidatos:
+			candidatos.append(str(item.mapa))
+	if _abertura_pulada not in candidatos:
+		_abertura_pulada = ""
+	candidatos.erase(_abertura_pulada)
+	if abertura_mapa in candidatos:
+		return abertura_mapa
+	return candidatos[0] if not candidatos.is_empty() else ""
+
+## Jogadores no mapa (correndo ou no grid), em ordem de peer
+func _no_mapa(lista: Array, nome_mapa: String) -> Array:
+	return lista.filter(func(p): return str(dados[p].get("mapa", "")) == nome_mapa)
+
+func _rodar_abertura(nome_mapa: String, lista: Array, delta: float):
+	var aqui := _no_mapa(lista, nome_mapa)
+	var contagem := aqui.any(func(p): return int(dados[p].get("fase", -1)) == Corrida.Fase.CONTAGEM)
+	var cortar := false
+	if abertura_mapa != nome_mapa:
+		abertura_mapa = nome_mapa
+		abertura_tomada = Abertura.GRID if contagem else Abertura.PANORAMA
+		abertura_tempo = 0.0
+		_aplicar_mundo(nome_mapa)
+		ambiente.environment = _ambiente_aereo(nome_mapa)
+		camera.far = ALCANCE_AEREO
+		_hud.abertura(true)
+		_hud.corte(0.8)
+		cortar = true
+	# Os rivais vêm da telemetria de quem está nesse grid
+	if foco not in aqui:
+		for rival in rivais:
+			rival.reiniciar()
+		foco = aqui[0]
+		_atualizar_foco_rivais()
+	abertura_tempo += delta
+	if contagem and abertura_tomada != Abertura.GRID:
+		# Vai largar: fica no grid até o VAI!
+		abertura_tomada = Abertura.GRID
+		abertura_tempo = 0.0
+		_hud.corte(TEMPO_CORTE)
+		cortar = true
+	elif not contagem and abertura_tempo >= TEMPOS_ABERTURA[abertura_tomada]:
+		abertura_tomada = ((abertura_tomada + 1) % Abertura.size()) as Abertura
+		abertura_tempo = 0.0
+		_hud.corte(TEMPO_CORTE * 2.0)
+		cortar = true
+	var mapa: MapaCorrida = mapas[nome_mapa]
+	var desejada := _pose_abertura(mapa, abertura_tomada, minf(abertura_tempo / TEMPOS_ABERTURA[abertura_tomada], 1.0))
+	if cortar:
+		camera.global_transform = desejada
+	else:
+		camera.global_transform = camera.global_transform.interpolate_with(desejada, 1.0 - exp(-6.0 * delta))
+	var item: Dictionary = dados[foco]
+	var nomes := PackedStringArray()
+	for peer in aqui:
+		nomes.append(_nome(dados[peer]).to_upper())
+	var ia: int = item.get("rivais", []).size()
+	var total := int(item.get("total", aqui.size() + ia))
+	var grid_texto := "%d CARROS NO GRID  ·  %s" % [total, ", ".join(nomes)]
+	if ia > 0:
+		grid_texto += " + %d DA IA" % ia
+	_hud.mostrar_abertura(nome_mapa, _formato_pista(mapa.pista), grid_texto, NOMES_ABERTURA[abertura_tomada], contagem, lista, foco, carros)
+
+## A largada saiu (ou o grid esvaziou): volta ao diretor de sempre, com corte
+func _fechar_abertura(lista: Array):
+	abertura_mapa = ""
+	camera.far = ALCANCE_CAMERA
+	# Força o céu normal do mapa de novo
+	mundo_atual = "-"
+	_hud.abertura(false)
+	if not lista.is_empty():
+		_cortar(foco if foco in lista else lista[0], angulo)
+
+## "3 VOLTAS · 604 M POR VOLTA" ou "SPRINT · 1614 M PONTA A PONTA"
+func _formato_pista(pista: PistaCorrida) -> String:
+	if pista.aberta:
+		return "SPRINT  ·  %d M PONTA A PONTA" % roundi(pista.distancia_corrida())
+	return "%d VOLTAS  ·  %d M POR VOLTA  ·  %.1f KM" % [pista.voltas, roundi(pista.comprimento), pista.distancia_corrida() / 1000.0]
+
+## O céu do mapa com a névoa recuada para as tomadas do alto
+func _ambiente_aereo(nome_mapa: String) -> Environment:
+	if not _ambientes_aereos.has(nome_mapa):
+		var aereo: Environment = mapas[nome_mapa].ambiente.duplicate()
+		aereo.fog_depth_begin *= NEVOA_AEREA
+		aereo.fog_depth_end *= NEVOA_AEREA
+		_ambientes_aereos[nome_mapa] = aereo
+	return _ambientes_aereos[nome_mapa]
+
+## Centro e raio (meia maior largura) do traçado no mundo
+func _forma(pista: PistaCorrida) -> Dictionary:
+	if not _formas.has(pista):
+		var caixa := AABB(pista.global_transform * pista.pontos[0], Vector3.ZERO)
+		for ponto in pista.pontos:
+			caixa = caixa.expand(pista.global_transform * ponto)
+		_formas[pista] = {"centro": caixa.get_center(), "raio": maxf(caixa.size.x, caixa.size.z) * 0.5}
+	return _formas[pista]
+
+func _na_pista(pista: PistaCorrida, s: float) -> Transform3D:
+	return pista.global_transform * pista.quadro(s)
+
+## Pose da câmera na tomada `tomada` da abertura, com `u` de 0 a 1 ao longo dela
+func _pose_abertura(mapa: MapaCorrida, tomada: Abertura, u: float) -> Transform3D:
+	var pista := mapa.pista
+	var suave := smoothstep(0.0, 1.0, u)
+	var posicao: Vector3
+	var mira: Vector3
+	match tomada:
+		Abertura.PANORAMA:
+			if pista.aberta:
+				# Ponta a ponta: do alto, atrás da largada, olhando a reta toda sumir no horizonte
+				var largada := _na_pista(pista, pista.s_largada)
+				var frente := _plano(-largada.basis.z)
+				posicao = largada.origin - frente * (90.0 - 140.0 * suave) + Vector3.UP * (120.0 + 30.0 * suave)
+				mira = _na_pista(pista, pista.s_largada + pista.distancia_corrida() * 0.45).origin
+			else:
+				# Circuito: órbita lenta com o traçado inteiro no quadro
+				var forma := _forma(pista)
+				var giro := u * 0.6
+				posicao = forma.centro + Vector3(sin(giro), 0.0, cos(giro)) * (forma.raio * 1.35 + 60.0) + Vector3.UP * (forma.raio * 0.8 + 50.0)
+				mira = forma.centro
+		Abertura.SOBREVOO:
+			# Drone pelo traçado: no circuito chega ao grid no fim; na sprint sai da largada
+			var tempo: float = TEMPOS_ABERTURA[Abertura.SOBREVOO]
+			var s: float
+			if pista.aberta:
+				s = pista.s_largada + minf(VELOCIDADE_SOBREVOO, pista.distancia_corrida() / tempo) * tempo * u
+			else:
+				s = pista.grid_sd(0).x - minf(VELOCIDADE_SOBREVOO, pista.comprimento * 0.85 / tempo) * tempo * (1.0 - u)
+			var aqui := _na_pista(pista, s)
+			posicao = aqui.origin - _plano(-aqui.basis.z) * 30.0 + Vector3.UP * ALTURA_SOBREVOO
+			mira = _na_pista(pista, s + 70.0).origin
+		_:
+			# Grua: começa alta atrás do grid e desce até a altura dos carros
+			var primeira := mapa.largada(0)
+			var ultima := mapa.largada(MapaCorrida.ADVERSARIOS)
+			var frente := _plano(-primeira.basis.z)
+			var lado := frente.cross(Vector3.UP)
+			var alto := ultima.origin - frente * 22.0 + lado * 12.0 + Vector3.UP * 60.0
+			var baixo := ultima.origin - frente * 13.0 + lado * 3.0 + Vector3.UP * 4.5
+			posicao = alto.lerp(baixo, suave)
+			mira = ((primeira.origin + ultima.origin) * 0.5).lerp(primeira.origin + frente * 12.0 + Vector3.UP, suave)
+	return Transform3D(Basis.looking_at(mira - posicao, Vector3.UP), posicao)
+
+## Direção no plano do chão (sem subir/descer)
+func _plano(v: Vector3) -> Vector3:
+	v.y = 0.0
+	return v.normalized() if v.length_squared() > 0.0001 else Vector3.FORWARD
+
 ## Mostra o mundo neon ("") ou o mapa de corrida, com o céu e o sol de cada um
 func _aplicar_mundo(nome_mapa: String):
 	if not mapas.has(nome_mapa):
@@ -319,6 +508,9 @@ func _unhandled_input(event: InputEvent):
 			_cortar(foco, angulo_fixo)
 		KEY_0:
 			angulo_fixo = -1
+		KEY_A:
+			if abertura_mapa != "":
+				_abertura_pulada = abertura_mapa
 		KEY_F11:
 			var cheia := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if cheia else DisplayServer.WINDOW_MODE_FULLSCREEN)
@@ -328,6 +520,8 @@ func _unhandled_input(event: InputEvent):
 ## topo; terço inferior com nome, corrida, vida e velocidade; telas de espera.
 class HudEspectador extends CanvasLayer:
 	const LARGURA_TERCO := 780.0
+	## Faixas de cinema da abertura (px)
+	const ALTURA_FAIXA := 92.0
 
 	var _ao_vivo: PanelContainer
 	var _painel_vel: PanelContainer
@@ -349,6 +543,15 @@ class HudEspectador extends CanvasLayer:
 	var _corte: Tween
 	var _assinatura_chips := ""
 	var _vida_max := -1
+	var _faixa_cima: ColorRect
+	var _faixa_baixo: ColorRect
+	var _cartela: PanelContainer
+	var _cartela_titulo: Label
+	var _cartela_info: Label
+	var _cartela_grid: Label
+	var _cartela_estado: PanelContainer
+	var _em_abertura := false
+	var _anima_abertura: Tween
 
 	func _init():
 		layer = 10
@@ -357,6 +560,10 @@ class HudEspectador extends CanvasLayer:
 		raiz.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		raiz.theme = TemaEvento.criar()
 		add_child(raiz)
+
+		# Faixas de cinema da abertura: por baixo do resto do HUD
+		_faixa_cima = _faixa(raiz, true)
+		_faixa_baixo = _faixa(raiz, false)
 
 		# Topo: AO VIVO + marca + ângulo à esquerda, jogadores à direita
 		var topo := HBoxContainer.new()
@@ -440,6 +647,34 @@ class HudEspectador extends CanvasLayer:
 		_progresso.offset_bottom = -24
 		raiz.add_child(_progresso)
 
+		# Cartela da abertura: o circuito, o formato e quem está no grid, logo acima da
+		# faixa de baixo
+		_cartela = PanelContainer.new()
+		_cartela.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.QUENTE, 24.0))
+		_cartela.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		_cartela.offset_left = 28
+		_cartela.offset_bottom = -ALTURA_FAIXA - 24
+		_cartela.offset_top = _cartela.offset_bottom - 200
+		_cartela.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		raiz.add_child(_cartela)
+		var coluna_cartela := VBoxContainer.new()
+		coluna_cartela.add_theme_constant_override("separation", 4)
+		_cartela.add_child(coluna_cartela)
+		var cabeca_cartela := HBoxContainer.new()
+		cabeca_cartela.add_theme_constant_override("separation", 14)
+		coluna_cartela.add_child(cabeca_cartela)
+		cabeca_cartela.add_child(TemaEvento.rotulo("A CORRIDA VAI COMEÇAR", 16, TemaEvento.QUENTE, true))
+		_cartela_estado = TemaEvento.pilula("", TemaEvento.QUENTE, 13)
+		_cartela_estado.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cabeca_cartela.add_child(_cartela_estado)
+		_cartela_titulo = TemaEvento.rotulo("", 64, Color.WHITE, true)
+		coluna_cartela.add_child(_cartela_titulo)
+		_cartela_info = TemaEvento.rotulo("", 22, TemaEvento.CIANO, true)
+		coluna_cartela.add_child(_cartela_info)
+		_cartela_grid = TemaEvento.rotulo("", 16, TemaEvento.TEXTO_SUAVE, true)
+		coluna_cartela.add_child(_cartela_grid)
+		_cartela.visible = false
+
 		# Espera: sem servidor ou sem ninguém jogando (com o top 5)
 		var centro := CenterContainer.new()
 		centro.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -476,6 +711,17 @@ class HudEspectador extends CanvasLayer:
 		_progresso.visible = false
 		mostrar_ranking()
 
+	func _faixa(raiz: Control, cima: bool) -> ColorRect:
+		var faixa := ColorRect.new()
+		faixa.color = Color.BLACK
+		faixa.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		faixa.set_anchors_preset(Control.PRESET_TOP_WIDE if cima else Control.PRESET_BOTTOM_WIDE)
+		faixa.offset_top = 0.0
+		faixa.offset_bottom = 0.0
+		faixa.visible = false
+		raiz.add_child(faixa)
+		return faixa
+
 	func _caixa_vidro(cor: Color, margem := 20.0) -> StyleBoxFlat:
 		var caixa := TemaEvento.estilo(Color(0.01, 0.025, 0.06, 0.82), Color(cor, 0.6), 0, 10, margem)
 		caixa.border_width_left = 5
@@ -499,13 +745,52 @@ class HudEspectador extends CanvasLayer:
 		var pulso := 0.55 + 0.45 * absf(sin(Time.get_ticks_msec() * 0.003))
 		_ao_vivo.modulate.a = pulso if conectado else 0.35
 		_espera.visible = vazio and not _carregando.visible
-		_terco.visible = not vazio
-		_painel_vel.visible = not vazio
-		_progresso.visible = not vazio
+		_terco.visible = not vazio and not _em_abertura
+		_painel_vel.visible = not vazio and not _em_abertura
+		_progresso.visible = not vazio and not _em_abertura
 		if vazio:
 			_espera_titulo.text = "AGUARDANDO JOGADORES" if conectado else "PROCURANDO SERVIDOR DO EVENTO…"
 			_angulo.text = ""
 			_atualizar_chips([], 0, {})
+
+	## Liga/desliga a abertura: faixas de cinema entram e a cartela desliza da esquerda
+	func abertura(ligada: bool):
+		if ligada == _em_abertura:
+			return
+		_em_abertura = ligada
+		if _anima_abertura and _anima_abertura.is_valid():
+			_anima_abertura.kill()
+		_anima_abertura = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		var altura := ALTURA_FAIXA if ligada else 0.0
+		var tempo := 0.7 if ligada else 0.35
+		if ligada:
+			for faixa in [_faixa_cima, _faixa_baixo]:
+				faixa.visible = true
+			_cartela.visible = true
+			_cartela.modulate.a = 0.0
+			_cartela.offset_left = -120.0
+			_anima_abertura.tween_property(_cartela, "offset_left", 28.0, 0.8).set_delay(0.3)
+		_anima_abertura.tween_property(_faixa_cima, "offset_bottom", altura, tempo)
+		_anima_abertura.tween_property(_faixa_baixo, "offset_top", -altura, tempo)
+		_anima_abertura.tween_property(_cartela, "modulate:a", 1.0 if ligada else 0.0, 0.6 if ligada else 0.25).set_delay(0.3 if ligada else 0.0)
+		if not ligada:
+			_anima_abertura.chain().tween_callback(func():
+				_faixa_cima.visible = false
+				_faixa_baixo.visible = false
+				_cartela.visible = false)
+
+	func mostrar_abertura(mapa: String, formato: String, grid: String, tomada: String, contagem: bool, ativos: Array, foco: int, carros: Dictionary):
+		_cartela_titulo.text = mapa.to_upper()
+		_cartela_info.text = formato
+		_cartela_grid.text = grid
+		_angulo.text = "·  %s" % tomada
+		if contagem:
+			TemaEvento.mudar_pilula(_cartela_estado, "LARGADA!", TemaEvento.VERDE)
+			_cartela_estado.modulate.a = 0.55 + 0.45 * absf(sin(Time.get_ticks_msec() * 0.008))
+		else:
+			TemaEvento.mudar_pilula(_cartela_estado, "NO GRID", TemaEvento.QUENTE)
+			_cartela_estado.modulate.a = 1.0
+		_atualizar_chips(ativos, foco, carros)
 
 	func mostrar_ranking():
 		for filho in _espera_ranking.get_children():

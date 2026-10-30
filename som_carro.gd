@@ -12,7 +12,7 @@ extends Node3D
 ## - pousos, degraus e batidas: baques no casco em camadas (estalo, corpo sub-grave, o
 ##   material atingido: clangor de carro, zap de parede de luz) e, com dano, o casco
 ##   amassando e pedacinhos caindo; pancada de 2+ barras abafa tudo e zune o ouvido
-## - nitro: ronco de V12 ao ligar, zumbido elétrico enquanto ligado; dash: estouro
+## - nitro: ronco de V12 ao ligar, zumbido elétrico enquanto ligado; placa de turbo: estouro
 ## - dano: vidro trincando; explosão: estrondo e o motor apaga até o carro renascer
 
 const BARRAMENTO := "Carro"
@@ -28,7 +28,7 @@ var _volumes := {}
 var _tarefa := -1
 var _sons := {}
 var _energia := 0.0
-var _rpm_dash := 0.0
+var _rpm_turbo := 0.0
 ## Alarme da sobrecarga do lobby na cabine: "pi" cada vez mais rápido e o "piiii" contínuo
 var _bip: AudioStreamPlayer
 var _bip_continuo: AudioStreamPlayer
@@ -45,7 +45,7 @@ func _ready():
 	_configurar(motor)
 	add_child(motor)
 	carro.largou.connect(motor.ligar)
-	carro.dash_usado.connect(_dash)
+	carro.turbo_placa.connect(_turbo_placa)
 	carro.nitro_mudou.connect(_nitro_mudou)
 	carro.impacto.connect(_impacto)
 	carro.botao_apertado.connect(func(ponto: Vector3): _efeito("clique", 0.5, 1.0, to_local(ponto)))
@@ -164,18 +164,19 @@ func _process(delta: float):
 	# Motor: acelerador (também na ré) e rotação imposta pela roda; o nitro força o motor
 	var re := acel < 0.0 and frente < 0.5
 	motor.acelerador = -acel * 0.7 if re else maxf(acel, 0.0)
-	_rpm_dash = move_toward(_rpm_dash, 0.0, 2500.0 * delta)
-	motor.rpm_roda = absf(frente) * RPM_POR_MS + _rpm_dash
+	_rpm_turbo = move_toward(_rpm_turbo, 0.0, 2500.0 * delta)
+	# O motor tem o dobro da velocidade para cobrir: a relação final cai à metade
+	motor.rpm_roda = absf(frente) * RPM_POR_MS * 0.5 + _rpm_turbo
 	motor.livre = carro.rodas_no_chao == 0
 	motor.esforco = 0.6 * _energia * maxf(acel, 0.0)
 
 	if _loops.is_empty():
 		return
 	_alarme_sobrecarga(delta)
-	var rapidez := clampf(v / 18.0, 0.0, 1.5)
+	var rapidez := clampf(v / 36.0, 0.0, 1.5)
 	var derrapa := smoothstep(1.2, 4.0, carro.derrapagem) * clampf(v / 3.0, 0.0, 1.0)
-	_tocar("vento", pow(clampf(v / 22.0, 0.0, 1.0), 2.0) * 0.8, 0.75 + v / 35.0, delta)
-	_tocar("rolamento", (pow(clampf(v / 10.0, 0.0, 1.0), 0.8) * 0.4 if no_chao else 0.0), 0.6 + v / 16.0, delta)
+	_tocar("vento", pow(clampf(v / 44.0, 0.0, 1.0), 2.0) * 0.8, 0.75 + minf(v, 90.0) / 70.0, delta)
+	_tocar("rolamento", (pow(clampf(v / 20.0, 0.0, 1.0), 0.8) * 0.4 if no_chao else 0.0), 0.6 + minf(v, 90.0) / 32.0, delta)
 	_tocar("chiado", derrapa * 0.35 if no_chao else 0.0, 0.85 + clampf(carro.derrapagem / 12.0, 0.0, 1.0) * 0.35, delta)
 	_tocar("freio", (carro.freio * clampf(v / 5.0, 0.0, 1.0) * 0.3 if no_chao else 0.0), 0.8 + v / 30.0, delta)
 	var pode_raspar: bool = not carro.explodindo and not carro.em_ritual and not carro.em_transicao and not carro.segurado
@@ -230,8 +231,8 @@ func _alarme_sobrecarga(delta: float):
 		_bip.play()
 		_proximo_bip = 1.0
 
-func _dash():
-	_rpm_dash = 2500.0
+func _turbo_placa():
+	_rpm_turbo = 2500.0
 	motor.arrancada()
 	_efeito("arrancada", 0.7, randf_range(0.95, 1.05))
 	if carro.nitro_ativo:

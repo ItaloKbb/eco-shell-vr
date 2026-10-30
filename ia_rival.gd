@@ -75,7 +75,7 @@ func atualizar(t: TrafegoCorrida, dt: float):
 	if _pensar <= 0.0:
 		_pensar = perfil.reacao * randf_range(0.8, 1.2)
 		_decidir(t)
-		_tentar_dash(t)
+		_tentar_turbo(t)
 	_conduzir(t)
 
 # --- Decisão --------------------------------------------------------------------
@@ -156,28 +156,28 @@ func _tentar_defender(t: TrafegoCorrida) -> bool:
 	alvo = tras
 	return true
 
-## Dash tático: prioriza perseguição e ultrapassagem, mas também aproveita uma reta
-## livre. Curvas fortes, recuperação e a largada nunca recebem impulso surpresa.
-func _tentar_dash(t: TrafegoCorrida) -> bool:
-	if not carro.pode_usar_dash() or estado in [Estado.PARADO, Estado.LARGADA, Estado.RECUPERAR, Estado.ERRO, Estado.VOLTA_LENTA]:
+## Turbo tático: prioriza perseguição e ultrapassagem, mas também aproveita uma reta
+## livre. Curvas fortes, recuperação e a largada nunca recebem turbo.
+func _tentar_turbo(t: TrafegoCorrida) -> bool:
+	if not carro.pode_usar_turbo() or estado in [Estado.PARADO, Estado.LARGADA, Estado.RECUPERAR, Estado.ERRO, Estado.VOLTA_LENTA]:
 		return false
 	var antecipacao := 12.0 + carro.v * 1.2
 	if absf(t.pista.curvatura(carro.s + antecipacao)) > 0.014:
 		return false
-	var chance := perfil.uso_dash * 0.32
+	var chance := perfil.uso_turbo * 0.32
 	if estado == Estado.ATACAR and alvo != null:
 		var distancia_ataque := t.delta_s(carro.info, alvo)
 		if distancia_ataque > 3.0 and distancia_ataque < 18.0:
-			chance = perfil.uso_dash
+			chance = perfil.uso_turbo
 	elif estado == Estado.ULTRAPASSAR and alvo != null:
 		var distancia_passe := t.delta_s(carro.info, alvo)
 		if distancia_passe > 2.0 and distancia_passe < 14.0:
-			chance = perfil.uso_dash * 0.85
+			chance = perfil.uso_turbo * 0.85
 	elif t.a_frente(carro.info, 14.0, carro.d, 1.5) != null:
 		return false
 	if randf() > chance:
 		return false
-	return carro.usar_dash()
+	return carro.usar_turbo()
 
 func _ataque_acabou(t: TrafegoCorrida) -> bool:
 	if _acertou or alvo == null or not alvo.presente or tempo_estado > _duracao:

@@ -84,11 +84,12 @@ func ver_nitro(contador: int):
 
 ## Ronco do nitro (som_gerador.gd "nitro") preso ao carro, alto o bastante para ouvir
 ## de longe; some quando acaba
-static func roncar(pai: Node3D):
+static func roncar(pai: Node3D, volume_db := 0.0):
 	var som := SomGerador.fonte("nitro")
 	if som.stream == null:
 		som.free()
 		return
+	som.volume_db = volume_db
 	som.unit_size = 12.0
 	som.position = Vector3(0.0, 0.35, 1.2)
 	pai.add_child(som)

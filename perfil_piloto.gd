@@ -4,9 +4,13 @@ extends Resource
 ## lê daqui o quanto o piloto é rápido, ousado, defensivo, agressivo e consistente.
 ## elenco() devolve os 10 pilotos do grid, do mais rápido (pole) ao mais lento.
 
-## Ritmo dos rivais durante a corrida. Grip, frenagem e aceleração escalam ao quadrado
-## para manter a velocidade também nas curvas e ao sair delas.
+## Ritmo dos rivais nas curvas (aderência ao quadrado) e na troca de faixa
 const FATOR_VELOCIDADE_CORRIDA := 1.4
+## Reta, arrancada e frenagem no mesmo nível do carro do jogador (24 m/s no chão, ~6 m/s²
+## de motor): os perfis valem ~12 m/s e ~4 m/s², então dobram. Sem o dash o jogador não
+## tem mais como compensar rival mais rápido que ele na reta
+const VELOCIDADE_DOBRADA := 2.0
+const FATOR_ARRANCADA := 1.5
 
 enum Estilo {
 	## Foco em andar rápido e limpo: ultrapassa por fora, quase nunca bate de propósito
@@ -23,7 +27,7 @@ enum Estilo {
 @export var estilo := Estilo.CORREDOR
 
 @export_group("Ritmo")
-## Velocidade de reta (m/s); o jogador chega a 12 no chão
+## Velocidade de reta (m/s) antes dos fatores; o jogador chega a 24 no chão
 @export var velocidade_max := 12.0
 @export var aceleracao := 4.0
 @export var frenagem := 8.0
@@ -42,13 +46,12 @@ enum Estilo {
 ## Quanto o ritmo se ajusta à distância do jogador (corrida mais disputada)
 @export_range(0.0, 1.0) var elastico := 0.5
 
-@export_group("Dash")
-## Probabilidade de aproveitar uma oportunidade de dash encontrada pelo cérebro.
-@export_range(0.0, 1.0) var uso_dash := 0.6
-## Intervalo mínimo entre dois dashes deste piloto.
-@export var recarga_dash := 5.0
-## Velocidade instantânea acrescentada pelo dash (m/s).
-@export var forca_dash := 4.5
+@export_group("Turbo")
+## Probabilidade de aproveitar uma oportunidade de turbo encontrada pelo cérebro. O
+## tanque é o mesmo do jogador: enche sozinho (CarroRival.CARGA_PASSIVA)
+@export_range(0.0, 1.0) var uso_turbo := 0.6
+## Barras mínimas no tanque para ele gastar num turbo
+@export var reserva_turbo := 2.0
 
 @export_group("Comportamento")
 ## Vontade de ultrapassar quem está devagar na frente (0 = fica atrás)
@@ -70,29 +73,24 @@ static func criar(nome_: String, estilo_: Estilo, valores: Dictionary) -> Perfil
 	perfil.estilo = estilo_
 	match estilo_:
 		Estilo.CORREDOR:
-			perfil.uso_dash = 0.85
-			perfil.recarga_dash = 4.2
-			perfil.forca_dash = 5.2
+			perfil.uso_turbo = 0.85
+			perfil.reserva_turbo = 2.0
 		Estilo.BRIGAO:
-			perfil.uso_dash = 0.95
-			perfil.recarga_dash = 3.6
-			perfil.forca_dash = 5.8
+			perfil.uso_turbo = 0.95
+			perfil.reserva_turbo = 1.5
 		Estilo.BLOQUEADOR:
-			perfil.uso_dash = 0.55
-			perfil.recarga_dash = 5.2
-			perfil.forca_dash = 4.5
+			perfil.uso_turbo = 0.55
+			perfil.reserva_turbo = 2.5
 		Estilo.CAUTELOSO:
-			perfil.uso_dash = 0.2
-			perfil.recarga_dash = 7.0
-			perfil.forca_dash = 3.5
+			perfil.uso_turbo = 0.25
+			perfil.reserva_turbo = 3.5
 	for chave in valores:
 		perfil.set(chave, valores[chave])
-	perfil.velocidade_max *= FATOR_VELOCIDADE_CORRIDA
-	perfil.aceleracao *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
-	perfil.frenagem *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
+	perfil.velocidade_max *= VELOCIDADE_DOBRADA
+	perfil.aceleracao *= FATOR_ARRANCADA
+	perfil.frenagem *= VELOCIDADE_DOBRADA
 	perfil.aderencia *= FATOR_VELOCIDADE_CORRIDA * FATOR_VELOCIDADE_CORRIDA
 	perfil.agilidade *= FATOR_VELOCIDADE_CORRIDA
-	perfil.forca_dash *= FATOR_VELOCIDADE_CORRIDA
 	perfil.forca_ataque *= FATOR_VELOCIDADE_CORRIDA
 	return perfil
 

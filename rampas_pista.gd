@@ -15,7 +15,7 @@ const SHADER_IMPULSO := preload("res://impulso_neon.gdshader")
 const COMPRIMENTO := 9.0
 const ALTURA := 0.9
 ## Velocidade de saída do lançador (m/s): sobe ~0,3 m acima da borda e voa ~10 m. O
-## pouso fica abaixo de 5 m/s na vertical, sem dano (car.gd pouso_duro é 7)
+## pouso fica abaixo de 5 m/s na vertical, sem dano (car.gd pouso_duro é 9)
 const LANCAMENTO := 13.0
 ## Velocidade que a placa do pouso garante (m/s; o carro anda a ~12 no chão)
 const TURBO := 20.0

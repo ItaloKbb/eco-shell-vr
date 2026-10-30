@@ -54,12 +54,12 @@ func _testar():
 	var sobreposicoes := 0
 	var fora := 0
 	var tempo_chegada := {}
-	var maior_dash := 0
+	var maior_turbo := 0
 	for passo in PASSOS_MAX:
 		await physics_frame
 		for rival in deserto.rivais:
 			vistos[rival.ia.estado] = true
-			maior_dash = maxi(maior_dash, rival.dashes_usados)
+			maior_turbo = maxi(maior_turbo, rival.turbos_usados)
 			if absf(rival.d) > PistaCorrida.MEIA_UTIL + 0.01:
 				fora += 1
 			if rival.terminou and not tempo_chegada.has(rival.perfil.nome):
@@ -91,14 +91,14 @@ func _testar():
 	for estado in [IARival.Estado.CORRER, IARival.Estado.ULTRAPASSAR, IARival.Estado.ATACAR, IARival.Estado.VOLTA_LENTA]:
 		assert(vistos.has(estado), "Nunca entrou em %s" % IARival.Estado.keys()[estado])
 	assert(not ataques.is_empty(), "Nenhum brigão acertou o jogador")
-	var usuarios_dash := 0
-	var total_dash := 0
+	var usuarios_turbo := 0
+	var total_turbo := 0
 	for rival in deserto.rivais:
-		total_dash += rival.dashes_usados
-		if rival.dashes_usados > 0:
-			usuarios_dash += 1
-	assert(usuarios_dash >= 7, "Só %d rivais usaram dash" % usuarios_dash)
-	assert(total_dash >= 12 and maior_dash >= 2, "Dashes insuficientes: %d" % total_dash)
+		total_turbo += rival.turbos_usados
+		if rival.turbos_usados > 0:
+			usuarios_turbo += 1
+	assert(usuarios_turbo >= 7, "Só %d rivais usaram turbo" % usuarios_turbo)
+	assert(total_turbo >= 12 and maior_turbo >= 2, "Turbos insuficientes: %d" % total_turbo)
 	for nome in ataques:
 		var perfil: PerfilPiloto = deserto.rivais.filter(func(r): return r.perfil.nome == nome)[0].perfil
 		assert(perfil.estilo == PerfilPiloto.Estilo.BRIGAO, "%s atacou sem ser brigão" % nome)
@@ -107,7 +107,7 @@ func _testar():
 	# 3 voltas de ~630 m com o ritmo 40% maior: cerca de 1,5 a 3 minutos
 	var primeiro: float = tempo_chegada[trafego.chegada[0].nome()]
 	assert(primeiro > 85.0 and primeiro < 175.0, "Tempo do vencedor fora do esperado: %.1f" % primeiro)
-	print("IA_OK: 10 adversários, ultrapassagens, ataques e %d dashes táticos" % total_dash)
+	print("IA_OK: 10 adversários, ultrapassagens, ataques e %d turbos táticos" % total_turbo)
 	mapa.queue_free()
 	for i in 5:
 		await process_frame

@@ -16,26 +16,27 @@ extends RigidBody3D
 ## No ar, o analógico direito (cima/baixo) abaixa/levanta o nariz e o esquerdo gira o
 ## carro de lado, como no GTA, para acertar o pouso.
 ##
-## W duas vezes seguidas: dash. R: desvira/reposiciona. O mouse só move a cabeça.
+## R: desvira/reposiciona. O mouse só move a cabeça. O motor puxa nas três rodas (cada
+## uma até a aderência dela), então o carro sobe as rampas sem patinar.
 ##
 ## No Meta Quest (Quest Link / OpenXR) a câmera VR fica nos olhos do piloto e vale:
 ## gatilho direito acelera, gatilho esquerdo freia/ré, analógico esquerdo esterça,
-## analógico direito (cima/baixo) controla o nariz no ar, A liga o nitro, B ou dois toques
-## no gatilho direito fazem o dash, X é o freio de mão, Y desvira, clique no analógico
+## analógico direito (cima/baixo) controla o nariz no ar, A liga o nitro, X é o freio
+## de mão, Y desvira, clique no analógico
 ## esquerdo recentraliza a visão; clique no direito alterna o conforto VR. As mãos aparecem como os controles do Quest (ou a malha
 ## da própria mão, com rastreamento de mãos); o guidão só acompanha o esterço.
 ## O teclado continua funcionando junto.
 ##
 ## Gamepad (Xbox, ROG Ally, Steam Deck...) segue o mesmo esquema do Quest: RT acelera,
 ## LT freia/ré, analógico esquerdo esterça, analógico direito controla o nariz no ar
-## (cima/baixo) e olha para os lados, A liga o nitro, B ou dois toques no RT fazem o dash,
-## X é o freio de mão, Y desvira; clique em qualquer analógico recentraliza os olhos
+## (cima/baixo) e olha para os lados, A liga o nitro, X é o freio de mão, Y desvira;
+## clique em qualquer analógico recentraliza os olhos
 ## exatamente na âncora do cockpit, inclusive no menu de nascimento.
 
-## Para o som (som_carro.gd): o carro tocou o chão pela primeira vez, usou o dash,
-## ligou/desligou o nitro, ou bateu (roda pousando, degrau, casco contra algo)
+## Para o som (som_carro.gd): o carro tocou o chão pela primeira vez, passou numa placa
+## de turbo, ligou/desligou o nitro, ou bateu (roda pousando, degrau, casco contra algo)
 signal largou
-signal dash_usado
+signal turbo_placa
 signal nitro_mudou(ligado: bool)
 ## `material`: o que foi atingido (chao, estrutura, rival), para o som
 signal impacto(forca: float, ponto: Vector3, material: StringName)
@@ -64,12 +65,17 @@ const FOLGA_RODA := 0.35
 @export_flags_3d_physics var mascara_chao := 1
 
 @export_group("Chão")
-@export var aceleracao := 4.0
-@export var frenagem := 10.0
+## Aceleração do motor (m/s²) parado, repartida entre as três rodas: sobe as ladeiras
+## sem ficar preso. Cai perto da máxima (`queda_motor`), como num motor de verdade: o
+## carro chega aos 24 m/s em ~5 s, sem disparar de uma vez
+@export var aceleracao := 6.0
+## Quanto da força do motor some chegando na máxima (0 = força constante)
+@export_range(0.0, 1.0) var queda_motor := 0.45
+@export var frenagem := 16.0
 ## Baixo de propósito: o carro de eficiência roda solto quando se tira o pé
 @export var arrasto := 0.6
-@export var velocidade_max := 12.0
-@export var velocidade_re := 5.0
+@export var velocidade_max := 24.0
+@export var velocidade_re := 8.0
 ## Força do motor em marcha à ré como fração da aceleração para a frente.
 @export_range(0.0, 1.0) var forca_re := 0.9
 @export var direcao_max := 0.42
@@ -87,23 +93,31 @@ const FOLGA_RODA := 0.35
 @export var rigidez := 7800.0
 @export var amortecimento := 1100.0
 ## Coeficiente de atrito: força máxima do pneu = atrito × carga na roda
-@export var atrito_pneu := 1.1
+@export var atrito_pneu := 1.6
 ## Quão rápido o pneu anula o escorregamento lateral (1/s)
-@export var aderencia_lateral := 8.0
+@export var aderencia_lateral := 12.0
+## Pressão aerodinâmica: a aderência cresce com v² até +`aero_max` (fração). Na máxima do
+## chão (24 m/s) já dá +60%: dá para fazer curva rápido sem o carro sair de lado
+@export var aero := 0.00105
+@export var aero_max := 1.0
+## Distância entre os eixos (m): o esterço é limitado pelo raio que o pneu aguenta
+const ENTRE_EIXOS := 1.45
 ## Barra estabilizadora do eixo dianteiro (N/m de diferença entre as duas rodas): segura
 ## a rolagem da carroceria nas curvas, que a câmera VR herda e causa vertigem
 @export var barra_estabilizadora := 8000.0
 
 @export_group("Nitro")
 ## Quanto a velocidade máxima sobe com o nitro ligado
-@export var fator_nitro := 2.0
+@export var fator_nitro := 3.5
 ## Empurrão extra do nitro (m/s²), por cima do motor: o pneu sozinho não chega lá
-@export var empuxo_nitro := 5.0
+@export var empuxo_nitro := 10.0
 ## Barras do tanque, gasto por segundo ligado e quanto cada turbo da pista enche.
 ## A primeira vida da sessão já começa com o tanque cheio
 @export var nitro_max := 5
-@export var consumo_nitro := 1.0
+@export var consumo_nitro := 0.7
 @export var nitro_por_turbo := 2.5
+## Carga passiva (barras/s) com o nitro desligado: o tanque enche sozinho em ~25 s
+@export var carga_passiva_nitro := 0.2
 
 @export_group("No ar")
 ## Giro máximo comandado pelos analógicos no ar (rad/s). Baixo de propósito: a câmera
@@ -123,26 +137,21 @@ const FOLGA_RODA := 0.35
 ## No ar sem comando: quão rápido o carro se nivela de lado para pousar nas rodas (1/s²)
 @export var nivelar_no_ar := 4.0
 
-@export_group("Dash")
-@export var dash_impulso := 8.0
-@export var dash_recarga := 1.2
-## Tempo máximo entre os dois toques no W (s)
-@export var dash_janela := 0.3
-
 @export_group("Dano")
 ## Força de um choque = variação brusca de velocidade (m/s). Abaixo disso, só barulho.
 ## Limites altos: raspar o muro ou encostar num carro não estraga; bater de frente na
-## velocidade máxima tira 2 barras, e só uma pancada enorme (nitro de frente) explode
-@export var choque_minimo := 6.0
+## velocidade máxima (24 m/s) tira 2 barras; explodir na hora só numa pancada com nitro
+@export var choque_minimo := 10.0
 ## Daqui para cima tira 2 barrinhas (abaixo, 1)
-@export var choque_medio := 10.0
+@export var choque_medio := 18.0
 ## Daqui para cima tira 3 barrinhas
-@export var choque_forte := 15.0
-## Força total: explode na hora (acima da máxima do nitro, 24 m/s: bater de frente
-## com o nitro tira 3 barras, não explode)
-@export var choque_fatal := 28.0
+@export var choque_forte := 28.0
+## Força total: explode na hora
+@export var choque_fatal := 60.0
 ## Roda pousando mais rápido que isso também estraga o carro (m/s)
-@export var pouso_duro := 7.0
+@export var pouso_duro := 9.0
+## Maior mudança de velocidade que uma batida com adversário causa num passo (m/s)
+@export var tranco_rival := 5.0
 @export var tempo_renascer := 3.0
 ## Lobby (mundo neon): segundos livres depois de sair da esfera; passado isso o casco
 ## entra em sobrecarga e perde a vida aos poucos, explodindo em `tempo_sobrecarga`.
@@ -242,8 +251,6 @@ var _consulta_roda := PhysicsShapeQueryParameters3D.new()
 var _distancias: Array[float] = [0.0, 0.0, 0.0]
 var _ultimo_seguro: Transform3D
 var _capotado := 0.0
-var _ultimo_w := -10.0
-var _recarga := 0.0
 var _aviso := ""
 var _aviso_tempo := 0.0
 ## Segundos no lobby nesta vida (ver tempo_lobby) e a vida ao entrar na sobrecarga
@@ -252,9 +259,6 @@ var _vida_na_sobrecarga := VIDA_MAX
 var _fov := 75.0
 var _olhar := Vector2.ZERO
 var _olhar_repouso := Vector2.ZERO
-var _ultimo_gatilho := -10.0
-var _ultimo_rt := -10.0
-var _rt_apertado := false
 var _energia_visual := 0.0
 var _esperando_chao := false
 var _botao_preso := false
@@ -267,6 +271,8 @@ var _tremor := 0.0
 var _conforto_vr
 ## Pose rastreada da cabeça (no espaço da origem XR) na hora de recentralizar
 var _cabeca_ref := Vector3.ZERO
+## Velocidade no passo anterior (limita o tranco de uma batida com adversário)
+var _vel_anterior := Vector3.ZERO
 ## Última amostra da pista perto do carro (acelera a busca de _sob_a_pista)
 var _dica_pista := -1
 var _ultimo_dano := -10.0
@@ -514,11 +520,9 @@ func _input(event):
 		match event.keycode:
 			KEY_E: _alternar_nitro()
 			KEY_R: _desvirar()
-			KEY_W: _ultimo_w = _toque_duplo(_ultimo_w)
 	if not em_ritual and not em_transicao and event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_A: _alternar_nitro()
-			JOY_BUTTON_B: _dash()
 			JOY_BUTTON_Y: _desvirar()
 			JOY_BUTTON_LEFT_STICK, JOY_BUTTON_BACK:
 				if get_viewport().use_xr:
@@ -539,14 +543,6 @@ func _input(event):
 		_olhar.x = clamp(_olhar.x - event.relative.y * sensibilidade, -1.0, 0.8)
 		camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 
-## Segundo toque dentro da janela dispara o dash; devolve o novo "último toque"
-func _toque_duplo(ultimo: float) -> float:
-	var agora := Time.get_ticks_msec() / 1000.0
-	if agora - ultimo <= dash_janela:
-		_dash()
-		return -10.0
-	return agora
-
 func _botao_esquerdo(nome: String):
 	if nome in ["primary_click", "menu_button"]:
 		recentralizar()
@@ -561,8 +557,6 @@ func _botao_direito(nome: String):
 		return
 	match nome:
 		"ax_button": _alternar_nitro()
-		"by_button": _dash()
-		"trigger_click": _ultimo_gatilho = _toque_duplo(_ultimo_gatilho)
 
 func _physics_process(delta):
 	if em_ritual or em_transicao:
@@ -606,12 +600,6 @@ func _physics_process(delta):
 		# No Godot o eixo Y dos analógicos é positivo para baixo
 		sobe -= _analogico(eixo_controle(JOY_AXIS_RIGHT_Y))
 		freio_mao = freio_mao or botao_controle(JOY_BUTTON_X)
-		# Dois toques no RT: dash (com histerese para não contar tremidas do gatilho)
-		if not _rt_apertado and rt > 0.6:
-			_rt_apertado = true
-			_ultimo_rt = _toque_duplo(_ultimo_rt)
-		elif _rt_apertado and rt < 0.3:
-			_rt_apertado = false
 		var olhar_x := _analogico(eixo_controle(JOY_AXIS_RIGHT_X))
 		if olhar_x != 0.0 and not get_viewport().use_xr:
 			_olhar.y = clamp(_olhar.y - olhar_x * giro_olhar_controle * delta, -1.9, 1.9)
@@ -630,7 +618,6 @@ func _physics_process(delta):
 	vira = clamp(vira, -1.0, 1.0)
 	sobe = clamp(sobe, -1.0, 1.0)
 	comando_acel = acel
-	_recarga = max(_recarga - delta, 0.0)
 	_aviso_tempo -= delta
 
 	# Na largada: lê os comandos (o motor ronca) e mantém o visor, mas não anda
@@ -677,7 +664,14 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 	# Nitro: a máxima sobe e um empurrão extra leva o carro até lá
 	var maxima := velocidade_max * (fator_nitro if nitro_ativo else 1.0)
 	var rapidez: float = clamp(abs(velocidade) / velocidade_max, 0.0, 1.0)
-	direcao = move_toward(direcao, vira * direcao_max * lerp(1.0, direcao_em_velocidade, rapidez), resposta_direcao * delta)
+	var pressao := 1.0 + minf(aero * velocidade * velocidade, aero_max)
+	# Esterço limitado pela aderência: com o volante todo o carro faz a curva mais
+	# fechada que o pneu segura (raio = v² / aceleração lateral), sem sair de lado. Sem
+	# isso, no dobro da velocidade o esterço pedia ~8 g e o carro deslizava "no sabão"
+	var lateral_max := atrito_pneu * GRAVIDADE * pressao * 0.85
+	var esterco_max: float = direcao_max * lerp(1.0, direcao_em_velocidade, rapidez)
+	esterco_max = minf(esterco_max, atan(ENTRE_EIXOS * lateral_max / maxf(velocidade * velocidade, 0.01)))
+	direcao = move_toward(direcao, vira * esterco_max, resposta_direcao * delta)
 
 	var espaco_fisico := get_world_3d().direct_space_state
 	var alcance := curso_suspensao + raio_roda
@@ -733,10 +727,11 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 		var parar := absf(v_long) * parte / delta
 		if (acel > 0.0 and v_long < -0.3) or (acel < 0.0 and v_long > 0.3):
 			f_long = -signf(v_long) * min(frenagem * parte * absf(acel), parar)
-		elif traseira and acel > 0.0 and v_long < maxima:
-			f_long = aceleracao * mass * acel
-		elif traseira and acel < 0.0 and v_long > -velocidade_re:
-			f_long = aceleracao * forca_re * mass * acel
+		elif acel > 0.0 and v_long < maxima:
+			var giro := clampf(v_long / velocidade_max, 0.0, 1.0)
+			f_long = aceleracao * (1.0 - queda_motor * giro * giro) * parte * acel
+		elif acel < 0.0 and v_long > -velocidade_re:
+			f_long = aceleracao * forca_re * parte * acel
 		elif acel == 0.0:
 			f_long = -signf(v_long) * min(arrasto * parte, parar)
 		if freio_mao and traseira:
@@ -744,7 +739,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 
 		# Freio de mão solta a traseira para derrapar; no drift ela solta mas segue tracionando
 		var grip := aderencia_lateral
-		var limite := atrito_pneu * carga
+		var limite := atrito_pneu * carga * pressao
 		var lateral := -v_lat * parte * grip
 		var atrito: Vector2
 		if traseira and (freio_mao or drift):
@@ -926,9 +921,12 @@ func _desligar_nitro():
 		pista.terminar(global_transform * TRASEIRA, global_basis.y)
 	nitro_mudou.emit(false)
 
-## Gasta o tanque enquanto ligado e estica a linha de luz da traseira
+## Gasta o tanque enquanto ligado e estica a linha de luz da traseira; desligado, o
+## tanque enche sozinho devagar (carga passiva)
 func _gastar_nitro(delta: float):
 	if not nitro_ativo:
+		if not segurado:
+			nitro = minf(nitro + carga_passiva_nitro * delta, nitro_max)
 		return
 	nitro = maxf(nitro - consumo_nitro * delta, 0.0)
 	if pista:
@@ -957,8 +955,10 @@ func impulsionar(direcao: Vector3, alvo: float, lancar := false):
 	if atual < 2.0:
 		return
 	if lancar:
+		# Sai com a velocidade que trouxe (rampa não freia), entre `alvo` e o dobro dele:
+		# com nitro o salto não vira um voo alto, que enjoa na VR
 		var lado := direcao.cross(Vector3.UP).normalized()
-		linear_velocity = direcao * alvo + lado * linear_velocity.dot(lado)
+		linear_velocity = direcao * clampf(atual, alvo, alvo * 2.0) + lado * linear_velocity.dot(lado)
 		angular_velocity = Vector3.ZERO
 		_avisar("SALTO!", 1.2)
 		_vibrar_ambas(0.8, 0.2)
@@ -971,7 +971,7 @@ func impulsionar(direcao: Vector3, alvo: float, lancar := false):
 	tw.tween_property(camera, "fov", _fov, 0.8).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	_avisar("TURBO!", 0.8)
 	_vibrar_ambas(0.6, 0.25)
-	dash_usado.emit()
+	turbo_placa.emit()
 
 ## Puxão de portal (aceleração em m/s², somada de todos os portais por perto)
 func puxar(aceleracao: Vector3):
@@ -1060,29 +1060,22 @@ func _vibrar_ambas(forca: float, tempo: float):
 
 # --- Habilidades e utilidades -----------------------------------------------
 
-func _dash():
-	if _recarga > 0.0 or explodindo or em_ritual or em_transicao or segurado:
-		return
-	_recarga = dash_recarga
-	if not _trilho.is_empty():
-		velocidade += dash_impulso
-	else:
-		apply_central_impulse(-global_basis.z * dash_impulso * mass)
-	var tw := create_tween()
-	tw.tween_property(camera, "fov", _fov + 18.0, 0.08)
-	tw.tween_property(camera, "fov", _fov, 0.5).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
-	_avisar("DASH!", 0.6)
-	_vibrar_ambas(0.6, 0.15)
-	dash_usado.emit()
-
 # --- Dano e explosão -----------------------------------------------------------
 
-## Impulso de cada contato do casco dividido pela massa = variação brusca de velocidade
+## Impulso de cada contato do casco dividido pela massa = variação brusca de velocidade.
+## Contato com adversário: o carro dele é animável (massa infinita para a física), então
+## qualquer encostada no casco arredondado jogava o carro do jogador para o alto. A
+## batida passa a ter peso: no máximo `tranco_rival` m/s de mudança, quase nada para
+## cima e sem tombo forte
 func _integrate_forces(state: PhysicsDirectBodyState3D):
 	raspagem = 0.0
 	if em_ritual or em_transicao:
+		_vel_anterior = state.linear_velocity
 		return
+	var com_rival := false
 	for i in state.get_contact_count():
+		if state.get_contact_collider_object(i) is CarroRival:
+			com_rival = true
 		var forca := state.get_contact_impulse(i).length() / mass
 		if forca > _choque:
 			_choque = forca
@@ -1097,6 +1090,17 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 		if tangencial > raspagem:
 			raspagem = tangencial
 			_ponto_raspagem = state.get_contact_collider_position(i)
+	if com_rival:
+		var v := _vel_anterior + (state.linear_velocity - _vel_anterior).limit_length(tranco_rival)
+		# Um adversário nunca levanta o carro: sobe no máximo o que já subia (ou 1 m/s),
+		# mesmo encostado vários passos seguidos
+		v.y = minf(v.y, maxf(_vel_anterior.y, 1.0))
+		state.linear_velocity = v
+		var cima := state.transform.basis.y
+		var w := state.angular_velocity
+		var giro := w.project(cima)
+		state.angular_velocity = giro + (w - giro).limit_length(1.0)
+	_vel_anterior = state.linear_velocity
 
 func _atualizar_atrito():
 	var ativo := raspagem > 1.8 and not explodindo and not em_ritual and not em_transicao
@@ -1285,6 +1289,7 @@ func _reposicionar(t: Transform3D):
 	global_transform = Transform3D(t.basis, t.origin + Vector3.UP * 0.3)
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+	_vel_anterior = Vector3.ZERO
 	_capotado = 0.0
 	# Depois de um salto de lugar a dica não vale (no Deserto ela poderia apontar o
 	# viaduto acima da pista de baixo)
@@ -1366,10 +1371,9 @@ func _atualizar_painel():
 		estado = "PORTAL"
 	if explodindo:
 		estado = "DESTRUÍDO"
-	var linha_dash := "DASH OK" if _recarga <= 0.0 else "DASH %.1fs" % _recarga
 	# FPS real (média do último segundo): no Quest deve ficar colado na taxa da tela
-	linha_dash += "  %3d FPS" % roundi(Engine.get_frames_per_second())
-	var direita := "ALT %.1f m\n%s\n%s" % [global_position.y - _altura_terreno(global_position), estado, linha_dash]
+	var linha_fps := "%3d FPS" % roundi(Engine.get_frames_per_second())
+	var direita := "ALT %.1f m\n%s\n%s" % [global_position.y - _altura_terreno(global_position), estado, linha_fps]
 	var cor_direita := HUD_ALERTA if _aviso_tempo > 0.0 or explodindo or ameaca != "" else (HUD_ENERGIA if nitro_ativo else HUD_AZUL)
 	# Na câmera livre de debug o visor não faz sentido
 	capacete.visible = _ativo() and not em_transicao
@@ -1406,9 +1410,6 @@ func preparar_vida(t: Transform3D):
 	_choque = 0.0
 	_ultimo_dano = -10.0
 	_ultimo_efeito_impacto = -10.0
-	_ultimo_w = -10.0
-	_ultimo_gatilho = -10.0
-	_recarga = 0.0
 	_energia_visual = 0.0
 	_aviso_tempo = 0.0
 	tempo_no_lobby = 0.0

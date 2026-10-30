@@ -33,7 +33,6 @@ func _testar():
 	cena.ritual.estado = cena.ritual.Estado.PARTIDA
 	cena.ritual._painel.hide()
 	carro.em_ritual = false
-	carro.dash_janela = 0.0
 
 	await mundos.entrar_mapa(portais._portais[portais.VERDE], "Vale das Turbinas")
 	var vale: ValeTurbinas = mundos.turbinas

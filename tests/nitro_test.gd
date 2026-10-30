@@ -1,5 +1,5 @@
 extends SceneTree
-## Nitro e manejo: sem voo (o nitro fica no chão e deixa 2x mais rápido), turbos da
+## Nitro e manejo: sem voo (o nitro fica no chão e deixa 3,5x mais rápido), sem dash, carga passiva, turbos da
 ## pista enchendo o tanque, a traseira segurando ao acelerar na curva, bater na
 ## traseira de um adversário sem levar dano, limites de dano mais altos, controle no
 ## ar estilo GTA e o ronco do nitro no carro de outro jogador.
@@ -81,12 +81,23 @@ func _testar():
 		if not turbo.visible:
 			break
 	assert(not turbo.visible, "Passou pelo turbo e ele não sumiu")
-	assert(is_equal_approx(carro.nitro, carro.nitro_por_turbo), "Nitro: %.2f" % carro.nitro)
+	# O turbo enche 2,5 barras (mais o pouco da carga passiva nesses passos)
+	assert(carro.nitro >= carro.nitro_por_turbo and carro.nitro < carro.nitro_por_turbo + 0.3, "Nitro: %.2f" % carro.nitro)
 
-	# Sem nitro, a máxima do chão; com nitro, 2x e no chão o tempo todo
-	await na_pista(mapa, carro, pista.s_largada + 300.0)
-	var normal := await arrancar(carro, 9.0)
-	await na_pista(mapa, carro, pista.s_largada + 300.0)
+	# Sem nitro, a máxima do chão (24 m/s, chega rápido: tração nas três rodas); com
+	# nitro, 3,5x e no chão o tempo todo. Na reta do começo (antes das ondas da pista):
+	# mede o pico e desliga antes das curvas
+	await na_pista(mapa, carro, pista.s_largada + 5.0)
+	var chegou := -1
+	var normal := 0.0
+	tecla(KEY_W, true)
+	for i in 60 * 7:
+		await physics_frame
+		normal = maxf(normal, carro.linear_velocity.length())
+		if chegou < 0 and carro.linear_velocity.length() > 22.0:
+			chegou = i
+	print("0 a 22 m/s em %.1f s" % (chegou / 60.0))
+	assert(chegou > 0, "Não chegou perto da máxima")
 	carro.nitro = float(carro.nitro_max)
 	tecla(KEY_E, true)
 	tecla(KEY_E, false)
@@ -94,20 +105,41 @@ func _testar():
 	assert(not carro.freeze, "O nitro não deixa o carro cinemático")
 	var no_chao := true
 	var maior := 0.0
-	tecla(KEY_W, true)
-	for i in 60 * 6:
+	for i in 60 * 4:
 		await physics_frame
 		maior = maxf(maior, carro.linear_velocity.length())
-		if i > 30 and carro.nitro_ativo and carro.rodas_no_chao < 2:
+		if i > 30 and carro.rodas_no_chao < 2:
 			no_chao = false
+		if maior > normal * 3.4:
+			break
 	tecla(KEY_W, false)
+	tecla(KEY_E, true)
+	tecla(KEY_E, false)
+	assert(not carro.nitro_ativo, "E desliga o nitro")
 	print("Máxima: %.1f m/s sem nitro, %.1f m/s com nitro" % [normal, maior])
-	assert(normal < carro.velocidade_max + 0.6)
-	assert(maior > normal * 1.9 and maior < normal * 2.1, "Nitro deve dar ~2x")
-	assert(no_chao, "Com nitro o carro segue no chão")
+	# (o 3,5x exato é medido em velocidade_test.gd, num piso plano sem fim; aqui a reta
+	# do começo da pista é curta)
+	assert(normal > carro.velocidade_max - 2.0 and normal < carro.velocidade_max + 0.6, "Máxima do chão: %.1f" % normal)
+	assert(maior > normal * 1.8, "O nitro tem que passar bem da máxima do chão")
+	# (no chão o tempo todo: velocidade_test.gd; aqui, reto e sem esterçar, o carro
+	# pode chegar até a primeira rampa de salto)
 	assert(not carro.pista._trechos.is_empty(), "Linha de luz da traseira")
-	# O tanque acaba e o nitro desliga sozinho
-	assert(not carro.nitro_ativo and carro.nitro == 0.0)
+	carro.linear_velocity = Vector3.ZERO
+	# O tanque acaba e o nitro desliga sozinho; desligado, volta a encher sozinho
+	await na_pista(mapa, carro, pista.s_largada + 300.0)
+	carro.nitro = 0.3
+	tecla(KEY_E, true)
+	tecla(KEY_E, false)
+	assert(carro.nitro_ativo)
+	for i in 30:
+		await physics_frame
+	assert(not carro.nitro_ativo and carro.nitro < 0.05, "O nitro desliga com o tanque vazio")
+	var antes: float = carro.nitro
+	for i in 60:
+		await physics_frame
+	assert(carro.nitro > antes + carro.carga_passiva_nitro * 0.8, "Carga passiva do nitro")
+	# Sem dash: não existe mais
+	assert(not "dash_impulso" in carro and not carro.has_method("_dash"))
 
 	# Curva acelerando: a traseira segura (lateral primeiro no pneu)
 	# (começa à direita: o círculo de esterço todo cabe na pista)
@@ -131,16 +163,16 @@ func _testar():
 	await na_pista(mapa, carro, pista.s_largada + 800.0)
 	carro.vida = carro.VIDA_MAX
 	carro._ultimo_dano = -10.0
-	carro._registrar_choque(5.0, carro.global_position)
-	assert(carro.vida == carro.VIDA_MAX)
 	carro._registrar_choque(8.0, carro.global_position)
+	assert(carro.vida == carro.VIDA_MAX)
+	carro._registrar_choque(12.0, carro.global_position)
 	assert(carro.vida == carro.VIDA_MAX - 1)
 	carro._ultimo_dano = -10.0
 	carro._registrar_choque(carro.velocidade_max, carro.global_position)
 	assert(carro.vida == carro.VIDA_MAX - 3 and not carro.explodindo)
 	# Ataque: bater com o bico num adversário não tira vida
 	carro._ultimo_dano = -10.0
-	carro._registrar_choque(12.0, carro.global_position, 0.0, &"ataque")
+	carro._registrar_choque(20.0, carro.global_position, 0.0, &"ataque")
 	assert(carro.vida == carro.VIDA_MAX - 3, "Bater na traseira do rival não é dano")
 
 	# Na física: um adversário parado à frente, o jogador acerta a traseira dele
@@ -148,7 +180,7 @@ func _testar():
 	rival.ativar(true)
 	var s_rival := pista.s_largada + 1000.0
 	rival.estacionar(s_rival, 0.0)
-	await na_pista(mapa, carro, s_rival - 25.0)
+	await na_pista(mapa, carro, s_rival - 40.0)
 	carro.vida = carro.VIDA_MAX
 	carro._ultimo_dano = -10.0
 	var materiais := []
@@ -164,6 +196,32 @@ func _testar():
 	tecla(KEY_W, false)
 	assert(materiais.has(&"rival"), "Não encostou no adversário")
 	assert(carro.vida == carro.VIDA_MAX, "Levou dano batendo na traseira: vida %d" % carro.vida)
+
+	# Adversário a 34 m/s acertando a traseira do jogador parado: empurra, mas não
+	# joga o carro para o alto (o carro dele é animável, massa "infinita")
+	var batedor: CarroRival = mapa.rivais[1]
+	batedor.ativar(true)
+	var s_jogador := pista.s_largada + 1300.0
+	await na_pista(mapa, carro, s_jogador)
+	batedor.estacionar(s_jogador - 30.0, 0.0)
+	var altura_max := 0.0
+	var subida_max := 0.0
+	var empurrado := 0.0
+	for i in 60 * 2:
+		batedor.v_alvo = 34.0
+		batedor.v = 34.0
+		batedor.d_alvo = 0.0
+		batedor.mover(1.0 / 60.0)
+		await physics_frame
+		var local: Vector3 = pista.to_local(carro.global_position)
+		var proj := pista.projetar(local)
+		altura_max = maxf(altura_max, (local - pista.quadro(proj.x).origin).dot(pista.quadro(proj.x).basis.y))
+		subida_max = maxf(subida_max, carro.linear_velocity.y)
+		empurrado = maxf(empurrado, carro.linear_velocity.length())
+	print("Batida de adversário a 34 m/s: carro subiu %.2f m (%.1f m/s para cima), empurrado a %.1f m/s" % [altura_max, subida_max, empurrado])
+	assert(empurrado > 3.0, "A batida tem que empurrar")
+	assert(altura_max < 0.8 and subida_max < 1.6, "A batida jogou o carro para o alto")
+	batedor.estacionar(pista.s_largada + 1600.0, 0.0)
 
 	# No ar, estilo GTA: analógico (aqui Shift = puxar) levanta o nariz e o carro gira de lado
 	await na_pista(mapa, carro, pista.s_largada + 1200.0)
@@ -219,7 +277,7 @@ func _testar():
 	assert(outro.find_children("*", "AudioStreamPlayer3D", false, false).size() == 1, "Ronco no carro do outro")
 	assert(carro.telemetria().has("nitros"))
 
-	print("NITRO_OK: sem voo, turbos na pista, 2x no chão, traseira firme, ataque sem dano, controle no ar e ronco em rede")
+	print("NITRO_OK: sem voo nem dash, turbos na pista e carga passiva, 3,5x no chão, traseira firme, ataque sem dano, controle no ar e ronco em rede")
 	await mundos.voltar()
 	cena.queue_free()
 	for i in 5:

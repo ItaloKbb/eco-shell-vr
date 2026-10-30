@@ -39,7 +39,7 @@ func _testar():
 		assert(mundos._transicao._destino == "Corrida / Deserto")
 		var vida: int = carro.vida
 		carro._registrar_choque(100.0, carro.global_position)
-		carro._dash()
+		carro._alternar_nitro()
 		assert(carro.vida == vida and carro.freeze)
 		while mundos._trocando:
 			await physics_frame

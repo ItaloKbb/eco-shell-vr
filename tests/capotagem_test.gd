@@ -70,9 +70,6 @@ func cenario(nome: String, anti: bool) -> Vector2:
 			caixa(Vector3(0.6, 0.9, 20.0), Transform3D(Basis(Vector3.UP, deg_to_rad(25.0)), Vector3(4.0, 0.45, -30.0)))
 			carro.linear_velocity = Vector3.FORWARD * 20.0
 			teclas = [KEY_W]
-	# Sem dash por toque duplo (no teste o relógio de parede anda mais rápido que o jogo)
-	carro._ultimo_w = -10.0
-	carro.dash_janela = 0.0
 	for k in teclas:
 		tecla(k, true)
 	var menor := 1.0
@@ -129,7 +126,25 @@ func _testar():
 			sem += 1
 		assert(ligada.x > CAPOTOU and ligada.y > 0.9, "%s: capotou com a assistência (%s)" % [nome, ligada])
 	print("Capotou em %d de 5 cenários sem a assistência, 0 com ela" % sem)
-	print("CAPOTAGEM_OK: meio-fio, rampa de um lado, esterço com nitro, pouso tombado e muro sem capotar")
+
+	# Subida de 25° saindo parado: com a tração nas três rodas o carro sobe sem patinar
+	for o in obstaculos:
+		o.queue_free()
+	obstaculos.clear()
+	var inclinacao := deg_to_rad(25.0)
+	caixa(Vector3(8.0, 1.0, 60.0), Transform3D(Basis(Vector3.RIGHT, inclinacao), Vector3(0.0, 30.0 * sin(inclinacao) - 0.5, -30.0 * cos(inclinacao) - 4.0)))
+	carro.teleportar(Transform3D(Basis(Vector3.RIGHT, inclinacao), Vector3(0.0, 0.2 + 8.0 * sin(inclinacao), -8.0 * cos(inclinacao) - 4.0)))
+	for i in 30:
+		await physics_frame
+	var y0: float = carro.global_position.y
+	tecla(KEY_W, true)
+	for i in 60 * 3:
+		await physics_frame
+	tecla(KEY_W, false)
+	var subiu: float = carro.global_position.y - y0
+	print("Subida de 25°: subiu %.1f m em 3 s (%.1f m/s no fim)" % [subiu, carro.linear_velocity.length()])
+	assert(subiu > 6.0, "O carro ficou preso na subida: %.1f m" % subiu)
+	print("CAPOTAGEM_OK: meio-fio, rampa de um lado, esterço com nitro, pouso tombado e muro sem capotar; sobe 25° saindo parado")
 	cena.queue_free()
 	for i in 5:
 		await process_frame

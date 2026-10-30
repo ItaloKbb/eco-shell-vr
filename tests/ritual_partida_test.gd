@@ -18,7 +18,6 @@ func _testar():
 	var carro = mapa.carro
 	ritual.arquivo_perfil = "res://.godot/test_piloto.cfg"
 	assert(carro.em_ritual and carro.freeze)
-	carro._dash()
 	carro._alternar_nitro()
 	carro._registrar_choque(100.0, carro.global_position)
 	assert(carro.vida == carro.VIDA_MAX and not carro.nitro_ativo)

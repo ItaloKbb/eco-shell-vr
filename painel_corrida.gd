@@ -11,19 +11,19 @@ const CONTROLES := {
 	Dispositivo.VR: [
 		["GATILHO D", "ACELERAR"], ["GATILHO E", "FREIO / RÉ"],
 		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
-		["B", "DASH"], ["X", "FREIO DE MÃO"],
+		["2 GATILHOS", "DRIFT"], ["X", "FREIO DE MÃO"],
 		["Y", "DESVIRAR"], ["CLIQUE E", "RECENTRAR"],
 	],
 	Dispositivo.CONTROLE: [
 		["RT", "ACELERAR"], ["LT", "FREIO / RÉ"],
 		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
-		["B", "DASH / RT 2X"], ["X", "FREIO DE MÃO"],
+		["LT + RT", "DRIFT"], ["X", "FREIO DE MÃO"],
 		["Y", "DESVIRAR"], ["ANALÓG. D ↕", "NARIZ NO AR"],
 	],
 	Dispositivo.TECLADO: [
 		["W / ↑", "ACELERAR"], ["S / ↓", "FREIO / RÉ"],
 		["A D", "ESTERÇAR"], ["E", "NITRO"],
-		["W W", "DASH"], ["ESPAÇO", "FREIO DE MÃO"],
+		["W + S", "DRIFT"], ["ESPAÇO", "FREIO DE MÃO"],
 		["R", "DESVIRAR"], ["ESC", "SOLTAR MOUSE"],
 	],
 }

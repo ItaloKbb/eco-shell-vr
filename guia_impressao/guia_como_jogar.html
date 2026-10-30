@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Eco Shell VR · Guia de comandos</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #888; }
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #14182b;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .pagina {
+    width: 210mm; height: 297mm;
+    margin: 10mm auto; background: #fff;
+    position: relative; overflow: hidden;
+    page-break-after: always; break-after: page;
+  }
+  .pagina:last-child { page-break-after: auto; break-after: auto; }
+  @media print {
+    html, body { background: #fff; }
+    .pagina { margin: 0; }
+  }
+  svg text { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+
+  /* ============ PÁGINA 1 · SIMULADOR (pôster) ============ */
+  .p1 { background: #f4f8fc; }
+  .p1 .topo {
+    background: linear-gradient(120deg, #0a1638 0%, #12306b 70%, #0f4c8a 100%);
+    color: #fff; padding: 13mm 14mm 10mm; position: relative;
+  }
+  .p1 .topo .selo {
+    display: inline-block; background: #22d3ee; color: #0a1638;
+    font-weight: 800; font-size: 9.5pt; letter-spacing: .14em;
+    padding: 1.3mm 3.5mm; border-radius: 10mm; margin-bottom: 4mm;
+  }
+  .p1 .topo h1 { font-size: 34pt; line-height: 1; font-weight: 900; letter-spacing: -.01em; }
+  .p1 .topo h1 span { color: #22d3ee; }
+  .p1 .topo p { font-size: 13pt; margin-top: 3mm; opacity: .92; }
+  .p1 .topo .num {
+    position: absolute; right: 14mm; top: 12mm; font-size: 64pt; font-weight: 900;
+    color: rgba(255,255,255,.12); line-height: 1;
+  }
+  .p1 .palco { padding: 6mm 10mm 0; }
+  .p1 .palco svg { width: 100%; height: auto; display: block; }
+  .p1 .faixa {
+    margin: 6mm 12mm 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4mm;
+  }
+  .p1 .cartao {
+    border-radius: 4mm; padding: 4mm 5mm; color: #fff; display: flex; gap: 4mm; align-items: center;
+  }
+  .p1 .cartao b { display: block; font-size: 15pt; line-height: 1.1; }
+  .p1 .cartao small { font-size: 10.5pt; opacity: .95; }
+  .p1 .cartao .icone {
+    flex: 0 0 13mm; height: 13mm; border-radius: 50%; background: rgba(255,255,255,.2);
+    display: flex; align-items: center; justify-content: center; font-size: 18pt; font-weight: 900;
+  }
+  .p1 .drift { background: #7c3aed; }
+  .p1 .nitro { background: #ea580c; }
+  .p1 .passos { margin: 10mm 12mm 0; }
+  .p1 .passos h2 {
+    font-size: 12pt; letter-spacing: .14em; color: #12306b; margin-bottom: 3mm; font-weight: 800;
+  }
+  .p1 .passos ol { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .p1 .passos li {
+    background: #fff; border: .6mm solid #c9daf0; border-radius: 4mm; padding: 4mm 4mm 5mm;
+    font-size: 11.5pt; line-height: 1.35; position: relative; padding-top: 9mm;
+  }
+  .p1 .passos li::before {
+    content: attr(data-n); position: absolute; top: -4mm; left: 4mm;
+    width: 10mm; height: 10mm; border-radius: 50%; background: #22d3ee; color: #0a1638;
+    font-weight: 900; font-size: 14pt; display: flex; align-items: center; justify-content: center;
+    border: .8mm solid #fff;
+  }
+  .p1 .passos li b { color: #12306b; }
+  .p1 .rodape {
+    position: absolute; left: 0; right: 0; bottom: 0; background: #0a1638; color: #cfe8ff;
+    padding: 4mm 12mm; font-size: 10pt; display: flex; justify-content: space-between; align-items: center;
+  }
+  .p1 .rodape b { color: #fff; }
+
+  /* ============ PÁGINA 2 · META QUEST (diagrama numerado) ============ */
+  .p2 { background: #fff; }
+  .p2 .lateral {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 15mm;
+    background: #5b21b6; color: #fff; display: flex; align-items: center; justify-content: center;
+  }
+  .p2 .lateral span {
+    transform: rotate(-90deg); white-space: nowrap; font-weight: 900; letter-spacing: .3em; font-size: 12pt;
+  }
+  .p2 .conteudo { margin-left: 15mm; padding: 12mm 12mm 10mm 11mm; }
+  .p2 header { display: flex; align-items: flex-end; justify-content: space-between; border-bottom: 1mm solid #ede9fe; padding-bottom: 4mm; }
+  .p2 header h1 { font-size: 28pt; font-weight: 900; color: #2e1065; line-height: 1; }
+  .p2 header h1 small { display: block; font-size: 12pt; font-weight: 600; color: #7c3aed; letter-spacing: .08em; margin-bottom: 2mm; }
+  .p2 header .tag { background: #ede9fe; color: #5b21b6; font-weight: 800; padding: 2mm 4mm; border-radius: 2mm; font-size: 10pt; }
+  .p2 .controles { display: flex; justify-content: space-around; margin-top: 3mm; }
+  .p2 .controles figure { width: 41%; text-align: center; }
+  .p2 .controles svg { width: 100%; height: auto; }
+  .p2 .controles figcaption { font-weight: 800; color: #5b21b6; font-size: 11pt; letter-spacing: .1em; margin-top: 1mm; }
+  .p2 table { width: 100%; border-collapse: collapse; margin-top: 3mm; font-size: 11pt; }
+  .p2 td { padding: 1.6mm 2mm; border-bottom: .3mm solid #ede9fe; vertical-align: middle; }
+  .p2 td.n { width: 20mm; white-space: nowrap; font-weight: 900; color: #7c3aed; }
+  .p2 td.n span {
+    display: inline-flex; width: 7.5mm; height: 7.5mm; border-radius: 50%; background: #7c3aed; color: #fff;
+    font-weight: 900; align-items: center; justify-content: center; font-size: 11pt;
+  }
+  .p2 td.botao { font-weight: 700; width: 58mm; color: #2e1065; }
+  .p2 td.acao { font-weight: 800; font-size: 12pt; }
+  .p2 td.acao em { font-style: normal; font-weight: 500; color: #555; font-size: 10pt; display: block; }
+  .p2 .dicas { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin-top: 4mm; }
+  .p2 .dica { background: #f5f3ff; border-left: 1.5mm solid #7c3aed; padding: 3mm 4mm; font-size: 10pt; line-height: 1.35; border-radius: 0 2mm 2mm 0; }
+  .p2 .dica b { color: #5b21b6; display: block; font-size: 10.5pt; margin-bottom: .5mm; }
+
+  /* ============ PÁGINA 3 · NOTEBOOK (teclado + cartões) ============ */
+  .p3 { background: #fbfdf9; }
+  .p3 .cabeca { padding: 12mm 14mm 0; display: grid; grid-template-columns: auto 1fr; gap: 6mm; align-items: center; }
+  .p3 .cabeca .bloco {
+    width: 26mm; height: 26mm; border-radius: 5mm; background: #15803d; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 40pt; font-weight: 900;
+  }
+  .p3 .cabeca h1 { font-size: 30pt; font-weight: 900; color: #14532d; line-height: 1; }
+  .p3 .cabeca p { font-size: 12pt; color: #3f6212; margin-top: 2mm; }
+  .p3 .teclado { margin: 6mm 10mm 0; background: #e7efe4; border-radius: 5mm; padding: 4mm; }
+  .p3 .teclado svg { width: 100%; height: auto; display: block; }
+  .p3 .legenda { display: flex; gap: 5mm; justify-content: center; margin-top: 3mm; font-size: 9.5pt; font-weight: 700; }
+  .p3 .legenda i { display: inline-block; width: 4mm; height: 4mm; border-radius: 1mm; margin-right: 1.5mm; vertical-align: -0.6mm; }
+  .p3 .cartoes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3.5mm; margin: 5mm 12mm 0; }
+  .p3 .k {
+    background: #fff; border-radius: 3mm; padding: 3mm 3.5mm; border: .4mm solid #d9e6d4;
+    display: flex; flex-direction: column; gap: 1.5mm; border-top: 2mm solid var(--c);
+  }
+  .p3 .k .teclas { display: flex; gap: 1.5mm; flex-wrap: wrap; align-items: center; font-size: 9pt; color: #666; }
+  .p3 kbd {
+    font-family: inherit; font-weight: 800; font-size: 10.5pt; background: #fff; color: #14182b;
+    border: .5mm solid #9aa59a; border-bottom-width: 1.2mm; border-radius: 1.6mm; padding: .4mm 2.2mm; min-width: 7mm; text-align: center;
+  }
+  .p3 .k b { font-size: 12.5pt; color: #14532d; }
+  .p3 .k small { font-size: 9pt; color: #555; line-height: 1.3; }
+  .p3 .roteiro { margin: 6mm 12mm 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+  .p3 .roteiro div {
+    background: #15803d; color: #fff; padding: 3.5mm 5mm 3.5mm 7mm; font-size: 9.8pt; line-height: 1.3;
+    clip-path: polygon(0 0, calc(100% - 5mm) 0, 100% 50%, calc(100% - 5mm) 100%, 0 100%, 5mm 50%);
+  }
+  .p3 .roteiro div:first-child { clip-path: polygon(0 0, calc(100% - 5mm) 0, 100% 50%, calc(100% - 5mm) 100%, 0 100%); padding-left: 5mm; }
+  .p3 .roteiro div:nth-child(2) { background: #16a34a; }
+  .p3 .roteiro div:nth-child(3) { background: #22a856; }
+  .p3 .roteiro div:nth-child(4) { background: #2fb864; }
+  .p3 .roteiro b { display: block; font-size: 10.5pt; }
+  .p3 .rodape3 { position: absolute; bottom: 9mm; left: 12mm; right: 12mm; font-size: 9.5pt; color: #3f6212; text-align: center; border-top: .4mm solid #cfe0c8; padding-top: 3mm; }
+</style>
+</head>
+<body>
+
+<!-- =====================================================================
+     PÁGINA 1 · SIMULADOR ECO SHELL
+     ===================================================================== -->
+<section class="pagina p1">
+  <div class="topo">
+    <div class="num">01</div>
+    <div class="selo">ECO SHELL VR · SENAI</div>
+    <h1>Simulador <span>Eco Shell</span></h1>
+    <p>Óculos no rosto, mãos no volante. Veja o que cada parte faz:</p>
+  </div>
+
+  <div class="palco">
+    <svg viewBox="0 0 800 470" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="p1seta" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0ea5e9"/>
+        </marker>
+        <linearGradient id="p1aro" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#3b4256"/><stop offset="1" stop-color="#1c2030"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Setas de girar -->
+      <path d="M250,92 A190,150 0 0 1 550,92" fill="none" stroke="#0ea5e9" stroke-width="9" stroke-linecap="round"
+            marker-start="url(#p1seta)" marker-end="url(#p1seta)"/>
+      <rect x="318" y="18" width="164" height="40" rx="20" fill="#0ea5e9"/>
+      <text x="400" y="45" text-anchor="middle" font-size="21" font-weight="800" fill="#fff">GIRE = VIRAR</text>
+
+      <!-- Volante (aro + barras) -->
+      <path d="M190,175 Q190,120 260,118 L540,118 Q610,120 610,175 L620,300 Q622,345 580,350 L520,352
+               L500,300 L300,300 L280,352 L220,350 Q178,345 180,300 Z"
+            fill="url(#p1aro)" stroke="#0b0e18" stroke-width="3"/>
+      <path d="M232,170 L568,170 L572,290 L512,292 L496,262 L304,262 L288,292 L228,290 Z" fill="#f4f8fc"/>
+
+      <!-- Tijolo EV3 no centro -->
+      <rect x="330" y="150" width="140" height="160" rx="14" fill="#e9ecef" stroke="#9aa1aa" stroke-width="3"/>
+      <rect x="350" y="166" width="100" height="58" rx="5" fill="#2d3a2f" stroke="#7d8790" stroke-width="2"/>
+      <rect x="358" y="174" width="84" height="42" rx="2" fill="#93a48c"/>
+      <polygon points="400,236 432,252 432,274 400,290 368,274 368,252" fill="#c8ced4" stroke="#8b939c" stroke-width="2"/>
+      <rect x="388" y="252" width="24" height="22" rx="3" fill="#59636e"/>
+      <text x="400" y="304" text-anchor="middle" font-size="12" font-weight="800" fill="#7d8790">EV3</text>
+
+      <!-- Sensor de toque esquerdo (freio) -->
+      <g transform="translate(150,190)">
+        <rect x="0" y="0" width="74" height="92" rx="10" fill="#cfd4da" stroke="#8b939c" stroke-width="3"/>
+        <rect x="0" y="58" width="74" height="34" rx="6" fill="#eef0f2" stroke="#8b939c" stroke-width="2"/>
+        <g transform="translate(37,30)">
+          <rect x="-24" y="-7" width="48" height="14" rx="4" fill="#e11d48"/>
+          <rect x="-7" y="-24" width="14" height="48" rx="4" fill="#e11d48"/>
+        </g>
+      </g>
+      <!-- Sensor de toque direito (acelerador) -->
+      <g transform="translate(576,190)">
+        <rect x="0" y="0" width="74" height="92" rx="10" fill="#cfd4da" stroke="#8b939c" stroke-width="3"/>
+        <rect x="0" y="58" width="74" height="34" rx="6" fill="#eef0f2" stroke="#8b939c" stroke-width="2"/>
+        <g transform="translate(37,30)">
+          <rect x="-24" y="-7" width="48" height="14" rx="4" fill="#e11d48"/>
+          <rect x="-7" y="-24" width="14" height="48" rx="4" fill="#e11d48"/>
+        </g>
+      </g>
+
+      <!-- Chamada: FREIO -->
+      <line x1="150" y1="236" x2="96" y2="236" stroke="#dc2626" stroke-width="4"/>
+      <circle cx="150" cy="236" r="6" fill="#dc2626"/>
+      <rect x="6" y="196" width="92" height="96" rx="12" fill="#dc2626"/>
+      <text x="52" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">BOTÃO</text>
+      <text x="52" y="242" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">ESQUERDO</text>
+      <text x="52" y="266" text-anchor="middle" font-size="19" font-weight="900" fill="#fff">FREIO</text>
+      <text x="52" y="284" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">e ré</text>
+
+      <!-- Chamada: ACELERAR -->
+      <line x1="650" y1="236" x2="704" y2="236" stroke="#16a34a" stroke-width="4"/>
+      <circle cx="650" cy="236" r="6" fill="#16a34a"/>
+      <rect x="702" y="196" width="92" height="96" rx="12" fill="#16a34a"/>
+      <text x="748" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">BOTÃO</text>
+      <text x="748" y="242" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">DIREITO</text>
+      <text x="748" y="268" text-anchor="middle" font-size="14.5" font-weight="900" fill="#fff">ACELERAR</text>
+
+      <!-- Puxar / empurrar (vista de lado) -->
+      <g transform="translate(250,368)">
+        <rect x="0" y="0" width="300" height="96" rx="14" fill="#fff" stroke="#c9daf0" stroke-width="3"/>
+        <!-- piloto e volante de lado -->
+        <circle cx="52" cy="40" r="15" fill="#12306b"/>
+        <path d="M44,56 L60,56 L66,86 L38,86 Z" fill="#12306b"/>
+        <rect x="104" y="30" width="12" height="46" rx="5" fill="#2b3142"/>
+        <line x1="110" y1="76" x2="132" y2="88" stroke="#2b3142" stroke-width="6" stroke-linecap="round"/>
+        <path d="M76,48 L98,48" stroke="#0ea5e9" stroke-width="6" marker-end="url(#p1seta)"/>
+        <path d="M150,48 L128,48" stroke="#0ea5e9" stroke-width="6" marker-end="url(#p1seta)"/>
+        <text x="168" y="36" font-size="15" font-weight="900" fill="#12306b">PUXE / EMPURRE</text>
+        <text x="168" y="56" font-size="12.5" fill="#334155">inclina o nariz do</text>
+        <text x="168" y="72" font-size="12.5" fill="#334155">carro no ar (saltos)</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="faixa">
+    <div class="cartao drift">
+      <div class="icone">2×</div>
+      <div><b>Os dois botões juntos</b><small>= DRIFT (derrapagem controlada nas curvas)</small></div>
+    </div>
+    <div class="cartao nitro">
+      <div class="icone"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M13 2 L4 14 H11 L10 22 L20 9 H13 Z" fill="#fff"/></svg></div>
+      <div><b>NITRO</b><small>Estique o dedo e aperte o botão <b style="display:inline;font-size:inherit">NITRO</b> no painel do carro, dentro do jogo</small></div>
+    </div>
+  </div>
+
+  <div class="passos">
+    <h2>ANTES DE COMEÇAR</h2>
+    <ol>
+      <li data-n="1">Coloque o <b>óculos</b> e segure o volante <b>reto</b>, com as duas mãos. Não gire enquanto ele liga.</li>
+      <li data-n="2">Dentro da esfera, <b>segure ACELERAR</b> até ela encher de luz. Aí você nasce no Mundo Neon.</li>
+      <li data-n="3">Dirija até um <b>portal colorido</b> em até ~35 segundos. Ele leva à corrida de <b>3 voltas</b>.</li>
+    </ol>
+  </div>
+
+  <div class="rodape">
+    <span>Carro preso ou capotado? <b>Chame o monitor.</b></span>
+    <span>Enjoou? <b>Tire o óculos e descanse.</b></span>
+  </div>
+</section>
+
+<!-- =====================================================================
+     PÁGINA 2 · CONTROLES META QUEST
+     ===================================================================== -->
+<section class="pagina p2">
+  <div class="lateral"><span>META QUEST · CONTROLES</span></div>
+  <div class="conteudo">
+    <header>
+      <h1><small>COMO JOGAR COM OS</small>Controles do Meta Quest</h1>
+      <div class="tag">página 02</div>
+    </header>
+
+    <div class="controles">
+      <!-- Controle esquerdo -->
+      <figure>
+        <svg viewBox="0 0 320 330" xmlns="http://www.w3.org/2000/svg">
+          <!-- gatilho (atrás) -->
+          <path d="M150,160 Q120,200 132,250 L170,250 Q176,205 186,170 Z" fill="#c4b5fd" stroke="#5b21b6" stroke-width="3"/>
+          <!-- anel -->
+          <ellipse cx="200" cy="95" rx="92" ry="78" fill="none" stroke="#1f2133" stroke-width="22"/>
+          <!-- corpo -->
+          <path d="M108,120 Q112,70 168,62 L222,60 Q262,66 262,112 Q262,150 222,178 L196,300 Q186,322 160,318 Q134,312 138,286 L150,170 Q108,158 108,120 Z"
+                fill="#2a2d42" stroke="#0e0f19" stroke-width="3"/>
+          <ellipse cx="186" cy="118" rx="70" ry="50" fill="#33374f"/>
+          <!-- analógico -->
+          <circle cx="160" cy="112" r="26" fill="#14151f"/>
+          <circle cx="160" cy="112" r="17" fill="#4b4f6b" stroke="#6d728f" stroke-width="2"/>
+          <!-- X Y -->
+          <circle cx="214" cy="132" r="14" fill="#14151f"/><text x="214" y="138" text-anchor="middle" font-size="15" font-weight="800" fill="#e5e7eb">X</text>
+          <circle cx="232" cy="100" r="14" fill="#14151f"/><text x="232" y="106" text-anchor="middle" font-size="15" font-weight="800" fill="#e5e7eb">Y</text>
+          <!-- menu -->
+          <circle cx="184" cy="152" r="8" fill="#14151f"/>
+          <path d="M180,149 h8 M180,152 h8 M180,155 h8" stroke="#e5e7eb" stroke-width="1.6"/>
+          <!-- grip -->
+          <path d="M152,186 L146,270" stroke="#4b4f6b" stroke-width="10" stroke-linecap="round"/>
+
+          <!-- números -->
+          <g font-size="15" font-weight="900" fill="#fff" text-anchor="middle">
+            <line x1="134" y1="226" x2="60" y2="226" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="46" cy="226" r="15" fill="#7c3aed"/><text x="46" y="231">2</text>
+            <line x1="136" y1="104" x2="60" y2="70" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="46" cy="66" r="15" fill="#7c3aed"/><text x="46" y="71">3</text>
+            <line x1="226" y1="138" x2="290" y2="170" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="300" cy="176" r="15" fill="#7c3aed"/><text x="300" y="181">5</text>
+            <line x1="244" y1="92" x2="290" y2="60" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="300" cy="54" r="15" fill="#7c3aed"/><text x="300" y="59">6</text>
+            <line x1="190" y1="158" x2="270" y2="236" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="280" cy="246" r="15" fill="#7c3aed"/><text x="280" y="251">7</text>
+          </g>
+        </svg>
+        <figcaption>MÃO ESQUERDA</figcaption>
+      </figure>
+
+      <!-- Controle direito -->
+      <figure>
+        <svg viewBox="0 0 320 330" xmlns="http://www.w3.org/2000/svg">
+          <path d="M170,160 Q200,200 188,250 L150,250 Q144,205 134,170 Z" fill="#c4b5fd" stroke="#5b21b6" stroke-width="3"/>
+          <ellipse cx="120" cy="95" rx="92" ry="78" fill="none" stroke="#1f2133" stroke-width="22"/>
+          <path d="M212,120 Q208,70 152,62 L98,60 Q58,66 58,112 Q58,150 98,178 L124,300 Q134,322 160,318 Q186,312 182,286 L170,170 Q212,158 212,120 Z"
+                fill="#2a2d42" stroke="#0e0f19" stroke-width="3"/>
+          <ellipse cx="134" cy="118" rx="70" ry="50" fill="#33374f"/>
+          <circle cx="160" cy="112" r="26" fill="#14151f"/>
+          <circle cx="160" cy="112" r="17" fill="#4b4f6b" stroke="#6d728f" stroke-width="2"/>
+          <circle cx="106" cy="132" r="14" fill="#14151f"/><text x="106" y="138" text-anchor="middle" font-size="15" font-weight="800" fill="#e5e7eb">A</text>
+          <circle cx="88" cy="100" r="14" fill="#14151f"/><text x="88" y="106" text-anchor="middle" font-size="15" font-weight="800" fill="#e5e7eb">B</text>
+          <circle cx="136" cy="152" r="8" fill="#14151f"/>
+          <circle cx="136" cy="152" r="3.5" fill="none" stroke="#e5e7eb" stroke-width="1.5"/>
+          <path d="M168,186 L174,270" stroke="#4b4f6b" stroke-width="10" stroke-linecap="round"/>
+
+          <g font-size="15" font-weight="900" fill="#fff" text-anchor="middle">
+            <line x1="186" y1="226" x2="260" y2="226" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="274" cy="226" r="15" fill="#7c3aed"/><text x="274" y="231">1</text>
+            <line x1="184" y1="104" x2="260" y2="70" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="274" cy="66" r="15" fill="#7c3aed"/><text x="274" y="71">4</text>
+            <line x1="94" y1="138" x2="30" y2="170" stroke="#7c3aed" stroke-width="2.5"/>
+            <circle cx="20" cy="176" r="15" fill="#7c3aed"/><text x="20" y="181">8</text>
+          </g>
+        </svg>
+        <figcaption>MÃO DIREITA</figcaption>
+      </figure>
+    </div>
+
+    <table>
+      <tr><td class="n"><span>1</span></td><td class="botao">Gatilho direito (indicador)</td><td class="acao">ACELERAR<em>também enche a esfera para nascer</em></td></tr>
+      <tr><td class="n"><span>2</span></td><td class="botao">Gatilho esquerdo (indicador)</td><td class="acao">FREIO / RÉ</td></tr>
+      <tr><td class="n"><span>1</span>+<span>2</span></td><td class="botao">Os dois gatilhos juntos</td><td class="acao">DRIFT<em>derrapagem controlada nas curvas</em></td></tr>
+      <tr><td class="n"><span>3</span></td><td class="botao">Analógico esquerdo</td><td class="acao">VIRAR<em>apertar o analógico para baixo: recentraliza a visão</em></td></tr>
+      <tr><td class="n"><span>4</span></td><td class="botao">Analógico direito ↑ ↓</td><td class="acao">NARIZ NO AR<em>inclina o carro nos saltos · apertar: conforto VR</em></td></tr>
+      <tr><td class="n"><span>8</span></td><td class="botao">Botão A</td><td class="acao">NITRO<em>também confirma o nome e o “PRONTO”</em></td></tr>
+      <tr><td class="n"><span>5</span></td><td class="botao">Botão X</td><td class="acao">FREIO DE MÃO</td></tr>
+      <tr><td class="n"><span>6</span></td><td class="botao">Botão Y</td><td class="acao">DESVIRAR<em>quando o carro capotar</em></td></tr>
+      <tr><td class="n"><span>7</span></td><td class="botao">Botão ☰ (menu)</td><td class="acao">RECENTRALIZAR A VISÃO</td></tr>
+    </table>
+
+    <div class="dicas">
+      <div class="dica"><b>Na esfera, antes de nascer</b>Analógico esquerdo escolhe as letras do seu nome, <b style="display:inline">A</b> confirma. Depois segure o gatilho direito até a esfera encher.</div>
+      <div class="dica"><b>No Mundo Neon</b>Você tem cerca de 35 segundos para entrar num portal colorido. Cada cor leva a uma corrida diferente.</div>
+      <div class="dica"><b>Visão torta?</b>Olhe para a frente e aperte ☰ ou o analógico esquerdo para alinhar a visão com o carro.</div>
+      <div class="dica"><b>Ficou enjoado?</b>Aperte o analógico direito para mudar o conforto VR, ou tire o óculos e descanse.</div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     PÁGINA 3 · NOTEBOOK (TECLADO)
+     ===================================================================== -->
+<section class="pagina p3">
+  <div class="cabeca">
+    <div class="bloco">⌨</div>
+    <div>
+      <h1>Notebook · Teclado</h1>
+      <p>Jogando sem óculos: o teclado dirige, o mouse olha em volta.</p>
+    </div>
+  </div>
+
+  <div class="teclado">
+    <svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="p3sombra" x="-10%" y="-10%" width="120%" height="130%">
+          <feDropShadow dx="0" dy="2" stdDeviation="0" flood-color="#8a978a"/>
+        </filter>
+      </defs>
+      <g font-weight="800" text-anchor="middle" filter="url(#p3sombra)">
+        <!-- linha 1: Esc e números -->
+        <rect x="10" y="10" width="46" height="40" rx="7" fill="#64748b"/><text x="33" y="36" font-size="13" fill="#fff">ESC</text>
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="62" y="10" width="46" height="40" rx="7"/><rect x="114" y="10" width="46" height="40" rx="7"/>
+          <rect x="166" y="10" width="46" height="40" rx="7"/><rect x="218" y="10" width="46" height="40" rx="7"/>
+          <rect x="270" y="10" width="46" height="40" rx="7"/><rect x="322" y="10" width="46" height="40" rx="7"/>
+          <rect x="374" y="10" width="46" height="40" rx="7"/><rect x="426" y="10" width="46" height="40" rx="7"/>
+          <rect x="478" y="10" width="46" height="40" rx="7"/>
+        </g>
+        <rect x="530" y="10" width="92" height="40" rx="7" fill="#64748b"/><text x="576" y="36" font-size="12" fill="#fff">⌫ APAGAR</text>
+
+        <!-- linha 2: Q W E R -->
+        <rect x="10" y="56" width="70" height="40" rx="7" fill="#fff" stroke="#c3cec0"/>
+        <rect x="86" y="56" width="46" height="40" rx="7" fill="#fff" stroke="#c3cec0"/><text x="109" y="82" font-size="15" fill="#94a3b8">Q</text>
+        <rect x="138" y="56" width="46" height="40" rx="7" fill="#2563eb"/><text x="161" y="82" font-size="17" fill="#fff">W</text>
+        <rect x="190" y="56" width="46" height="40" rx="7" fill="#ea580c"/><text x="213" y="82" font-size="17" fill="#fff">E</text>
+        <rect x="242" y="56" width="46" height="40" rx="7" fill="#7c3aed"/><text x="265" y="82" font-size="17" fill="#fff">R</text>
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="294" y="56" width="46" height="40" rx="7"/><rect x="346" y="56" width="46" height="40" rx="7"/>
+          <rect x="398" y="56" width="46" height="40" rx="7"/><rect x="450" y="56" width="46" height="40" rx="7"/>
+          <rect x="502" y="56" width="46" height="40" rx="7"/>
+        </g>
+        <rect x="554" y="56" width="68" height="86" rx="7" fill="#64748b"/><text x="588" y="104" font-size="12" fill="#fff">ENTER</text>
+
+        <!-- linha 3: A S D -->
+        <rect x="10" y="102" width="82" height="40" rx="7" fill="#fff" stroke="#c3cec0"/>
+        <rect x="98" y="102" width="46" height="40" rx="7" fill="#2563eb"/><text x="121" y="128" font-size="17" fill="#fff">A</text>
+        <rect x="150" y="102" width="46" height="40" rx="7" fill="#2563eb"/><text x="173" y="128" font-size="17" fill="#fff">S</text>
+        <rect x="202" y="102" width="46" height="40" rx="7" fill="#2563eb"/><text x="225" y="128" font-size="17" fill="#fff">D</text>
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="254" y="102" width="46" height="40" rx="7"/><rect x="306" y="102" width="46" height="40" rx="7"/>
+          <rect x="358" y="102" width="46" height="40" rx="7"/><rect x="410" y="102" width="46" height="40" rx="7"/>
+          <rect x="462" y="102" width="46" height="40" rx="7"/><rect x="514" y="102" width="34" height="40" rx="7"/>
+        </g>
+
+        <!-- linha 4: Shift -->
+        <rect x="10" y="148" width="106" height="40" rx="7" fill="#0d9488"/><text x="63" y="174" font-size="13" fill="#fff">⇧ SHIFT</text>
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="122" y="148" width="46" height="40" rx="7"/><rect x="174" y="148" width="46" height="40" rx="7"/>
+          <rect x="226" y="148" width="46" height="40" rx="7"/><rect x="278" y="148" width="46" height="40" rx="7"/>
+          <rect x="330" y="148" width="46" height="40" rx="7"/><rect x="382" y="148" width="46" height="40" rx="7"/>
+          <rect x="434" y="148" width="46" height="40" rx="7"/><rect x="486" y="148" width="46" height="40" rx="7"/>
+          <rect x="538" y="148" width="84" height="40" rx="7"/>
+        </g>
+
+        <!-- linha 5: Espaço -->
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="10" y="194" width="56" height="40" rx="7"/><rect x="72" y="194" width="56" height="40" rx="7"/>
+          <rect x="134" y="194" width="56" height="40" rx="7"/>
+        </g>
+        <rect x="196" y="194" width="270" height="40" rx="7" fill="#dc2626"/><text x="331" y="220" font-size="14" fill="#fff">ESPAÇO</text>
+        <g fill="#fff" stroke="#c3cec0">
+          <rect x="472" y="194" width="56" height="40" rx="7"/><rect x="534" y="194" width="88" height="40" rx="7"/>
+        </g>
+
+        <!-- setas -->
+        <rect x="676" y="148" width="46" height="40" rx="7" fill="#2563eb"/><text x="699" y="175" font-size="18" fill="#fff">↑</text>
+        <rect x="624" y="194" width="46" height="40" rx="7" fill="#2563eb"/><text x="647" y="221" font-size="18" fill="#fff">←</text>
+        <rect x="676" y="194" width="46" height="40" rx="7" fill="#2563eb"/><text x="699" y="221" font-size="18" fill="#fff">↓</text>
+        <rect x="728" y="194" width="28" height="40" rx="7" fill="#2563eb"/><text x="742" y="221" font-size="16" fill="#fff">→</text>
+      </g>
+
+      <!-- mouse -->
+      <g transform="translate(660,20)">
+        <rect x="0" y="0" width="70" height="104" rx="35" fill="#fff" stroke="#64748b" stroke-width="3"/>
+        <line x1="35" y1="0" x2="35" y2="40" stroke="#64748b" stroke-width="3"/>
+        <line x1="0" y1="40" x2="70" y2="40" stroke="#64748b" stroke-width="3"/>
+        <text x="35" y="78" text-anchor="middle" font-size="11" font-weight="800" fill="#475569">OLHAR</text>
+      </g>
+
+      <!-- etiquetas sob o teclado -->
+      <g font-size="12.5" font-weight="800">
+        <text x="161" y="262" text-anchor="middle" fill="#1d4ed8">W A S D ou setas</text>
+        <text x="161" y="280" text-anchor="middle" fill="#1d4ed8">= DIRIGIR</text>
+        <text x="331" y="262" text-anchor="middle" fill="#b91c1c">ESPAÇO</text>
+        <text x="331" y="280" text-anchor="middle" fill="#b91c1c">= FREIO DE MÃO</text>
+        <text x="588" y="262" text-anchor="middle" fill="#334155">ENTER</text>
+        <text x="588" y="280" text-anchor="middle" fill="#334155">= CONFIRMAR</text>
+      </g>
+    </svg>
+    <div class="legenda">
+      <span><i style="background:#2563eb"></i>dirigir</span>
+      <span><i style="background:#ea580c"></i>nitro</span>
+      <span><i style="background:#dc2626"></i>freio de mão</span>
+      <span><i style="background:#7c3aed"></i>desvirar</span>
+      <span><i style="background:#0d9488"></i>no ar</span>
+      <span><i style="background:#64748b"></i>menus</span>
+    </div>
+  </div>
+
+  <div class="cartoes">
+    <div class="k" style="--c:#2563eb"><div class="teclas"><kbd>W</kbd>ou<kbd>↑</kbd></div><b>Acelerar</b><small>Segure na esfera para nascer</small></div>
+    <div class="k" style="--c:#2563eb"><div class="teclas"><kbd>S</kbd>ou<kbd>↓</kbd></div><b>Freio / ré</b><small>Segure parado para andar de ré</small></div>
+    <div class="k" style="--c:#2563eb"><div class="teclas"><kbd>A</kbd><kbd>D</kbd>ou<kbd>←</kbd><kbd>→</kbd></div><b>Virar</b><small>Esquerda e direita</small></div>
+    <div class="k" style="--c:#2563eb"><div class="teclas"><kbd>W</kbd>+<kbd>S</kbd></div><b>Drift</b><small>Os dois juntos: derrapagem controlada</small></div>
+    <div class="k" style="--c:#ea580c"><div class="teclas"><kbd>E</kbd></div><b>Nitro</b><small>Fica 2× mais rápido enquanto houver tanque</small></div>
+    <div class="k" style="--c:#dc2626"><div class="teclas"><kbd>ESPAÇO</kbd></div><b>Freio de mão</b><small>No ar: levanta o nariz do carro</small></div>
+    <div class="k" style="--c:#0d9488"><div class="teclas"><kbd>SHIFT</kbd></div><b>Nariz para baixo</b><small>Só no ar, para acertar o pouso</small></div>
+    <div class="k" style="--c:#7c3aed"><div class="teclas"><kbd>R</kbd></div><b>Desvirar</b><small>Quando o carro capotar</small></div>
+    <div class="k" style="--c:#64748b"><div class="teclas"><kbd>ESC</kbd>· clique</div><b>Soltar / prender o mouse</b><small>O mouse só gira a cabeça</small></div>
+  </div>
+
+  <div class="roteiro">
+    <div><b>1 · Nome</b>Digite e aperte ENTER</div>
+    <div><b>2 · Esfera</b>Segure W até encher</div>
+    <div><b>3 · Portal</b>Entre em ~35 s</div>
+    <div><b>4 · Corrida</b>ENTER = pronto · 3 voltas</div>
+  </div>
+
+  <div class="rodape3">Eco Shell VR · SENAI — dúvidas? Chame o monitor da estação.</div>
+</section>
+
+</body>
+</html>

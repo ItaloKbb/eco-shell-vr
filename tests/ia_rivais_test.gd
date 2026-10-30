@@ -104,9 +104,9 @@ func _testar():
 		assert(perfil.estilo == PerfilPiloto.Estilo.BRIGAO, "%s atacou sem ser brigão" % nome)
 	assert(fora == 0)
 	assert(sobreposicoes < 60, "Carros atravessando uns aos outros: %d" % sobreposicoes)
-	# 3 voltas de ~630 m com o ritmo 40% maior: cerca de 1,5 a 3 minutos
+	# 3 voltas de ~630 m, reta a ~24 m/s e curvas no ritmo de antes: ~1 a 2 minutos
 	var primeiro: float = tempo_chegada[trafego.chegada[0].nome()]
-	assert(primeiro > 85.0 and primeiro < 175.0, "Tempo do vencedor fora do esperado: %.1f" % primeiro)
+	assert(primeiro > 50.0 and primeiro < 130.0, "Tempo do vencedor fora do esperado: %.1f" % primeiro)
 	print("IA_OK: 10 adversários, ultrapassagens, ataques e %d turbos táticos" % total_turbo)
 	mapa.queue_free()
 	for i in 5:

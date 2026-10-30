@@ -98,11 +98,41 @@ func _testar():
 	print("Depois da rede de segurança: %.2f m acima do asfalto" % acima)
 	assert(acima > -0.3, "O carro ficou embaixo da pista")
 
+	# 4. Durante a corrida a barreira invisível segura o carro na pista, inclusive no
+	# lado aberto da curva; e quem aparece fora dela volta. Parada, a borda é livre
+	assert(not pista.tem_barreira(), "Sem corrida, a barreira fica desligada")
+	vale.corrida._mudar(Corrida.Fase.CORRENDO)
+	assert(pista.tem_barreira())
+	q = pista.quadro(s)
+	var lado_fora: Vector3 = (vale.global_basis * q.basis.x).normalized() * lado
+	carro.teleportar(vale.global_transform * Transform3D(q.basis, q.origin + q.basis.y * 0.3))
+	for i in 20:
+		await physics_frame
+	carro.linear_velocity = lado_fora * 15.0 - (vale.global_basis * q.basis.z) * 10.0
+	var mais_longe := 0.0
+	for i in 60 * 2:
+		await physics_frame
+		var p2 := pista.projetar(pista.to_local(carro.global_position))
+		mais_longe = maxf(mais_longe, absf(p2.y))
+	print("Jogado para o lado aberto correndo: chegou a %.1f m do centro (borda a %.1f m)" % [mais_longe, pista.largura * 0.5])
+	assert(mais_longe < pista.largura * 0.5 + 0.5, "Saiu da pista durante a corrida")
+	# Fora da pista (como se tivesse atravessado): a rede devolve
+	var fora_t: Vector3 = q.origin + q.basis.x * lado * (pista.largura * 0.5 + 8.0)
+	fora_t.y = vale.altura(fora_t.x + vale.global_position.x, fora_t.z + vale.global_position.z) - vale.global_position.y + 0.5
+	carro.global_transform = vale.global_transform * Transform3D(q.basis, fora_t)
+	carro.linear_velocity = Vector3.ZERO
+	for i in 30:
+		await physics_frame
+	var volta := pista.projetar(pista.to_local(carro.global_position))
+	assert(absf(volta.y) < pista.largura * 0.5, "Fora da pista correndo: tem que voltar para ela")
+	vale.corrida._mudar(Corrida.Fase.CHEGADA)
+	assert(not pista.tem_barreira(), "Depois da bandeirada a barreira some (portal no miolo)")
+
 	await mundos.voltar()
 	for i in 10:
 		await physics_frame
 
-	# 4. Deserto: andar embaixo do viaduto não teleporta para cima dele
+	# 5. Deserto: andar embaixo do viaduto não teleporta para cima dele
 	await mundos.entrar_mapa(portais._portais[portais.AMBAR], "Deserto")
 	var deserto: Deserto = mundos.deserto
 	deserto.corrida.abortar()

@@ -81,6 +81,12 @@ func _jogador():
 	var obstaculo := bloqueado(info.s, info.d, tempo)
 	if obstaculo == null:
 		return
+	if not obstaculo.solido:
+		# Mina: não segura o carro; o efeito (velocidade, nitro, explosão) é dela
+		batidas_jogador += 1
+		carro._avisar(obstaculo.aviso_batida, 1.2)
+		obstaculo.atingido(_ds(obstaculo, info.s), info.d, tempo, carro)
+		return
 	# Volta para fora do obstáculo pelo lado de onde veio; a cada passo que ainda
 	# estiver dentro, mas o dano conta uma vez por batida
 	var q := pista.global_transform * pista.quadro(info.s)
@@ -214,6 +220,14 @@ func colidir_rivais():
 	for rival in trafego.rivais:
 		var obstaculo := bloqueado(rival.s, rival.d, tempo)
 		if obstaculo == null:
+			continue
+		if not obstaculo.solido:
+			# Mina: passa por cima, perde metade da velocidade e o turbo
+			batidas_rivais += 1
+			_distraido[rival] = [obstaculo, false]
+			obstaculo.atingido(_ds(obstaculo, rival.s), rival.d, tempo, null)
+			rival.v *= 0.5
+			rival.cortar_turbo()
 			continue
 		# Recua um pouco para fora do que bateu (o resto é a espera e o replanejamento)
 		var ds := _ds(obstaculo, rival.s)

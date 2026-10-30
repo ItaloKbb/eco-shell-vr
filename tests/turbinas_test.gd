@@ -210,7 +210,12 @@ func _testar():
 	print("Turbinas: menor progresso %.0f m de %.0f, batidas dos rivais %d" % [menor_progresso, pista.comprimento, obstaculos.batidas_rivais])
 	# Esperar a vez nas comportas faz parte: só não pode ninguém travar
 	assert(menor_progresso > pista.comprimento, "Algum adversário travou nos obstáculos")
-	assert(obstaculos.batidas_rivais < 25, "Adversários batendo demais: %d" % obstaculos.batidas_rivais)
+	# Por km andado (no dobro da velocidade eles passam por mais obstáculos no mesmo tempo)
+	var km := 0.0
+	for rival in vale.rivais:
+		km += rival.progresso / 1000.0
+	print("Batidas por km dos rivais: %.2f" % (obstaculos.batidas_rivais / km))
+	assert(obstaculos.batidas_rivais / km < 2.5, "Adversários batendo demais: %d em %.1f km" % [obstaculos.batidas_rivais, km])
 	assert(obstaculos.batidas_rivais > 0, "Os distraídos deveriam bater de vez em quando")
 
 	await mundos.voltar()

@@ -3,7 +3,8 @@ extends ObstaculoPista
 ## Campo de minas terrestres pequenas espalhadas pela pista (I de Incrível). Cada mina
 ## é um disco baixo com uma luz vermelha piscando em cima e um halo no asfalto; as
 ## fileiras piscam em sequência, puxando o olho para a frente. Quem passa por cima
-## detona: explosão pequena, um pulinho, 1 barra de dano, e a mina some até se rearmar.
+## detona: não segura o carro (passa por cima), mas explode, corta o nitro e metade da
+## velocidade, dá um pulinho e tira 1 barra; a mina some até se rearmar.
 ## As minas ficam desencontradas entre as fileiras, mas sempre sobra pelo menos uma
 ## faixa reta livre (os adversários atravessam numa faixa só, ver ObstaculosPista).
 
@@ -18,6 +19,10 @@ const ATRASO_FILEIRA := 0.15
 ## Pulinho que a explosão dá no carro do jogador (m/s): baixo, por causa da VR
 const PULO := 2.5
 const COR_LUZ := Color(1.0, 0.06, 0.03)
+## Quanto da velocidade sobra depois de pisar numa mina
+const SOBRA_VELOCIDADE := 0.5
+## Força do choque para o dano (1 barra em car.gd, entre choque_minimo e choque_medio)
+const FORCA_DANO := 12.0
 
 ## (ds, d) de cada mina em volta do centro do campo (m)
 var minas: Array[Vector2] = []
@@ -32,6 +37,7 @@ func _init(minas_: Array[Vector2] = []):
 	minas = minas_
 	aviso = "CAMPO MINADO"
 	aviso_batida = "MINA!"
+	solido = false
 	var longe := 0.0
 	for m in minas:
 		longe = maxf(longe, absf(m.x))
@@ -147,4 +153,9 @@ func atingido(ds: float, d: float, t: float, carro: RigidBody3D):
 		add_child(explosao)
 		explosao.position = _corpos[k].position + Vector3.UP * 0.2
 	if carro:
-		carro.linear_velocity += Vector3.UP * PULO
+		# Perde metade da velocidade (só na horizontal) e o nitro, com o pulinho
+		var v := carro.linear_velocity
+		var subindo := Vector3.UP * v.y
+		carro.linear_velocity = (v - subindo) * SOBRA_VELOCIDADE + subindo + Vector3.UP * PULO
+		carro._desligar_nitro()
+		carro._registrar_choque(FORCA_DANO, carro.global_position + Vector3.UP * 0.3, 0.0, &"estrutura")

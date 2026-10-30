@@ -19,6 +19,9 @@ var alcance_s := 3.0
 var aviso := "OBSTÁCULO"
 ## Aviso no visor quando o piloto bate nele
 var aviso_batida := "BATEU!"
+## Sólido: quem bate é jogado para fora dele e fica parado um tempo. Falso (minas): o
+## carro passa por cima e o próprio obstáculo decide o efeito em atingido()
+var solido := true
 ## Cor do material "perigo" (listras, luzes)
 const COR_PERIGO := Color(1.0, 0.55, 0.05)
 

@@ -125,6 +125,10 @@ func abortar():
 func _mudar(nova: Fase):
 	fase = nova
 	_tempo_fase = 0.0
+	# Barreira invisível nas bordas do grid até a chegada: ninguém sai da pista correndo.
+	# Parada ou depois da bandeirada, livre para ir ao portal de volta
+	if pista:
+		pista.barreira_ligada(nova in [Fase.CONTROLES, Fase.CONTAGEM, Fase.CORRENDO])
 	fase_mudou.emit(nova)
 
 func _modo_vr() -> bool:

@@ -100,18 +100,33 @@ func _pedacos():
 		tw.tween_interval(4.0)
 		tw.tween_property(corpo, "scale", Vector3.ONE * 0.01, 0.8)
 
-## Fumaça contínua de carro avariado (saindo da traseira, rastro no mundo)
+## Fumaça contínua de carro avariado (saindo do motor, rastro no mundo). Bolos macios
+## que crescem, sobem rodando e se desmancham, ficando para trás do carro (herdam só um
+## pouco da velocidade dele). O carro controla a densidade (amount_ratio) e o tom
+## (process_material.color: clara com pouco dano, preta quase destruído)
 static func fumaca() -> GPUParticles3D:
-	var p := Explosao._particulas(28, 2.5, Vector2(0.25, 0.55), false)
+	var p := Explosao._particulas(64, 3.2, Vector2(0.35, 0.8), false)
 	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-30.0, -5.0, -30.0), Vector3(60.0, 25.0, 60.0))
 	var m: ParticleProcessMaterial = p.process_material
-	m.direction = Vector3(0, 1, 0.3)
-	m.spread = 25.0
-	m.initial_velocity_min = 0.3
-	m.initial_velocity_max = 0.9
-	m.gravity = Vector3(0, 0.8, 0)
-	m.scale_curve = Explosao._curva(0.4, 2.2)
-	m.color_ramp = Explosao._rampa([Color(0.3, 0.3, 0.32, 0.0), Color(0.18, 0.18, 0.2, 0.45), Color(0.1, 0.1, 0.11, 0.0)])
+	m.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	m.emission_sphere_radius = 0.15
+	m.direction = Vector3(0, 1, 0.4)
+	m.spread = 30.0
+	m.initial_velocity_min = 0.6
+	m.initial_velocity_max = 1.6
+	m.inherit_velocity_ratio = 0.15
+	m.gravity = Vector3(0, 0.9, 0)
+	m.damping_min = 0.6
+	m.damping_max = 1.2
+	m.angular_velocity_min = -40.0
+	m.angular_velocity_max = 40.0
+	m.turbulence_enabled = true
+	m.turbulence_noise_strength = 0.8
+	m.turbulence_noise_scale = 2.5
+	m.scale_curve = Explosao._curva(0.35, 3.0)
+	m.color_ramp = Explosao._rampa([Color(0.5, 0.48, 0.46, 0.0), Color(0.32, 0.31, 0.3, 0.6),
+		Color(0.2, 0.2, 0.21, 0.35), Color(0.12, 0.12, 0.13, 0.0)])
 	return p
 
 ## Faíscas: pontos quentes voando e caindo (na explosão, um estouro só)

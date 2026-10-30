@@ -74,11 +74,16 @@ var letreiro := "SENAI 326 · LARGADA"
 ## Pista em aterro, acima do terreno, precisa dela para não mostrar o vão por baixo
 var saia := 0.0
 var _lampadas: Array[StandardMaterial3D] = []
+## Barreira invisível das bordas (ver _barreira)
+var _corpo_barreira: StaticBody3D
+## Altura da barreira acima do asfalto (m): o carro não passa por cima nem saltando
+const ALTURA_BARREIRA := 5.0
 
 func _ready():
 	meia_util = largura * 0.5 - 0.9
 	_calcular()
 	_malha_pista()
+	_barreira()
 	_suportes()
 	_portoes()
 	_portico()
@@ -269,6 +274,41 @@ func _malha_pista():
 	forma.shape = concava
 	corpo.add_child(forma)
 	add_child(corpo)
+
+## Barreira invisível nas duas bordas, a pista inteira, até ALTURA_BARREIRA acima do
+## asfalto: durante a corrida ninguém sai da pista (nem pelo lado aberto das curvas do
+## Deserto e do Vale, nem por cima do muro numa batida ou com nitro). Só colisão, sem
+## malha; a Corrida liga na largada e desliga na chegada, para o piloto poder ir até o
+## portal de volta no miolo
+func _barreira():
+	var faces := PackedVector3Array()
+	var meia := largura * 0.5
+	var alto := Vector3.UP * ALTURA_BARREIRA
+	for i in (AMOSTRAS - 1 if aberta else AMOSTRAS):
+		var j := (i + 1) % AMOSTRAS
+		for lado_sinal: float in [-1.0, 1.0]:
+			var a := pontos[i] + lados[i] * meia * lado_sinal + Vector3.DOWN * 0.5
+			var b := pontos[j] + lados[j] * meia * lado_sinal + Vector3.DOWN * 0.5
+			faces.append_array([a, b, b + alto, a, b + alto, a + alto])
+	_corpo_barreira = StaticBody3D.new()
+	_corpo_barreira.name = "Barreira"
+	_corpo_barreira.collision_layer = 0
+	_corpo_barreira.collision_mask = 0
+	var forma := CollisionShape3D.new()
+	var concava := ConcavePolygonShape3D.new()
+	concava.backface_collision = true
+	concava.set_faces(faces)
+	forma.shape = concava
+	_corpo_barreira.add_child(forma)
+	add_child(_corpo_barreira)
+
+## Liga/desliga a barreira invisível das bordas (Corrida, conforme a fase)
+func barreira_ligada(sim: bool):
+	if _corpo_barreira:
+		_corpo_barreira.collision_layer = 1 if sim else 0
+
+func tem_barreira() -> bool:
+	return _corpo_barreira != null and _corpo_barreira.collision_layer != 0
 
 ## Pista aberta: mureta atravessada nas pontas (atrás do grid e no fim), para ninguém
 ## sair pelo fim do asfalto. Sem _mureta_no_fim() o fim fica livre (uma praça, por exemplo)

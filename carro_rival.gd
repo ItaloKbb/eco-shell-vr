@@ -294,6 +294,11 @@ func turbo(alvo: float):
 	v = maxf(v, alvo)
 	_turbo = 2.5
 
+## Mina: o turbo apaga na hora
+func cortar_turbo():
+	_tempo_turbo = 0.0
+	_trilhas_turbo.visible = false
+
 func pode_usar_turbo() -> bool:
 	return _tempo_turbo <= 0.0 and nitro >= perfil.reserva_turbo and not terminou and v > 5.0
 

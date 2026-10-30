@@ -193,7 +193,6 @@ const HUD_ALERTA := Color(1.0, 0.3, 0.25)
 @onready var capacete: CapaceteHUD = $Capacete
 @onready var casco: CascoEcoShell = $Casco
 @onready var pintura: ShaderMaterial = $Casco.material_casco
-@onready var horizonte: ShaderMaterial = $Painel/Horizonte.material_override
 @onready var asas: Array[Node3D] = [$AsaE, $AsaD]
 @onready var pontas_asas: Array[Node3D] = [$AsaE/Malha/Ponta, $AsaD/Malha/Ponta]
 @onready var tela_traseira: SubViewport = $TelaTraseira
@@ -271,6 +270,9 @@ var _tremor := 0.0
 var _conforto_vr
 ## Pose rastreada da cabeça (no espaço da origem XR) na hora de recentralizar
 var _cabeca_ref := Vector3.ZERO
+## Mostrador do painel do carro: velocidade e (vida, volta)
+var _mostrador_vel: Label3D
+var _mostrador_info: Label3D
 ## Velocidade no passo anterior (limita o tranco de uma batida com adversário)
 var _vel_anterior := Vector3.ZERO
 ## Última amostra da pista perto do carro (acelera a busca de _sob_a_pista)
@@ -333,6 +335,7 @@ func _ready():
 	_vestir_capacete.call_deferred()
 	_montar_conforto_vr.call_deferred()
 	_montar_camera_traseira()
+	_montar_painel_carro()
 
 func _montar_conforto_vr():
 	if not get_viewport().use_xr:
@@ -345,7 +348,7 @@ func _montar_conforto_vr():
 func _montar_camera_traseira():
 	$MiraTraseira.basis = Basis.looking_at(Vector3(0.0, -0.14, 1.0))
 	if OS.has_feature("android"):
-		tela_traseira.size = Vector2i(256, 144)
+		tela_traseira.size = Vector2i(320, 180)
 	($Painel/Retrovisor.material_override as ShaderMaterial).set_shader_parameter("tela", tela_traseira.get_texture())
 	_ambiente_traseira.call_deferred()
 
@@ -1142,8 +1145,9 @@ func _registrar_choque(forca: float, ponto: Vector3, folga := 0.0, material := &
 		_explodir()
 
 ## Rede de segurança dos mapas de corrida: o carro foi parar embaixo do asfalto (no vão
-## do aterro, atravessou a pista numa pancada). Volta para cima dela, no mesmo ponto e
-## na mesma faixa. Confere a cada 10 passos: projetar na pista custa
+## do aterro, atravessou a pista numa pancada) ou, durante a corrida, fora dela. Volta
+## para cima dela, no mesmo ponto e na faixa mais perto. Confere a cada 10 passos:
+## projetar na pista custa
 func _sob_a_pista() -> bool:
 	if not hex_world is MapaCorrida or not _trilho.is_empty() or Engine.get_physics_frames() % 10 != 0:
 		return false
@@ -1153,11 +1157,13 @@ func _sob_a_pista() -> bool:
 	var local := circuito.to_local(global_position)
 	var proj := circuito.projetar(local, _dica_pista)
 	_dica_pista = int(proj.z)
-	if absf(proj.y) > circuito.largura * 0.5:
-		return false
 	var q := circuito.quadro(proj.x)
-	# Quanto o carro está abaixo da superfície, medido na vertical da pista
-	if (q.origin - local).dot(q.basis.y) < 0.9:
+	var altura := (local - q.origin).dot(q.basis.y)
+	# Com a barreira ligada (correndo) não tem como estar fora: passou dela de lado ou por
+	# cima, volta para a pista. Fora isso, só embaixo do asfalto
+	var fora := circuito.tem_barreira() and (absf(proj.y) > circuito.largura * 0.5 + 1.5 \
+		or altura > PistaCorrida.ALTURA_BARREIRA + 1.0)
+	if not fora and (absf(proj.y) > circuito.largura * 0.5 or altura > -0.9):
 		return false
 	q.origin += q.basis.x * clampf(proj.y, -circuito.meia_util, circuito.meia_util) + q.basis.y * 0.3
 	var antes := linear_velocity.length()
@@ -1331,60 +1337,82 @@ func _animar(delta: float):
 	# Botão quase apagado com o tanque vazio
 	var desligado := 0.6 if nitro >= 0.5 else 0.12
 	material_botao.emission_energy_multiplier = lerpf(desligado, 2.0 + 1.5 * pulso, _energia_visual)
-	_fumaca.emitting = vida <= 2
+	# Fumaça do motor: aparece com 4 barras e vai ficando densa e preta até a última
+	var avaria := clampf((5.0 - vida) / 4.0, 0.0, 1.0)
+	_fumaca.emitting = vida <= 4 and not explodindo
+	_fumaca.amount_ratio = lerpf(0.3, 1.0, avaria)
+	(_fumaca.process_material as ParticleProcessMaterial).color = Color(1.0, 1.0, 1.0).lerp(Color(0.3, 0.28, 0.28), avaria)
 	_faiscas.emitting = vida <= 1
 	guidao.rotation.z = direcao * 2.0
 
+## Visor do capacete (posição na corrida e barra do nitro, mais avisos curtos) e o
+## mostrador do painel do carro (velocidade, vida e volta)
 func _atualizar_painel():
-	var e := global_basis.get_euler()
-	var incl := e.x
-	var gir := e.z
-	var rum := e.y
-	var linha_ader := "RODAS  %d/3" % rodas_no_chao
-	var barras := "█".repeat(vida) + "·".repeat(VIDA_MAX - vida)
-	var esquerda := "INCL %+4d°\nGIRO %+4d°\nRUMO  %03d°\n%s\nVIDA %s" % [
-		roundi(rad_to_deg(incl)), roundi(rad_to_deg(gir)), roundi(fposmod(-rad_to_deg(rum), 360.0)), linha_ader, barras]
-	if painel_corrida != "":
-		esquerda = painel_corrida + "\nVIDA " + barras
-	var cor_esquerda := HUD_ALERTA if vida <= 2 else HUD_AZUL
-	# Última barrinha: pisca
-	if vida == 1 and fmod(Time.get_ticks_msec() / 1000.0, 0.6) < 0.3:
-		cor_esquerda = HUD_ALERTA * 0.45
-
-	var km_h := 0 if explodindo else roundi((velocidade if not _trilho.is_empty() else linear_velocity.length()) * 3.6)
-	# Tanque do nitro: barras cheias, a que está acabando (▒ a partir de 1/3) e vazias
-	var cheias := floori(nitro)
-	var meia := 1 if nitro - cheias >= 0.34 and cheias < nitro_max else 0
-	var estado := "%s %s" % ["NITRO>" if nitro_ativo else "NITRO ", "█".repeat(cheias) + "▒".repeat(meia) + "·".repeat(nitro_max - cheias - meia)]
 	# Ameaça: lobby acabando (10 s antes da sobrecarga) e a sobrecarga em si
-	var ameaca := ""
+	var aviso := ""
 	var falta := segundos_para_explodir()
 	if falta <= tempo_sobrecarga:
-		ameaca = "SOBRECARGA %ds" % ceili(falta)
+		aviso = "SOBRECARGA %ds" % ceili(falta)
 	elif falta <= tempo_sobrecarga + 10.0:
-		ameaca = "PORTAL EM %ds" % ceili(falta - tempo_sobrecarga)
+		aviso = "PORTAL EM %ds" % ceili(falta - tempo_sobrecarga)
 	if _aviso_tempo > 0.0:
-		estado = _aviso
-	elif ameaca != "":
-		estado = ameaca
-	elif _puxao_hud > 0.8:
-		estado = "PORTAL"
+		aviso = _aviso
 	if explodindo:
-		estado = "DESTRUÍDO"
-	# FPS real (média do último segundo): no Quest deve ficar colado na taxa da tela
-	var linha_fps := "%3d FPS" % roundi(Engine.get_frames_per_second())
-	var direita := "ALT %.1f m\n%s\n%s" % [global_position.y - _altura_terreno(global_position), estado, linha_fps]
-	var cor_direita := HUD_ALERTA if _aviso_tempo > 0.0 or explodindo or ameaca != "" else (HUD_ENERGIA if nitro_ativo else HUD_AZUL)
+		aviso = "DESTRUÍDO"
+	var posicao := 0
+	var total := 0
+	var volta := ""
+	if hex_world is MapaCorrida and hex_world.corrida and hex_world.corrida.fase != Corrida.Fase.PARADA:
+		var corrida: Corrida = hex_world.corrida
+		posicao = corrida.posicao
+		total = corrida.total_carros()
+		var voltas: int = hex_world.pista.voltas
+		if voltas > 1 and corrida.fase == Corrida.Fase.CORRENDO:
+			volta = "VOLTA %d/%d" % [clampi(corrida.volta, 1, voltas), voltas]
 	# Na câmera livre de debug o visor não faz sentido
 	capacete.visible = _ativo() and not em_transicao
-	capacete.escrever(esquerda, cor_esquerda, km_h, direita, cor_direita)
+	capacete.mostrar(posicao, total, nitro / nitro_max, nitro_ativo, aviso, HUD_ALERTA if aviso != "" and aviso != "+NITRO" and aviso != "NITRO!" else HUD_ENERGIA)
 
-	# Horizonte artificial: de cabeça para baixo mostra a mesma atitude sem passar de ±90°
-	if cos(incl) < 0.0:
-		incl = wrapf(PI - incl, -PI, PI)
-		gir += PI
-	horizonte.set_shader_parameter("inclinacao", incl)
-	horizonte.set_shader_parameter("giro", gir)
+	var km_h := 0 if explodindo else roundi((velocidade if not _trilho.is_empty() else linear_velocity.length()) * 3.6)
+	var texto_vel := "%03d" % km_h
+	if _mostrador_vel.text != texto_vel:
+		_mostrador_vel.text = texto_vel
+	var barras := "█".repeat(vida) + "·".repeat(VIDA_MAX - vida)
+	var info := barras if volta == "" else "%s\n%s" % [volta, barras]
+	if _mostrador_info.text != info:
+		_mostrador_info.text = info
+	var cor_vida := HUD_ALERTA if vida <= 2 else HUD_AZUL
+	# Última barrinha: pisca
+	if vida == 1 and fmod(Time.get_ticks_msec() / 1000.0, 0.6) < 0.3:
+		cor_vida = HUD_ALERTA * 0.45
+	_mostrador_info.modulate = cor_vida
+	_mostrador_vel.modulate = HUD_ENERGIA if nitro_ativo else HUD_AZUL
+
+## Painel do carro: câmera de ré grande no meio (no lugar do horizonte artificial, que
+## era do voo), velocidade em números grandes à esquerda e o botão do nitro à direita
+func _montar_painel_carro():
+	$Painel/Horizonte.visible = false
+	var tela := QuadMesh.new()
+	tela.size = Vector2(0.15, 0.084)
+	$Painel/Retrovisor.mesh = tela
+	$Painel/Retrovisor.position = Vector3(0.0, 0.0, 0.016)
+	botao.position.x = 0.135
+	_mostrador_vel = _rotulo_painel(110, Vector3(-0.128, 0.016, 0.017))
+	var unidade := _rotulo_painel(30, Vector3(-0.128, -0.009, 0.017))
+	unidade.text = "KM/H"
+	_mostrador_info = _rotulo_painel(30, Vector3(-0.128, -0.029, 0.017))
+	_mostrador_info.line_spacing = -6.0
+
+func _rotulo_painel(tamanho: int, onde: Vector3) -> Label3D:
+	var rotulo := Label3D.new()
+	rotulo.font_size = tamanho
+	rotulo.pixel_size = 0.0003
+	rotulo.outline_size = 0
+	rotulo.modulate = HUD_AZUL
+	rotulo.double_sided = false
+	rotulo.position = onde
+	$Painel.add_child(rotulo)
+	return rotulo
 
 ## Preparação de cada vida, controlada pelo ritual de partida.
 func preparar_vida(t: Transform3D):

@@ -88,11 +88,28 @@ func _montar_circuito():
 	add_child(portal_volta)
 
 ## Antes de cada corrida. Solo (`grupo` vazio): os 10 adversários com IA, o jogador na
-## última vaga. Em grupo (Rede.sala): só os `rivais` da sala, nas primeiras vagas, com
-## IA só no anfitrião (nos outros Quests seguem a rede). Devolve a vaga deste jogador
+## última vaga. Em grupo (Rede.sala): só os `rivais` da sala, com IA só no anfitrião
+## (nos outros Quests seguem a rede). Devolve a vaga deste jogador
 func preparar_corrida(grupo: Dictionary) -> int:
-	var quantos := ADVERSARIOS if grupo.is_empty() else int(grupo.rivais)
+	trafego.limpar_remotos()
+	return distribuir_grid(grupo)
+
+## Jogadores nas vagas da sala e os adversários 1..`rivais` nas que sobram, da frente
+## para trás: o grid sempre fecha com ADVERSARIOS + 1 carros. Também quando a sala muda
+## antes da largada (entrou ou saiu alguém). Devolve a vaga deste jogador
+func distribuir_grid(grupo: Dictionary) -> int:
 	var remoto := not grupo.is_empty() and int(grupo.anfitriao) != multiplayer.get_unique_id()
+	var vaga := ADVERSARIOS
+	var dos_jogadores := []
+	for jogador in grupo.get("jogadores", []):
+		dos_jogadores.append(int(jogador.vaga))
+		if int(jogador.peer) == multiplayer.get_unique_id():
+			vaga = int(jogador.vaga)
+	var livres: Array[int] = []
+	for v in ADVERSARIOS + 1:
+		if v not in dos_jogadores and v != vaga and livres.size() < ADVERSARIOS:
+			livres.append(v)
+	var quantos := mini(ADVERSARIOS if grupo.is_empty() else int(grupo.rivais), livres.size())
 	var ativos: Array[CarroRival] = []
 	for i in rivais.size():
 		var rival := rivais[i]
@@ -102,13 +119,15 @@ func preparar_corrida(grupo: Dictionary) -> int:
 			ativos.append(rival)
 	corrida.rivais = ativos
 	trafego.remoto = remoto
-	trafego.limpar_remotos()
+	trafego.vagas_rivais = livres.slice(0, quantos)
 	trafego.definir_rivais(ativos)
-	var vaga := ADVERSARIOS
-	for jogador in grupo.get("jogadores", []):
-		if int(jogador.peer) == multiplayer.get_unique_id():
-			vaga = int(jogador.vaga)
 	return vaga
+
+## A sala mudou ainda no grid: refaz as vagas e estaciona a IA de novo
+func atualizar_grupo(grupo: Dictionary):
+	distribuir_grid(grupo)
+	corrida.grupo = grupo
+	trafego.preparar()
 
 ## Altura do chão no ponto do mundo
 func altura(_x: float, _z: float) -> float:

@@ -29,6 +29,8 @@ var obstaculos: ObstaculosPista
 var ativo := false
 ## Corrida em grupo num Quest que não é o anfitrião
 var remoto := false
+## Vaga do grid de cada adversário (mesma ordem de `rivais`); vazio = vaga i
+var vagas_rivais: Array[int] = []
 ## Outros jogadores da corrida em grupo, por peer (só no anfitrião)
 var remotos := {}
 var tempo_corrida := 0.0
@@ -80,7 +82,7 @@ func preparar():
 	chegada.clear()
 	_contatos.clear()
 	for i in rivais.size():
-		var vaga := pista.grid_sd(i)
+		var vaga := pista.grid_sd(vagas_rivais[i] if i < vagas_rivais.size() else i)
 		rivais[i].estacionar(vaga.x, vaga.y)
 		if carro:
 			carro.remove_collision_exception_with(rivais[i])

@@ -24,11 +24,13 @@ extends Node
 ## jogador liberado no lobby, o servidor abre uma sala e puxa todos (os que estão na
 ## esfera também): vagas do grid com a IA na frente e os jogadores atrás, e quem entrou
 ## no portal é o anfitrião, o único Quest que roda a IA dos adversários (os outros os
-## mostram pela telemetria dele). Largada quando todos carregaram e apertaram PRONTO,
-## ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
+## mostram pela telemetria dele). O grid sempre fecha com VAGAS carros: quem entra num
+## portal do mesmo destino antes da largada entra na sala no lugar de um adversário, e
+## quem sai antes da largada devolve a vaga à IA. Largada quando todos carregaram e
+## apertaram PRONTO, ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.3"
+const VERSAO := "1.4"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -71,6 +73,9 @@ signal telemetria_recebida(item: Dictionary)
 ## e a telemetria dos outros jogadores da sala
 signal corrida_solo(destino: String)
 signal sala_entrou(info: Dictionary)
+## Cliente, corrida em grupo: alguém entrou ou saiu da sala antes da largada (novas
+## vagas dos jogadores e quantos adversários da IA completam o grid)
+signal sala_atualizada(info: Dictionary)
 signal sala_status(status: Dictionary)
 signal sala_largada
 signal sala_anfitriao
@@ -376,12 +381,44 @@ func _abrir_sala(destino: String, participantes: Array):
 	for peer in participantes:
 		entrar_sala.rpc_id(peer, _info_sala(s))
 
+## Sala ainda no grid (sem largada) para o destino, com vaga sobrando para um jogador
+func _sala_aberta(destino: String) -> Dictionary:
+	for s in salas.values():
+		if s.destino == destino and not s.largou and s.participantes.size() < VAGAS:
+			return s
+	return {}
+
+## Jogador chegando a uma sala aberta: fica com a vaga mais de trás que nenhum jogador
+## ocupa e um adversário da IA sai do grid para manter VAGAS carros
+func _entrar_na_sala(s: Dictionary, peer: int):
+	var ocupadas := []
+	for jogador in s.jogadores:
+		ocupadas.append(int(jogador.vaga))
+	var vaga := VAGAS - 1
+	while vaga in ocupadas:
+		vaga -= 1
+	var nome: String = Dispositivos.obter(peer).get("jogador", "Peer %d" % peer)
+	s.participantes.append(peer)
+	s.jogadores.append({"peer": peer, "nome": nome, "vaga": vaga})
+	s.rivais = VAGAS - s.participantes.size()
+	registrar_evento("corrida", "%s entrou no grupo #%d (+%d da IA)" % [nome, s.id, s.rivais])
+	entrar_sala.rpc_id(peer, _info_sala(s))
+	_avisar_sala_mudou(s, peer)
+
+## Manda a sala nova a quem já está nela (menos `exceto`, que acabou de receber)
+func _avisar_sala_mudou(s: Dictionary, exceto := 0):
+	var info := _info_sala(s)
+	for outro in s.participantes:
+		if outro != exceto:
+			atualizar_sala.rpc_id(outro, info)
+
 ## O que cada Quest precisa saber da sala
 func _info_sala(s: Dictionary) -> Dictionary:
 	return {"id": s.id, "destino": s.destino, "anfitriao": s.anfitriao, "rivais": s.rivais, "jogadores": s.jogadores}
 
 ## Saiu da corrida (portal, morte, sessão encerrada, caiu da rede). Sala vazia fecha;
-## se era o anfitrião, o próximo assume a IA dos adversários
+## se era o anfitrião, o próximo assume a IA dos adversários. Antes da largada a vaga
+## dele volta para a IA (depois da largada o grid já correu como estava)
 func _sair_da_sala(peer: int):
 	var s := sala_de(peer)
 	if s.is_empty():
@@ -399,6 +436,10 @@ func _sair_da_sala(peer: int):
 		s.anfitriao = s.participantes[0]
 		virou_anfitriao.rpc_id(s.anfitriao, s.id)
 		registrar_evento("corrida", "%s assume a IA do grupo #%d" % [Dispositivos.obter(s.anfitriao).get("jogador", "?"), s.id])
+	if not s.largou:
+		s.jogadores = s.jogadores.filter(func(jogador): return int(jogador.peer) != peer)
+		s.rivais = VAGAS - s.participantes.size()
+		_avisar_sala_mudou(s)
 
 ## Espera todos carregarem (até TEMPO_CARREGAR), abre a janela de PRONTO e larga
 ## quando todos confirmam ou a janela fecha. Manda a contagem de prontos aos Quests
@@ -702,7 +743,13 @@ func pedido_corrida(destino: String):
 	if not atual.is_empty():
 		entrar_sala.rpc_id(peer, _info_sala(atual))
 		return
-	var participantes := _elegiveis(peer) if Dispositivos.obter(peer).get("liberado", false) else [peer]
+	var liberado: bool = Dispositivos.obter(peer).get("liberado", false)
+	# Grupo deste destino ainda no grid: entra nele no lugar de um adversário da IA
+	var aberta := _sala_aberta(destino) if liberado else {}
+	if not aberta.is_empty():
+		_entrar_na_sala(aberta, peer)
+		return
+	var participantes := _elegiveis(peer) if liberado else [peer]
 	if participantes.size() <= 1:
 		resposta_solo.rpc_id(peer, destino)
 		return
@@ -737,6 +784,12 @@ func resposta_solo(destino: String):
 func entrar_sala(info: Dictionary):
 	sala = info
 	sala_entrou.emit(info)
+
+@rpc("authority", "call_remote", "reliable")
+func atualizar_sala(info: Dictionary):
+	if not sala.is_empty() and int(sala.id) == int(info.id):
+		sala = info
+		sala_atualizada.emit(info)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
 func status_sala(id: int, status: Dictionary):

@@ -63,6 +63,7 @@ func _ready():
 	add_child(_transicao)
 	Rede.corrida_solo.connect(_corrida_solo)
 	Rede.sala_entrou.connect(_entrar_sala)
+	Rede.sala_atualizada.connect(_sala_atualizada)
 
 ## A morte sempre devolve o piloto à esfera do mundo inicial.
 func restaurar_inicio():
@@ -121,6 +122,23 @@ func _entrar_sala(info: Dictionary):
 		ritual.sair_para_corrida()
 	entrar_mapa(portal, destino, info)
 
+## Alguém entrou ou saiu do grupo antes da largada: refaz o grid (a IA cede ou
+## retoma vagas). Ainda carregando o mapa, entrar_mapa já pega a sala nova
+func _sala_atualizada(info: Dictionary):
+	if mapa_atual == null or _trocando:
+		return
+	var corrida := mapa_atual.corrida
+	if corrida.grupo.is_empty() or int(corrida.grupo.id) != int(info.id):
+		return
+	if corrida.fase == Corrida.Fase.CONTROLES:
+		mapa_atual.atualizar_grupo(info)
+
+## Sala mais recente do grupo (pode ter mudado enquanto o mapa carregava)
+func _grupo_atual(grupo: Dictionary) -> Dictionary:
+	if not grupo.is_empty() and int(Rede.sala.get("id", -1)) == int(grupo.id):
+		return Rede.sala
+	return grupo
+
 ## Portal do destino mais perto do carro (a volta da corrida sai perto dele)
 func _portal_mais_perto(destino: String) -> Portal:
 	var melhor: Portal
@@ -177,6 +195,7 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	sol.shadow_enabled = not OS.has_feature("android")
 
 	carro.hex_world = mapa
+	grupo = _grupo_atual(grupo)
 	var vaga := mapa.preparar_corrida(grupo)
 	# No grid o carro já fica assentado nas rodas: desconta a folga que teleportar põe
 	carro.teleportar(mapa.largada(vaga).translated(Vector3.DOWN * 0.3))
@@ -186,6 +205,9 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	await get_tree().physics_frame
 	await _transicao.descobrir()
 	carro.terminar_transicao()
+	# A sala pode ter mudado durante a transição: o grid sai com a versão final
+	grupo = _grupo_atual(grupo)
+	mapa.distribuir_grid(grupo)
 	mapa.corrida.iniciar(grupo)
 	var yui := get_tree().get_first_node_in_group("yui")
 	if yui:

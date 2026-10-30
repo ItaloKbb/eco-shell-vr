@@ -4,7 +4,7 @@ extends RefCounted
 ## áudio): camadas em loop, controladas por volume e pitch, e efeitos pontuais.
 ## Tudo mono, 16 bits. Roda uma vez, numa thread, quando o carro entra na cena.
 
-## Sons já gerados (preenchida pelo som_carro.gd), para os inimigos usarem também
+## Sons já gerados (preenchida pelo som_carro.gd), para adversários e explosões usarem também
 static var biblioteca := {}
 ## Barramento dos sons de fora da cabine
 const BARRAMENTO_MUNDO := "Mundo"
@@ -30,6 +30,7 @@ func gerar() -> Dictionary:
 		"zumbido": zumbido(),
 		"assobio": assobio(),
 		"arrancada": arrancada(),
+		"nitro": ronco_nitro(),
 		"impacto": impacto(),
 		"batida": batida(),
 		"carga": carga_eletrica(),
@@ -40,9 +41,6 @@ func gerar() -> Dictionary:
 		"trinca": trinca(),
 		"bip": bip(),
 		"bip_continuo": bip_continuo(),
-		"zumbido_inimigo": zumbido_inimigo(),
-		"missil": missil(),
-		"lancamento": lancamento(),
 		"portal": portal(),
 		"volta": volta(),
 		"corpo": corpo(),
@@ -51,9 +49,6 @@ func gerar() -> Dictionary:
 		"clang": clang(),
 		"zap": zap(),
 		"zumbido_ouvido": zumbido_ouvido(),
-		"acordar": acordar(),
-		"carga_mira": carga_mira(),
-		"estouro_cristal": estouro_cristal(),
 		"motor_rival": motor_rival(),
 		"passagem": passagem(),
 	}
@@ -196,6 +191,49 @@ func assobio() -> AudioStreamWAV:
 	return _wav(_normalizar(a, 0.8), true)
 
 # --- Efeitos pontuais ---------------------------------------------------------
+
+## Nitro: ronco de V12 estilo Ferrari. O giro sobe rápido de ~3500 a ~9000 rpm, segura
+## lá em cima gritando e alivia no fim com os estalos do escapamento. Toca no carro e
+## nos carros dos outros jogadores (a rede avisa quando cada um liga o nitro)
+func ronco_nitro() -> AudioStreamWAV:
+	var dur := 2.6
+	var n := int(taxa * dur)
+	var a := PackedFloat32Array()
+	a.resize(n)
+	var fase := 0.0
+	var low := 0.0
+	var band := 0.0
+	for i in n:
+		var t := float(i) / taxa
+		var sobe := 1.0 - exp(-t / 0.32)
+		var alivio := smoothstep(1.7, 2.5, t)
+		var rpm := lerpf(3500.0, 9000.0, sobe) * (1.0 - 0.45 * alivio)
+		# Quatro tempos, 12 cilindros: 6 explosões por volta do virabrequim
+		fase += TAU * rpm / 60.0 * 6.0 / taxa
+		# Tom: harmônicos do disparo e a meia ordem que dá a aspereza do V12
+		var tom := sin(fase) + 0.55 * sin(2.0 * fase + 0.3) + 0.35 * sin(3.0 * fase + 0.9) \
+			+ 0.18 * sin(4.0 * fase + 1.7) + 0.3 * sin(0.5 * fase)
+		# Pulso do escapamento a cada explosão: o "rasgado" do grito
+		var pulso := pow(0.5 + 0.5 * sin(fase), 6.0)
+		# Admissão: ruído filtrado subindo com o giro
+		var fc := 900.0 + 2200.0 * sobe * (1.0 - 0.5 * alivio)
+		var fk := 2.0 * sin(PI * fc / taxa)
+		var high := _ruido() - low - 0.6 * band
+		band += fk * high
+		low += fk * band
+		var carga := 1.0 - 0.6 * alivio
+		var env := minf(t / 0.04, 1.0) * (1.0 - smoothstep(2.25, dur, t))
+		var x := (tom * 0.45 + pulso * 0.7 * carga + band * 0.15) * env
+		# Saturação suave: o escapamento "estoura" sem clipar
+		a[i] = tanh(x * 2.4)
+	# Estalos do escapamento no alívio
+	for k in 6:
+		var inicio := int((1.8 + k * 0.1 + _sorteio() * 0.05) * taxa)
+		var forca := 0.9 - k * 0.1
+		for j in int(taxa * 0.035):
+			if inicio + j < n:
+				a[inicio + j] += _ruido() * exp(-float(j) / (taxa * 0.007)) * forca
+	return _wav(_normalizar(a, 0.9), false)
 
 ## Dash: golfada de ar macia, um "whoom" tonal subindo e um baque grave
 func arrancada() -> AudioStreamWAV:
@@ -378,7 +416,7 @@ func trinca() -> AudioStreamWAV:
 		a[i] = ya + yb * 0.6
 	return _wav(_normalizar(a, 0.7), false)
 
-## Alarme de míssil: "pi" curto e limpo, com ataque e soltura macios
+## Alarme do painel: "pi" curto e limpo, com ataque e soltura macios
 func bip() -> AudioStreamWAV:
 	var n := int(taxa * 0.07)
 	var a := PackedFloat32Array()
@@ -389,7 +427,7 @@ func bip() -> AudioStreamWAV:
 		a[i] = (sin(TAU * 1800.0 * t) + 0.25 * sin(TAU * 3600.0 * t)) * env
 	return _wav(_normalizar(a, 0.6), false)
 
-## O "piiii" de quando o míssil está para acertar: o mesmo tom, em loop
+## O "piiii" do alarme no último instante: o mesmo tom, em loop
 func bip_continuo() -> AudioStreamWAV:
 	var n := taxa
 	var a := PackedFloat32Array()
@@ -398,58 +436,6 @@ func bip_continuo() -> AudioStreamWAV:
 		var t := float(i) / taxa
 		a[i] = sin(TAU * 1800.0 * t) + 0.25 * sin(TAU * 3600.0 * t)
 	return _wav(_normalizar(a, 0.6), true)
-
-## Pirâmide: acorde grave e sinistro com batimento lento e pulsação de energia
-func zumbido_inimigo() -> AudioStreamWAV:
-	var n := taxa * 2
-	var a := PackedFloat32Array()
-	a.resize(n)
-	var lp := 0.0
-	for i in n:
-		var t := float(i) / taxa
-		var acorde := sin(TAU * 55.0 * t) + 0.6 * sin(TAU * 82.5 * t) + 0.4 * sin(TAU * 110.0 * t) + 0.4 * sin(TAU * 111.0 * t)
-		var pulso := 0.65 + 0.35 * sin(TAU * 2.0 * t)
-		lp += (_ruido() - lp) * 0.05
-		a[i] = acorde * pulso + lp * 0.8 + sin(TAU * 440.0 * t) * 0.05 * pulso
-	return _wav(_normalizar(a, 0.7), true)
-
-## Ponta voando: chiado de propulsor com um assobio tremendo por cima
-func missil() -> AudioStreamWAV:
-	var n := taxa
-	var f := int(taxa * 0.2)
-	var a := PackedFloat32Array()
-	a.resize(n + f)
-	var lo := 0.0
-	var hi := 0.0
-	for i in n + f:
-		var t := float(i) / taxa
-		var w := _ruido()
-		lo += (w - lo) * 0.35
-		hi += (w - hi) * 0.08
-		var assobio := sin(TAU * 900.0 * t + 3.0 * sin(TAU * 12.0 * t))
-		a[i] = (lo - hi) * 0.8 + assobio * 0.3
-	return _loop(a, n, f)
-
-## Pirâmide disparando uma ponta: estalo de energia e o ar rasgando
-func lancamento() -> AudioStreamWAV:
-	var n := int(taxa * 0.6)
-	var a := PackedFloat32Array()
-	a.resize(n)
-	var low := 0.0
-	var band := 0.0
-	var fase := 0.0
-	for i in n:
-		var t := float(i) / taxa
-		var x := t / 0.6
-		var fc := 500.0 + 2500.0 * x
-		var fk := 2.0 * sin(PI * fc / taxa)
-		var high := _ruido() - low - 0.6 * band
-		band += fk * high
-		low += fk * band
-		fase += TAU * (300.0 + 900.0 * x) / taxa
-		var env := minf(t / 0.01, 1.0) * pow(1.0 - x, 2.0)
-		a[i] = (band * 0.4 + sin(fase) * 0.4) * env + sin(TAU * 70.0 * t) * exp(-t / 0.06) * 0.6
-	return _wav(_normalizar(a, 0.8), false)
 
 ## Portal: ronco grave com batimento lento e vento girando (filtro varrendo devagar),
 ## como ar sendo sugado por um túnel
@@ -601,73 +587,6 @@ func zumbido_ouvido() -> AudioStreamWAV:
 		a[i] = (sin(TAU * 3400.0 * t) + 0.15 * sin(TAU * 3412.0 * t)) * env
 	return _wav(_normalizar(a, 0.5), false)
 
-# --- Inimigos --------------------------------------------------------------------
-
-## Pirâmide acordando: acorde desafinado subindo com um rosnado embaixo
-func acordar() -> AudioStreamWAV:
-	var n := int(taxa * 1.3)
-	var a := PackedFloat32Array()
-	a.resize(n)
-	var fases := PackedFloat32Array([0.0, 0.0, 0.0])
-	var base := [110.0, 164.0, 221.0]
-	var lp := 0.0
-	for i in n:
-		var t := float(i) / taxa
-		var x := t / 1.3
-		var sobe := pow(2.0, 0.6 * smoothstep(0.0, 0.6, x))
-		var s := 0.0
-		for k in 3:
-			fases[k] += TAU * base[k] * sobe / taxa
-			# Dente de serra suave (poucos harmônicos): áspero sem chiar
-			s += sin(fases[k]) + 0.5 * sin(2.0 * fases[k]) + 0.33 * sin(3.0 * fases[k])
-		lp += (_ruido() - lp) * 0.02
-		var rosnado := lp * 6.0 * (0.6 + 0.4 * sin(TAU * 23.0 * t))
-		var env := minf(t / 0.15, 1.0) * pow(1.0 - x, 1.3)
-		a[i] = (s * 0.3 + rosnado) * env
-	return _wav(_normalizar(a, 0.8), false)
-
-## Mira travando: tom subindo com trêmulo cada vez mais rápido (dura o tempo da mira)
-func carga_mira() -> AudioStreamWAV:
-	var n := int(taxa * 1.1)
-	var a := PackedFloat32Array()
-	a.resize(n)
-	var fase := 0.0
-	var trem := 0.0
-	for i in n:
-		var t := float(i) / taxa
-		var x := t / 1.1
-		fase += TAU * (300.0 * pow(4.0, x)) / taxa
-		trem += TAU * lerpf(6.0, 40.0, x * x) / taxa
-		var env := minf(t / 0.05, 1.0) * (0.4 + 0.6 * x) * clampf((1.1 - t) / 0.02, 0.0, 1.0)
-		a[i] = (sin(fase) + 0.3 * sin(2.0 * fase + 0.5)) * (0.65 + 0.35 * sin(trem)) * env
-	return _wav(_normalizar(a, 0.7), false)
-
-## Ponta de pirâmide estourando: cristal estilhaçando (muitos "pings" agudos) e um estalo
-func estouro_cristal() -> AudioStreamWAV:
-	var n := int(taxa * 1.0)
-	var a := PackedFloat32Array()
-	a.resize(n)
-	var res: Array[Vector3] = []
-	for f in [2900.0, 3700.0, 4600.0, 5900.0, 7100.0]:
-		res.append(_ressonador(f, 0.993))
-	var y1 := PackedFloat32Array([0, 0, 0, 0, 0])
-	var y2 := PackedFloat32Array([0, 0, 0, 0, 0])
-	for i in n:
-		var t := float(i) / taxa
-		var chance := 0.03 * exp(-t / 0.12)
-		var soma := 0.0
-		for k in res.size():
-			var imp := _ruido() if _sorteio() < chance / (k + 1) else 0.0
-			var r: Vector3 = res[k]
-			var y := r.z * imp + r.x * y1[k] - r.y * y2[k]
-			y2[k] = y1[k]
-			y1[k] = y
-			soma += y
-		var estalo := _ruido() * exp(-t / 0.01)
-		var baque := sin(TAU * 90.0 * t) * exp(-t / 0.05)
-		a[i] = soma * 1.4 + estalo * 0.5 + baque * 0.4
-	return _wav(_normalizar(a, 0.8), false)
-
 # --- Adversários -------------------------------------------------------------------
 
 ## Motor elétrico dos adversários: assobio mais áspero que o do jogador (inversor
@@ -703,8 +622,8 @@ func passagem() -> AudioStreamWAV:
 		a[i] = (band + low * 0.15) * pico
 	return _wav(_normalizar(a, 0.8), false)
 
-## Fonte 3D de um som da biblioteca para o que acontece fora da cabine (inimigos,
-## adversários, explosões), no barramento "Mundo". Longe, o ar abafa os agudos.
+## Fonte 3D de um som da biblioteca para o que acontece fora da cabine
+## (adversários, explosões), no barramento "Mundo". Longe, o ar abafa os agudos.
 ## Vazia se a biblioteca ainda não foi gerada
 static func fonte(nome: String) -> AudioStreamPlayer3D:
 	garantir_barramento_mundo()

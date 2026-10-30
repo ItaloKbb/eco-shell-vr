@@ -10,7 +10,7 @@ extends Node3D
 ## Filho da pista: tudo em coordenadas locais dela.
 
 ## Força do choque que conta 1 barra de dano em car.gd (entre choque_minimo e choque_medio)
-const FORCA_BATIDA := 5.0
+const FORCA_BATIDA := 12.0
 ## Velocidade com que o carro é jogado para trás e para o lado na batida (m/s)
 const RECUO := 4.0
 const EMPURRAO_LATERAL := 2.5
@@ -81,6 +81,12 @@ func _jogador():
 	var obstaculo := bloqueado(info.s, info.d, tempo)
 	if obstaculo == null:
 		return
+	if not obstaculo.solido:
+		# Mina: não segura o carro; o efeito (velocidade, nitro, explosão) é dela
+		batidas_jogador += 1
+		carro._avisar(obstaculo.aviso_batida, 1.2)
+		obstaculo.atingido(_ds(obstaculo, info.s), info.d, tempo, carro)
+		return
 	# Volta para fora do obstáculo pelo lado de onde veio; a cada passo que ainda
 	# estiver dentro, mas o dano conta uma vez por batida
 	var q := pista.global_transform * pista.quadro(info.s)
@@ -99,7 +105,8 @@ func _jogador():
 		batidas_jogador += 1
 		var ponto: Vector3 = carro.global_position + frente * MEIO_CARRO_FRENTE * -sentido + Vector3.UP * 0.5
 		carro._registrar_choque(FORCA_BATIDA, ponto, 0.0, &"estrutura")
-		carro._avisar("BATEU!", 1.2)
+		carro._avisar(obstaculo.aviso_batida, 1.2)
+		obstaculo.atingido(ds, info.d, tempo, carro)
 
 ## Aviso no visor uma vez por obstáculo, quando ele entra no alcance à frente
 func _avisar(carro: RigidBody3D, s: float):
@@ -180,7 +187,7 @@ func _proximo(s: float) -> ObstaculoPista:
 func _faixa_livre(obstaculo: ObstaculoPista, rival: CarroRival, ate_entrada: float, vel: float, dentro: bool, inicio_ds: float) -> float:
 	var melhor := NAN
 	var menor := INF
-	var limite := PistaCorrida.MEIA_UTIL
+	var limite := pista.meia_util
 	var alcance_lateral := rival.perfil.agilidade * ate_entrada * 0.8 + 0.3
 	var d := -limite
 	while d <= limite + 0.01:
@@ -214,6 +221,14 @@ func colidir_rivais():
 		var obstaculo := bloqueado(rival.s, rival.d, tempo)
 		if obstaculo == null:
 			continue
+		if not obstaculo.solido:
+			# Mina: passa por cima, perde metade da velocidade e o turbo
+			batidas_rivais += 1
+			_distraido[rival] = [obstaculo, false]
+			obstaculo.atingido(_ds(obstaculo, rival.s), rival.d, tempo, null)
+			rival.v *= 0.5
+			rival.cortar_turbo()
+			continue
 		# Recua um pouco para fora do que bateu (o resto é a espera e o replanejamento)
 		var ds := _ds(obstaculo, rival.s)
 		var sentido := -1.0 if ds <= 0.0 else 1.0
@@ -231,6 +246,7 @@ func colidir_rivais():
 		if OS.has_environment("DEBUG_OBSTACULOS"):
 			var plano: Array = _plano.get(rival, [])
 			print("BATIDA %s em %s ds=%.1f d=%.1f v=%.1f distraido=%s plano=%s" % [rival.perfil.nome, obstaculo.get_class() if obstaculo.get_script() == null else obstaculo.get_script().get_global_name(), ds, rival.d, rival.v, _distraido.get(rival, [null, "?"])[1], plano.slice(2)])
+		obstaculo.atingido(ds, rival.d, tempo, null)
 		var empurra := obstaculo.lado_empurrao(ds, rival.d, tempo)
 		rival.levar_batida((empurra if empurra != 0.0 else 1.0) * 2.0, -rival.v, 4.0, null, false)
 		rival.v = 0.0

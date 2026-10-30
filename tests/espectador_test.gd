@@ -25,7 +25,7 @@ func _testar():
 	jogo.ritual.estado = jogo.ritual.Estado.PARTIDA
 	carro.em_ritual = false
 	var t: Dictionary = carro.telemetria()
-	for chave in ["pos", "rot", "vel", "vida", "vida_max", "explodindo", "na_esfera", "energia", "mapa"]:
+	for chave in ["pos", "rot", "vel", "vida", "vida_max", "explodindo", "na_esfera", "nitro", "nitros", "mapa"]:
 		assert(t.has(chave), "Telemetria sem %s" % chave)
 	assert(t.mapa == "" and t.pos is Vector3 and t.rot is Quaternion and not t.has("rivais"))
 	var mundos = jogo.get_node("Mundos")
@@ -70,10 +70,10 @@ func _testar():
 	assert(rival_quest.distance_to(deserto.largada(0).origin) < 1.0, "Mesmo mapa no Quest e no telão")
 	var ana := {"peer": 5, "nome": "Ana", "apelido": "Óculos 1", "estado": "lobby",
 		"pos": Vector3(10, 0.3, 20), "rot": Quaternion.IDENTITY, "vel": 88.4, "vida": 6, "vida_max": 8,
-		"explodindo": false, "na_esfera": false, "energia": false, "mapa": ""}
+		"explodindo": false, "na_esfera": false, "nitro": false, "mapa": ""}
 	var beto := {"peer": 9, "nome": "", "apelido": "Óculos 2", "estado": "correndo",
 		"pos": largada.origin, "rot": largada.basis.get_rotation_quaternion(), "vel": 142.0, "vida": 8, "vida_max": 8,
-		"explodindo": false, "na_esfera": false, "energia": false, "mapa": "Deserto",
+		"explodindo": false, "na_esfera": false, "nitro": false, "mapa": "Deserto",
 		"volta": 2, "voltas": 3, "posicao": 3, "total": 11, "rivais": rivais_quest}
 	rede.quadro_recebido.emit([ana, beto])
 	await _esperar(3)
@@ -122,6 +122,60 @@ func _testar():
 	esp.receber_quadro([])
 	await _esperar(2)
 	assert(esp.carros.is_empty() and esp._hud._espera.visible)
+
+	# Abertura: jogadores recém-chegados ao grid tomam o telão com a pista do céu
+	var carla := beto.duplicate()
+	carla.peer = 12
+	carla.nome = "Carla"
+	carla.explodindo = false
+	carla.volta = 0
+	carla.fase = Corrida.Fase.CONTROLES
+	esp.receber_quadro([ana, carla])
+	await _esperar(3)
+	assert(esp.abertura_mapa == "Deserto" and esp.foco == 12, "Grid novo abre a vista do céu")
+	assert(esp.abertura_tomada == esp.Abertura.PANORAMA and esp.camera.far > 3000.0)
+	assert(esp.ambiente.environment != deserto.ambiente, "Névoa recuada para a câmera alta")
+	assert(esp._hud._em_abertura and esp._hud._cartela.visible and not esp._hud._terco.visible)
+	assert(esp._hud._cartela_titulo.text == "DESERTO" and "3 VOLTAS" in esp._hud._cartela_info.text)
+	assert("CARLA" in esp._hud._cartela_grid.text and "10 DA IA" in esp._hud._cartela_grid.text, esp._hud._cartela_grid.text)
+	assert(esp.camera.global_position.y - largada.origin.y > 100.0, "Panorama do alto")
+	# Ciclo: sobrevoo do traçado e depois a grua do grid
+	esp.abertura_tempo = esp.TEMPOS_ABERTURA[0]
+	await _esperar(2)
+	assert(esp.abertura_tomada == esp.Abertura.SOBREVOO)
+	var altura_drone: float = esp.camera.global_position.y - largada.origin.y
+	assert(altura_drone > 25.0 and altura_drone < 60.0, "Drone a %.0f m" % altura_drone)
+	# Contagem: vai para o grid e fica até o VAI!
+	carla.fase = Corrida.Fase.CONTAGEM
+	esp.receber_quadro([ana, carla])
+	await _esperar(2)
+	assert(esp.abertura_tomada == esp.Abertura.GRID and "LARGADA" in esp._hud._angulo.text + str(esp._hud._cartela_estado.get_child(0).text))
+	esp.abertura_tempo = 30.0
+	await _esperar(90)
+	assert(esp.abertura_tomada == esp.Abertura.GRID, "Na contagem não troca de tomada")
+	assert(esp.camera.global_position.distance_to(deserto.largada(MapaCorrida.ADVERSARIOS).origin) < 25.0, "Grua desce até o grid")
+	# Largou: volta o diretor normal, com o céu e o alcance de sempre
+	carla.fase = Corrida.Fase.CORRENDO
+	carla.volta = 1
+	esp.receber_quadro([ana, carla])
+	await _esperar(2)
+	assert(esp.abertura_mapa == "" and not esp._hud._em_abertura and esp.camera.far == esp.ALCANCE_CAMERA)
+	assert(esp.ambiente.environment == deserto.ambiente)
+	# Sprint: o panorama olha a reta da largada; a tecla A pula a abertura
+	carla.mapa = "Parque Industrial"
+	carla.fase = Corrida.Fase.CONTROLES
+	carla.volta = 0
+	esp.receber_quadro([ana, carla])
+	await _esperar(3)
+	assert(esp.abertura_mapa == "Parque Industrial" and "SPRINT" in esp._hud._cartela_info.text)
+	var tecla_a := InputEventKey.new()
+	tecla_a.keycode = KEY_A
+	tecla_a.pressed = true
+	esp._unhandled_input(tecla_a)
+	await _esperar(2)
+	assert(esp.abertura_mapa == "" and esp.mundo_atual == "Parque Industrial", "A pula a abertura desse grid")
+	esp.receber_quadro([])
+	await _esperar(2)
 	print("ESPECTADOR_OK: telemetria do Quest, quadro do servidor, mapas só cenário, tomadas de 6 s, ângulos, céu do mapa e HUD")
 	esp.queue_free()
 	await _esperar(5)

@@ -26,7 +26,15 @@ const RAIO_RODA := 0.245
 ## Tamanho do carro em coordenadas da pista, para contatos (m)
 const COMPRIMENTO := 2.7
 const LARGURA := 0.85
-const DURACAO_DASH := 0.55
+## Turbo: o mesmo tanque do jogador (barras, enche sozinho, gasta 1 barra/s ligado). A
+## reta com turbo chega a FATOR_TURBO x a máxima dele (~a máxima do nitro do jogador),
+## sempre limitada pela velocidade segura das curvas à frente
+const TANQUE := 5.0
+const CARGA_PASSIVA := 0.2
+const CONSUMO_TURBO := 1.0
+const FATOR_TURBO := 2.5
+## Quantos segundos de tanque cada turbo gasta no máximo
+const DURACAO_TURBO := 3.0
 
 static var _malha: Mesh
 static var _tinta_base: ShaderMaterial
@@ -44,15 +52,20 @@ var d := 0.0
 var v := 0.0
 var progresso := 0.0
 var terminou := false
-## Telemetria e estado do dash, usados pela IA e pelos testes de equilíbrio.
-var dashes_usados := 0
-var _recarga_dash := 0.0
-var _tempo_dash := 0.0
+## Tanque do turbo, quantos usou e quanto falta do atual (IA e testes de equilíbrio)
+var nitro := 0.0
+var turbos_usados := 0
+var _tempo_turbo := 0.0
 ## Alvos do cérebro
 var v_alvo := 0.0
 var d_alvo := 0.0
 ## Multiplicador da agilidade (o cérebro aumenta na hora de atacar)
 var agilidade_extra := 1.0
+
+## Rampa de onde saltou (s da borda) enquanto está no ar; -INF no chão
+var salto_s := -INF
+## Turbo de placa (rampa) ainda valendo (s): segura a velocidade alta
+var _turbo := 0.0
 
 var _vel_lateral := 0.0
 ## Empurrão lateral de batidas (m/s), que vai sumindo
@@ -72,7 +85,11 @@ var _lado_muro := 1.0
 ## Passagem rente pelo jogador: lado em que ele estava no passo anterior e espera
 var _lado_jogador := 0.0
 var _espera_passagem := 0.0
-var _trilhas_dash := Node3D.new()
+var _trilhas_turbo := Node3D.new()
+## Corrida em grupo, Quest que não é o anfitrião: este carro não pensa nem anda sozinho,
+## só segue o que o anfitrião manda (seguir_rede)
+var remoto := false
+var _interpolador := InterpoladorRede.new()
 
 ## Gera o casco uma única vez, num CascoEcoShell temporário (ele só constrói na árvore)
 static func preparar(pai: Node):
@@ -96,9 +113,9 @@ func _ready():
 	var pintura: Array = PINTURAS[(numero - 1) % PINTURAS.size()]
 	_giros = montar_visual(self, pintura, perfil.nome, numero).giros
 
-	# Dois filetes simples deixam o dash legível sem partículas ou pós-processamento.
-	_trilhas_dash.name = "TrilhasDash"
-	_trilhas_dash.visible = false
+	# Dois filetes simples deixam o turbo legível sem partículas ou pós-processamento.
+	_trilhas_turbo.name = "TrilhasTurbo"
+	_trilhas_turbo.visible = false
 	var rastro := BoxMesh.new()
 	rastro.size = Vector3(0.055, 0.045, 1.8)
 	var brilho := StandardMaterial3D.new()
@@ -113,8 +130,8 @@ func _ready():
 		filete.mesh = rastro
 		filete.position = Vector3(x, 0.27, 1.75)
 		filete.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_trilhas_dash.add_child(filete)
-	add_child(_trilhas_dash)
+		_trilhas_turbo.add_child(filete)
+	add_child(_trilhas_turbo)
 
 	var forma := CollisionShape3D.new()
 	var caixa := BoxShape3D.new()
@@ -202,24 +219,41 @@ func estacionar(s_: float, d_: float):
 	_empurrao = 0.0
 	agilidade_extra = 1.0
 	terminou = false
-	dashes_usados = 0
-	_recarga_dash = 0.0
-	_tempo_dash = 0.0
-	_trilhas_dash.visible = false
+	fantasma(false)
+	turbos_usados = 0
+	nitro = 0.0
+	_tempo_turbo = 0.0
+	_trilhas_turbo.visible = false
+	salto_s = -INF
+	_turbo = 0.0
 	# Atrás da linha conta como negativo: ainda não começou a primeira volta
-	progresso = s - pista.comprimento if s > pista.comprimento * 0.5 else s
+	progresso = pista.progresso_inicial(s)
 	ia.parar()
 	_posar()
 	_sincronizar()
 
 ## Um passo de física: velocidade e faixa indo para os alvos, dentro dos limites
 func mover(dt: float):
-	_recarga_dash = maxf(_recarga_dash - dt, 0.0)
-	_tempo_dash = maxf(_tempo_dash - dt, 0.0)
-	_trilhas_dash.visible = _tempo_dash > 0.0
-	var alvo_movimento := maxf(v_alvo, perfil.velocidade_max * 1.12) if _tempo_dash > 0.0 else v_alvo
-	var freio_dash := perfil.frenagem * (0.25 if _tempo_dash > 0.0 else 1.0)
-	v += clampf(alvo_movimento - v, -freio_dash * dt, perfil.aceleracao * dt)
+	_turbo = maxf(_turbo - dt, 0.0)
+	var alvo_movimento := v_alvo
+	var freio := perfil.frenagem
+	var aceleracao := perfil.aceleracao
+	if _tempo_turbo > 0.0:
+		_tempo_turbo = maxf(_tempo_turbo - dt, 0.0)
+		nitro = maxf(nitro - CONSUMO_TURBO * dt, 0.0)
+		# Turbo: estica a reta até FATOR_TURBO x a máxima, freando a tempo das curvas
+		var frente := 60.0 + v * v / (2.0 * perfil.frenagem)
+		var seguro := pista.velocidade_segura(s, perfil.aderencia, perfil.frenagem, frente)
+		alvo_movimento = maxf(v_alvo, minf(perfil.velocidade_max * FATOR_TURBO, seguro))
+		aceleracao *= 3.0
+	elif not terminou:
+		nitro = minf(nitro + CARGA_PASSIVA * dt, TANQUE)
+	_trilhas_turbo.visible = _tempo_turbo > 0.0
+	# Turbo de placa e voo da rampa: a velocidade cai devagar, como no carro do jogador
+	if _turbo > 0.0 or salto_s > -INF:
+		alvo_movimento = maxf(alvo_movimento, v)
+		freio = perfil.frenagem * 0.08
+	v += clampf(alvo_movimento - v, -freio * dt, aceleracao * dt)
 	v = maxf(v, 0.0)
 	var agil := perfil.agilidade * agilidade_extra
 	var desejada := clampf((d_alvo - d) * 2.5, -agil, agil)
@@ -227,7 +261,7 @@ func mover(dt: float):
 	d += (_vel_lateral + _empurrao) * dt
 	_empurrao = move_toward(_empurrao, 0.0, 5.0 * dt)
 	# Muro: raspa, perde um pouco e para de ir para o lado
-	var limite := PistaCorrida.MEIA_UTIL
+	var limite := pista.meia_util
 	if absf(d) > limite:
 		d = signf(d) * limite
 		if v > 2.0:
@@ -236,8 +270,14 @@ func mover(dt: float):
 		_empurrao = 0.0
 		_vel_lateral = 0.0
 		v *= 1.0 - 0.6 * dt
-	s = fposmod(s + v * dt, pista.comprimento)
+	var antes := s
+	s = pista.avancar(s, v * dt)
+	# Pista aberta: chegou na mureta do fim e parou
+	if pista.aberta and s < antes + v * dt - 0.001:
+		v = 0.0
 	progresso += v * dt
+	if pista.rampas:
+		pista.rampas.passar(self, antes)
 	_posar()
 	for giro in _giros:
 		giro.rotation.x -= v * dt / RAIO_RODA
@@ -250,16 +290,26 @@ func mover(dt: float):
 	_som()
 	_sincronizar()
 
-func pode_usar_dash() -> bool:
-	return _recarga_dash <= 0.0 and _tempo_dash <= 0.0 and not terminou and v > 5.0
+## Placa de turbo: garante `alvo` m/s e segura por um tempo
+func turbo(alvo: float):
+	v = maxf(v, alvo)
+	_turbo = 2.5
 
-func usar_dash() -> bool:
-	if not pode_usar_dash():
+## Mina: o turbo apaga na hora
+func cortar_turbo():
+	_tempo_turbo = 0.0
+	_trilhas_turbo.visible = false
+
+func pode_usar_turbo() -> bool:
+	return _tempo_turbo <= 0.0 and nitro >= perfil.reserva_turbo and not terminou and v > 5.0
+
+## Liga o turbo: gasta até DURACAO_TURBO s do tanque, com o ronco do nitro
+func usar_turbo() -> bool:
+	if not pode_usar_turbo():
 		return false
-	_recarga_dash = perfil.recarga_dash
-	_tempo_dash = DURACAO_DASH
-	v = minf(v + perfil.forca_dash, perfil.velocidade_max + perfil.forca_dash)
-	dashes_usados += 1
+	_tempo_turbo = minf(nitro / CONSUMO_TURBO, DURACAO_TURBO)
+	turbos_usados += 1
+	CarroFantasma.roncar(self, -8.0)
 	# Rajada de faíscas na traseira, da cor do filete
 	var rajada := Explosao.faiscas_impacto(6.0)
 	Explosao._soltar(get_parent(), rajada, global_transform * Vector3(0.0, 0.3, 1.4), 0.8)
@@ -303,13 +353,68 @@ func _posar():
 	# Aponta o bico para onde o carro está indo (frente + deslize lateral)
 	var guinada := atan2(_vel_lateral + _empurrao, maxf(v, 1.5))
 	var base := q.basis.rotated(q.basis.y, -guinada)
-	global_transform = pista.global_transform * Transform3D(base, q.origin + q.basis.x * d)
+	var alto := pista.rampas.altura(self) if pista.rampas else 0.0
+	global_transform = pista.global_transform * Transform3D(base, q.origin + q.basis.x * d + q.basis.y * alto)
 
 func _sincronizar():
 	info.s = s
 	info.d = d
 	info.v = v
 	info.progresso = progresso
+
+# --- Corrida em grupo -----------------------------------------------------------------
+
+## Modo fantasma (já recebeu a bandeirada): meio transparente; quem tira a colisão
+## com o jogador é o TrafegoCorrida
+func fantasma(sim: bool):
+	_transparencia(self, 0.55 if sim else 0.0)
+
+func _transparencia(no: Node, valor: float):
+	for filho in no.get_children():
+		if filho is GeometryInstance3D and not filho is Label3D:
+			filho.transparency = valor
+		_transparencia(filho, valor)
+
+## Fora do grid (no grupo sobram menos vagas para a IA): some, para e não colide
+func ativar(sim: bool):
+	visible = sim
+	process_mode = Node.PROCESS_MODE_INHERIT if sim else Node.PROCESS_MODE_DISABLED
+	collision_layer = 1 if sim else 0
+	for som in [_motor, _rolamento, _raspagem]:
+		if som:
+			som.stream_paused = not sim
+
+## Pose vinda do anfitrião (no relógio dele), com progresso e velocidade. A chegada é
+## conferida aqui mesmo pelo progresso (TrafegoCorrida._ver_chegadas)
+func receber_rede(t: float, pos: Vector3, rot: Quaternion, progresso_: float, v_: float):
+	_interpolador.adicionar(t, pos, rot)
+	progresso = progresso_
+	v = v_
+
+## Um passo de física de boneco: segue a pose interpolada (o corpo animável continua
+## empurrando o carro do jogador), gira as rodas e faz o som
+func seguir_rede(dt: float):
+	_espera_passagem = maxf(_espera_passagem - dt, 0.0)
+	if _interpolador.vazio():
+		return
+	global_transform = _interpolador.pose()
+	for giro in _giros:
+		giro.rotation.x -= v * dt / RAIO_RODA
+	_som()
+	_sincronizar()
+
+## Este Quest virou o anfitrião: retoma a IA de onde o boneco está
+func assumir():
+	remoto = false
+	var proj := pista.projetar(pista.to_local(global_position))
+	s = proj.x
+	d = proj.y
+	d_alvo = d
+	v_alvo = v
+	_vel_lateral = 0.0
+	_empurrao = 0.0
+	_interpolador.limpar()
+	_sincronizar()
 
 ## Motor elétrico (cada carro num tom: o pelotão soa como um enxame, não como um
 ## carro só), rolamento e raspagem no muro. A biblioteca de sons é gerada em segundo
@@ -324,10 +429,10 @@ func _som():
 		for p in [_batida, _clang]:
 			if p.stream == null:
 				p.stream = SomGerador.biblioteca.get("batida" if p == _batida else "clang")
-	var rapidez := clampf(v / 12.0, 0.0, 1.4)
+	var rapidez := clampf(v / 34.0, 0.0, 1.4)
 	var tom := 0.86 + 0.045 * (numero % 7)
-	# Dash: o motor grita mais agudo enquanto dura
-	var grito := 0.25 if _tempo_dash > 0.0 else 0.0
+	# Turbo: o motor grita mais agudo enquanto dura
+	var grito := 0.25 if _tempo_turbo > 0.0 else 0.0
 	_motor.pitch_scale = tom * (0.45 + 0.8 * rapidez + grito)
 	_motor.volume_db = lerpf(-28.0, -9.0, minf(rapidez, 1.0)) + (3.0 if grito > 0.0 else 0.0)
 	_rolamento.pitch_scale = 0.6 + rapidez * 0.7

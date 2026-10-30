@@ -14,6 +14,10 @@ var eh_jogador := false
 var presente := true
 ## Adversário dono deste retrato (null para o jogador)
 var rival: CarroRival
+## Outro jogador da corrida em grupo (vazio = o jogador deste Quest)
+var nome_remoto := ""
 
 func nome() -> String:
-	return "VOCÊ" if eh_jogador else rival.perfil.nome
+	if rival:
+		return rival.perfil.nome
+	return nome_remoto if nome_remoto != "" else "VOCÊ"

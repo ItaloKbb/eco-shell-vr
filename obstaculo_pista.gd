@@ -1,6 +1,6 @@
 class_name ObstaculoPista
 extends Node3D
-## Base dos obstáculos móveis da pista (varredora, comportas, guindaste). Cada um é
+## Base dos obstáculos móveis da pista (varredora, comportas, guindaste, minas). Cada um é
 ## descrito em coordenadas da pista em volta do seu ponto s0: ds ao longo da volta
 ## (positivo = à frente) e d de lado (positivo = à direita), em função do tempo da
 ## corrida. A mesma conta anima a malha, acerta o jogador e guia os adversários
@@ -17,6 +17,11 @@ var s0 := 0.0
 var alcance_s := 3.0
 ## Aviso no visor quando o piloto chega perto
 var aviso := "OBSTÁCULO"
+## Aviso no visor quando o piloto bate nele
+var aviso_batida := "BATEU!"
+## Sólido: quem bate é jogado para fora dele e fica parado um tempo. Falso (minas): o
+## carro passa por cima e o próprio obstáculo decide o efeito em atingido()
+var solido := true
 ## Cor do material "perigo" (listras, luzes)
 const COR_PERIGO := Color(1.0, 0.55, 0.05)
 
@@ -30,6 +35,11 @@ func lado_empurrao(_ds: float, d: float, _t: float) -> float:
 
 ## Põe a malha na pose do instante t
 func animar(_t: float):
+	pass
+
+## Alguém bateu nele em (ds, d) no instante t: o jogador (`carro`) ou um adversário
+## (`carro` null). Uma vez por batida, depois do tranco e do dano
+func atingido(_ds: float, _d: float, _t: float, _carro: RigidBody3D):
 	pass
 
 # --- Peças em comum ----------------------------------------------------------------

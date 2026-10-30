@@ -7,6 +7,9 @@ extends Node
 ## adversário com o jogador (o corpo animável empurra o carro de verdade; aqui o
 ## adversário reage, e os ataques ganham um tranco extra).
 ## Também guarda a ordem de chegada.
+## Corrida em grupo: no anfitrião os outros jogadores entram em `carros` (a IA desvia
+## e disputa posição com eles); nos outros Quests (`remoto`) os adversários só seguem
+## a pose que o anfitrião manda, e a chegada deles é conferida pelo progresso recebido.
 
 signal rival_chegou(rival: CarroRival, posicao: int)
 ## Um brigão acertou o jogador (som, conquistas, estatística...)
@@ -20,11 +23,16 @@ const TRANCO_ATAQUE := 2.2
 var pista: PistaCorrida
 var carro: RigidBody3D
 var rivais: Array[CarroRival] = []
-var voltas := 3
 ## Obstáculos móveis da pista (Vale das Turbinas); null nas pistas sem eles
 var obstaculos: ObstaculosPista
 
 var ativo := false
+## Corrida em grupo num Quest que não é o anfitrião
+var remoto := false
+## Vaga do grid de cada adversário (mesma ordem de `rivais`); vazio = vaga i
+var vagas_rivais: Array[int] = []
+## Outros jogadores da corrida em grupo, por peer (só no anfitrião)
+var remotos := {}
 var tempo_corrida := 0.0
 ## O jogador visto pela IA (progresso vem da corrida, que conta as voltas dele)
 var jogador := CarroNaPista.new()
@@ -38,9 +46,34 @@ var _contatos := {}
 func _ready():
 	jogador.eh_jogador = true
 	jogador.presente = false
+	definir_rivais(rivais)
+
+## Adversários desta corrida (no grupo sobram menos vagas para a IA)
+func definir_rivais(lista: Array[CarroRival]):
+	rivais = lista
 	carros.assign([jogador])
 	for rival in rivais:
 		carros.append(rival.info)
+	for info in remotos.values():
+		carros.append(info)
+
+## Outro jogador da corrida em grupo, como a IA o enxerga (criado na primeira vez)
+func jogador_remoto(peer: int) -> CarroNaPista:
+	if not remotos.has(peer):
+		var info := CarroNaPista.new()
+		info.eh_jogador = true
+		remotos[peer] = info
+		carros.append(info)
+	return remotos[peer]
+
+func tirar_remoto(peer: int):
+	if remotos.has(peer):
+		carros.erase(remotos[peer])
+		remotos.erase(peer)
+
+func limpar_remotos():
+	for peer in remotos.keys():
+		tirar_remoto(peer)
 
 ## Todos estacionados nas vagas do grid
 func preparar():
@@ -49,19 +82,40 @@ func preparar():
 	chegada.clear()
 	_contatos.clear()
 	for i in rivais.size():
-		var vaga := pista.grid_sd(i)
+		var vaga := pista.grid_sd(vagas_rivais[i] if i < vagas_rivais.size() else i)
 		rivais[i].estacionar(vaga.x, vaga.y)
+		if carro:
+			carro.remove_collision_exception_with(rivais[i])
 
 func largar():
 	ativo = true
 	tempo_corrida = 0.0
+	if remoto:
+		return
 	for rival in rivais:
 		rival.ia.largar(rival.perfil.reacao + randf_range(0.05, 0.4))
+
+## Este Quest virou o anfitrião no meio da corrida: os bonecos voltam a ter IA
+func assumir_ia():
+	if not remoto:
+		return
+	remoto = false
+	for rival in rivais:
+		rival.assumir()
+		if ativo and not rival.terminou:
+			rival.ia.largar(0.0)
 
 func _physics_process(dt: float):
 	if pista == null or carro == null:
 		return
 	_ver_jogador()
+	if remoto:
+		# Bonecos: a IA roda no anfitrião; aqui só seguem a pose e contam a chegada
+		for rival in rivais:
+			rival.seguir_rede(dt)
+		if ativo:
+			_ver_chegadas()
+		return
 	if not ativo:
 		return
 	tempo_corrida += dt
@@ -89,14 +143,15 @@ func _ver_jogador():
 	jogador.d = proj.y
 	var frente: Vector3 = pista.global_basis * -pista.quadro(proj.x).basis.z
 	jogador.v = carro.linear_velocity.dot(frente)
-	jogador.presente = ativo and not carro.em_transicao and not carro.explodindo \
-		and absf(proj.y) < PistaCorrida.LARGURA and absf(local.y - pista.quadro(proj.x).origin.y) < 4.0
+	# Já recebeu a bandeirada: é fantasma, a IA não o enxerga mais
+	jogador.presente = ativo and not carro.em_transicao and not carro.explodindo and not carro.autopiloto \
+		and absf(proj.y) < pista.largura and absf(local.y - pista.quadro(proj.x).origin.y) < 4.0
 
 # --- Perguntas da IA ------------------------------------------------------------
 
 ## Metros de a até b ao longo da pista (positivo = b está na frente), pelo caminho curto
 func delta_s(a: CarroNaPista, b: CarroNaPista) -> float:
-	return wrapf(b.s - a.s, -pista.comprimento * 0.5, pista.comprimento * 0.5)
+	return pista.delta(a.s, b.s)
 
 ## Carro mais próximo à frente, até `alcance` m, cuja faixa cruza a faixa d
 func a_frente(eu: CarroNaPista, alcance: float, d: float, faixa: float) -> CarroNaPista:
@@ -130,7 +185,7 @@ func lado_livre(eu: CarroNaPista, outro: CarroNaPista, linha: float) -> float:
 	var primeiro := 1.0 if linha >= outro.d else -1.0
 	for lado: float in [primeiro, -primeiro]:
 		var faixa := outro.d + lado * IARival.FOLGA_ULTRAPASSAGEM
-		if absf(faixa) > PistaCorrida.MEIA_UTIL:
+		if absf(faixa) > pista.meia_util:
 			continue
 		var livre := true
 		for terceiro in carros:
@@ -177,8 +232,8 @@ func _contatos_entre_rivais():
 				continue
 			var lado := signf(dd) if dd != 0.0 else (1.0 if randf() < 0.5 else -1.0)
 			var sobra := CarroRival.LARGURA - absf(dd)
-			a.d = clampf(a.d - lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
-			b.d = clampf(b.d + lado * sobra * 0.5, -PistaCorrida.MEIA_UTIL, PistaCorrida.MEIA_UTIL)
+			a.d = clampf(a.d - lado * sobra * 0.5, -pista.meia_util, pista.meia_util)
+			b.d = clampf(b.d + lado * sobra * 0.5, -pista.meia_util, pista.meia_util)
 			var tras := a if ds > 0.0 else b
 			var frente := b if ds > 0.0 else a
 			var choque := maxf(tras.v - frente.v, 0.0)
@@ -218,31 +273,49 @@ func _contatos_com_jogador():
 		var atacando := rival.ia.estado == IARival.Estado.ATACAR and rival.ia.alvo == jogador
 		var lateral := absf(rival._vel_lateral)
 		var dv := 0.0
+		var empurrao := lado * (0.8 + lateral * 0.4)
 		if rival_atras:
 			# Bateu na traseira do jogador: perde o embalo
 			dv = -choque * 0.6
 		else:
-			# Levou do jogador por trás: é empurrado para a frente
-			dv = choque * 0.5
-		rival.levar_batida(lado * (0.8 + lateral * 0.4), dv, choque + lateral, jogador, atacando or rival_atras)
-		if atacando:
+			# O jogador acertou a traseira dele: é ataque do jogador. O adversário perde o
+			# embalo e é jogado de lado (o jogador não leva dano, ver car.gd "ataque")
+			dv = -choque * 0.5
+			empurrao = lado * (1.2 + choque * 0.35)
+			if choque > 1.0:
+				carro._avisar("ACERTOU %s!" % rival.perfil.nome, 1.0)
+				carro._vibrar_ambas(0.5, 0.12)
+		rival.levar_batida(empurrao, dv, choque + lateral, jogador, atacando or rival_atras)
+		if atacando and rival_atras:
 			_tranco_no_jogador(rival, -lado, rival_atras)
 
 ## Pancada de brigão: empurra o carro do jogador (para a frente se veio por trás,
-## para o lado se veio de lado) e treme o controle
+## para o lado se veio de lado) e treme o controle. Nunca gira o carro: rodar com
+## batida na traseira enjoa em VR
 func _tranco_no_jogador(rival: CarroRival, lado: float, por_tras: bool):
 	var q := pista.global_transform * pista.quadro(jogador.s)
-	var direcao: Vector3 = (-q.basis.z * 0.6 + q.basis.x * lado * 0.4) if por_tras else (q.basis.x * lado)
-	carro.apply_central_impulse(direcao.normalized() * TRANCO_ATAQUE * carro.mass)
-	carro.apply_torque_impulse(q.basis.y * lado * 0.4 * carro.mass)
+	var direcao: Vector3 = -q.basis.z if por_tras else (q.basis.x * lado)
+	carro.apply_central_impulse(direcao * TRANCO_ATAQUE * carro.mass)
 	carro._vibrar_ambas(0.8, 0.2)
 	carro._avisar("%s TE ACERTOU!" % rival.perfil.nome, 1.2)
 	jogador_atacado.emit(rival)
 
+## Quem passou da chegada vira fantasma: meio transparente e sem colidir com o jogador
+func fantasma(rival: CarroRival):
+	rival.fantasma(true)
+	if carro:
+		carro.add_collision_exception_with(rival)
+
+## O jogador passou da chegada: atravessa todos os adversários
+func jogador_fantasma():
+	for rival in rivais:
+		carro.add_collision_exception_with(rival)
+
 func _ver_chegadas():
-	var linha := voltas * pista.comprimento
+	var linha := pista.distancia_corrida()
 	for rival in rivais:
 		if not rival.terminou and rival.progresso >= linha:
 			rival.terminou = true
+			fantasma(rival)
 			chegada.append(rival.info)
 			rival_chegou.emit(rival, chegada.size())

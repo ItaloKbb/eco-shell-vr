@@ -6,7 +6,6 @@
 [ext_resource type="Script" uid="uid://bop8mb3hdho0o" path="res://atmosphere.gd" id="3_hrzn"]
 [ext_resource type="PackedScene" path="res://car.tscn" id="4_carro"]
 [ext_resource type="Script" uid="uid://y01hu1dvwr6i" path="res://energy_track.gd" id="5_pista"]
-[ext_resource type="Script" uid="uid://3n1syf36qap2" path="res://inimigos.gd" id="6_inimigos"]
 [ext_resource type="Script" uid="uid://20wgthdtrxj2" path="res://musica.gd" id="7_musica"]
 [ext_resource type="Script" uid="uid://c5ggon447ubws" path="res://portais.gd" id="8_portais"]
 [ext_resource type="Script" uid="uid://c5cbknsfcrgjt" path="res://mundos.gd" id="9_mundos"]
@@ -85,21 +84,16 @@ transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 7)
 hex_world = NodePath("../HexWorld")
 pista = NodePath("../PistaEnergia")
 
-[node name="Inimigos" type="Node3D" parent="." unique_id=696421528 node_paths=PackedStringArray("hex_world")]
-script = ExtResource("6_inimigos")
-hex_world = NodePath("../HexWorld")
-
 [node name="Portais" type="Node3D" parent="." unique_id=1466089220 node_paths=PackedStringArray("hex_world")]
 script = ExtResource("8_portais")
 hex_world = NodePath("../HexWorld")
 
-[node name="Mundos" type="Node" parent="." unique_id=1697575004 node_paths=PackedStringArray("carro", "hex_world", "atmosfera", "portais", "inimigos", "ambiente", "sol", "musica")]
+[node name="Mundos" type="Node" parent="." unique_id=1697575004 node_paths=PackedStringArray("carro", "hex_world", "atmosfera", "portais", "ambiente", "sol", "musica")]
 script = ExtResource("9_mundos")
 carro = NodePath("../Carro")
 hex_world = NodePath("../HexWorld")
 atmosfera = NodePath("../Atmosfera")
 portais = NodePath("../Portais")
-inimigos = NodePath("../Inimigos")
 ambiente = NodePath("../WorldEnvironment")
 sol = NodePath("../DirectionalLight3D")
 musica = NodePath("../Musica")

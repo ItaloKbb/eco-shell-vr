@@ -54,6 +54,8 @@ var _porcento: Label
 var _dicas: HBoxContainer
 var _pronto := false
 var _reiniciando := false
+## Corrida em grupo tirou o piloto da esfera: o lançamento em andamento não solta o carro
+var _puxado := false
 var _modo_vr := false
 ## Fora da VR: o último comando veio de um gamepad (muda a edição do nick e os textos)
 var _usando_controle := false
@@ -67,7 +69,7 @@ func _ready():
 	_usando_controle = not Input.get_connected_joypads().is_empty()
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
-	carro.retorno_solicitado.connect(_nova_vida)
+	carro.retorno_solicitado.connect(voltar_ao_ovo)
 	carro.visao_recentralizada.connect(_visao_recentralizada)
 	carro.mao_direita.button_pressed.connect(_botao_vr)
 	Rede.sessao_mudou.connect(_sessao_mudou)
@@ -101,11 +103,18 @@ func _sanitizar(valor: String) -> String:
 			resultado += letra
 	return resultado.strip_edges()
 
+## Explodiu ou terminou a corrida: a vida acaba, o piloto volta para o ovo e, no
+## evento, a sessão encerra (servidor em idle, esfera esperando o operador)
+func voltar_ao_ovo():
+	Rede.terminar_sessao()
+	_nova_vida()
+
 func _nova_vida():
 	if _reiniciando:
 		return
 	_reiniciando = true
 	_pronto = false
+	_puxado = false
 	carro.em_ritual = true
 	carro.freeze = true
 	var mundos = mapa.get_node_or_null("Mundos")
@@ -116,9 +125,6 @@ func _nova_vida():
 	carro.pista.limpar()
 	if _modo_vr:
 		mapa.ajustar_spawn_vr(true)
-	for grupo in ["piramides", "misseis"]:
-		for inimigo in get_tree().get_nodes_in_group(grupo):
-			inimigo.queue_free()
 	for tween in [_ruptura, _voo]:
 		if tween and tween.is_valid():
 			tween.kill()
@@ -359,6 +365,10 @@ func _lancar(destino: Transform3D):
 
 func _sair_vr(destino: Transform3D):
 	await _fade_spawn.cobrir(Color(0.05, 0.1, 0.2), 0.15, "Saída da esfera", false)
+	if _puxado:
+		# A transição dos mundos assume a tela
+		_fade_spawn.descobrir(0.3)
+		return
 	# Evita transparência de tela inteira, expansão sobre os olhos e salto visível.
 	esfera.hide()
 	carro.teleportar(destino)
@@ -366,7 +376,29 @@ func _sair_vr(destino: Transform3D):
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await _fade_spawn.descobrir(0.3)
-	carro.liberar_partida(destino)
+	if not _puxado:
+		carro.liberar_partida(destino)
+
+## Corrida em grupo puxou este jogador ainda na esfera (ou saindo dela): sai direto, já
+## parado para a transição dos mundos levar ao grid. Cancela um lançamento em andamento
+func sair_para_corrida():
+	if estado == Estado.MORTE:
+		return
+	_puxado = true
+	estado = Estado.PARTIDA
+	carga = 0.0
+	carro.comando_acel = 0.0
+	_painel.visible = false
+	for tween in [_ruptura, _voo]:
+		if tween and tween.is_valid():
+			tween.kill()
+	carro.camera.fov = carro._fov
+	esfera.hide()
+	if _modo_vr:
+		mapa.ajustar_spawn_vr(false)
+		_fade_spawn.descobrir(0.3)
+	carro.liberar_partida(carro.global_transform)
+	carro.iniciar_transicao()
 
 func _montar_painel():
 	_slots.clear()

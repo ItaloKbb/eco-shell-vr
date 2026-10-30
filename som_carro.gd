@@ -12,7 +12,7 @@ extends Node3D
 ## - pousos, degraus e batidas: baques no casco em camadas (estalo, corpo sub-grave, o
 ##   material atingido: clangor de carro, zap de parede de luz) e, com dano, o casco
 ##   amassando e pedacinhos caindo; pancada de 2+ barras abafa tudo e zune o ouvido
-## - energia ligada/desligada/caiu, pouca aderência, dash: efeitos elétricos e estouros
+## - nitro: ronco de V12 ao ligar, zumbido elétrico enquanto ligado; placa de turbo: estouro
 ## - dano: vidro trincando; explosão: estrondo e o motor apaga até o carro renascer
 
 const BARRAMENTO := "Carro"
@@ -28,8 +28,8 @@ var _volumes := {}
 var _tarefa := -1
 var _sons := {}
 var _energia := 0.0
-var _rpm_dash := 0.0
-## Alarme de míssil na cabine: "pi" cada vez mais rápido e o "piiii" contínuo
+var _rpm_turbo := 0.0
+## Alarme da sobrecarga do lobby na cabine: "pi" cada vez mais rápido e o "piiii" contínuo
 var _bip: AudioStreamPlayer
 var _bip_continuo: AudioStreamPlayer
 var _proximo_bip := 0.0
@@ -45,17 +45,18 @@ func _ready():
 	_configurar(motor)
 	add_child(motor)
 	carro.largou.connect(motor.ligar)
-	carro.dash_usado.connect(_dash)
-	carro.energia_mudou.connect(_energia_mudou)
+	carro.turbo_placa.connect(_turbo_placa)
+	carro.nitro_mudou.connect(_nitro_mudou)
 	carro.impacto.connect(_impacto)
 	carro.botao_apertado.connect(func(ponto: Vector3): _efeito("clique", 0.5, 1.0, to_local(ponto)))
 	carro.dano.connect(_dano)
 	carro.explodiu.connect(_explodiu)
-	# Barra de energia cheia: bip agudo com faísca; sem energia para voar: bip grave
-	carro.energia_carregada.connect(func(_barras: int):
+	# Pegou nitro: bip agudo com faísca; sem nitro (ou portal fechado): bip grave
+	carro.nitro_coletado.connect(func(_barras: int):
 		_efeito("clique", 0.45, 1.6)
-		_efeito("faisca", 0.2, 1.4))
-	carro.sem_energia.connect(func(): _efeito("clique", 0.45, 0.55))
+		_efeito("faisca", 0.2, 1.4)
+		_efeito("carga", 0.35, 1.3))
+	carro.sem_nitro.connect(func(): _efeito("clique", 0.45, 0.55))
 	carro.renasceu.connect(motor.ligar)
 	# Gerar os loops e efeitos leva alguns décimos de segundo: fora da thread principal
 	_tarefa = WorkerThreadPool.add_task(func(): _sons = SomGerador.new().gerar())
@@ -123,10 +124,12 @@ func _montar():
 		p.play()
 		_loops[nome] = p
 		_volumes[nome] = 0.0
-	for nome in ["arrancada", "impacto", "batida", "carga", "descarga", "faisca", "clique", "trinca",
+	for nome in ["arrancada", "nitro", "impacto", "batida", "carga", "descarga", "faisca", "clique", "trinca",
 			"corpo", "amassado", "detritos", "clang", "zap"]:
 		_efeitos[nome] = _fonte(nome, Vector3(0.0, 0.3, 0.2), 4)
 	_efeitos["arrancada"].position = Vector3(0.0, 0.4, 0.9)
+	# O ronco sai do escapamento, atrás do piloto
+	_efeitos["nitro"].position = Vector3(0.0, 0.35, 1.2)
 	# Alarme sai do painel, sem posição 3D: é o sistema do carro avisando o piloto
 	_bip = AudioStreamPlayer.new()
 	_bip.stream = _sons["bip"]
@@ -151,45 +154,38 @@ func _process(delta: float):
 		SomGerador.biblioteca = _sons
 		_montar()
 
-	var gerando: bool = carro.gerando
+	var nitro: bool = carro.nitro_ativo
 	var frente: float = carro.velocidade
-	var v: float = 0.0 if carro.explodindo else (frente if gerando else carro.linear_velocity.length())
+	var v: float = 0.0 if carro.explodindo else carro.linear_velocity.length()
 	var acel: float = carro.comando_acel
-	var no_chao: bool = not gerando and not carro.explodindo and carro.rodas_no_chao > 0
-	_energia = move_toward(_energia, 1.0 if gerando else 0.0, 2.5 * delta)
+	var no_chao: bool = not carro.explodindo and carro.rodas_no_chao > 0
+	_energia = move_toward(_energia, 1.0 if nitro else 0.0, 2.5 * delta)
 
-	# Motor: acelerador (também na ré), rotação imposta pela roda e esforço da subida
-	var re := acel < 0.0 and frente < 0.5 and not gerando
+	# Motor: acelerador (também na ré) e rotação imposta pela roda; o nitro força o motor
+	var re := acel < 0.0 and frente < 0.5
 	motor.acelerador = -acel * 0.7 if re else maxf(acel, 0.0)
-	_rpm_dash = move_toward(_rpm_dash, 0.0, 2500.0 * delta)
-	motor.rpm_roda = absf(frente) * RPM_POR_MS + _rpm_dash
-	motor.livre = not gerando and carro.rodas_no_chao == 0
-	motor.esforco = clampf(sin(carro.inclinacao) * 1.5, 0.0, 1.0) if gerando else 0.0
+	_rpm_turbo = move_toward(_rpm_turbo, 0.0, 2500.0 * delta)
+	# O motor tem o dobro da velocidade para cobrir: a relação final cai à metade
+	motor.rpm_roda = absf(frente) * RPM_POR_MS * 0.5 + _rpm_turbo
+	motor.livre = carro.rodas_no_chao == 0
+	motor.esforco = 0.6 * _energia * maxf(acel, 0.0)
 
 	if _loops.is_empty():
 		return
-	_alarme_missil(delta)
-	var rapidez := clampf(v / 18.0, 0.0, 1.5)
+	_alarme_sobrecarga(delta)
+	var rapidez := clampf(v / 36.0, 0.0, 1.5)
 	var derrapa := smoothstep(1.2, 4.0, carro.derrapagem) * clampf(v / 3.0, 0.0, 1.0)
-	_tocar("vento", pow(clampf(v / 22.0, 0.0, 1.0), 2.0) * 0.8, 0.75 + v / 35.0, delta)
-	_tocar("rolamento", (pow(clampf(v / 10.0, 0.0, 1.0), 0.8) * 0.4 if no_chao else 0.0), 0.6 + v / 16.0, delta)
+	_tocar("vento", pow(clampf(v / 44.0, 0.0, 1.0), 2.0) * 0.8, 0.75 + minf(v, 90.0) / 70.0, delta)
+	_tocar("rolamento", (pow(clampf(v / 20.0, 0.0, 1.0), 0.8) * 0.4 if no_chao else 0.0), 0.6 + minf(v, 90.0) / 32.0, delta)
 	_tocar("chiado", derrapa * 0.35 if no_chao else 0.0, 0.85 + clampf(carro.derrapagem / 12.0, 0.0, 1.0) * 0.35, delta)
 	_tocar("freio", (carro.freio * clampf(v / 5.0, 0.0, 1.0) * 0.3 if no_chao else 0.0), 0.8 + v / 30.0, delta)
 	var pode_raspar: bool = not carro.explodindo and not carro.em_ritual and not carro.em_transicao and not carro.segurado
 	var raspa := smoothstep(1.5, 8.0, carro.raspagem) if pode_raspar else 0.0
 	_tocar("raspagem", raspa * 0.65, 0.75 + minf(carro.raspagem / 14.0, 0.7), delta)
-	# Elétrico ao fundo: zumbido do gerador e assobio do motor elétrico pela velocidade;
-	# frear na pista (regeneração) derruba o tom e deixa o assobio mais alto
-	var regenera := maxf(-acel, 0.0) if gerando else 0.0
+	# Nitro ligado: zumbido elétrico e o assobio subindo com a velocidade, por baixo do motor
 	_tocar("zumbido", _energia * (0.22 + 0.3 * minf(rapidez, 1.0)), 1.0 + 0.04 * rapidez, delta)
-	# Derrapando e carregando: o assobio elétrico aparece no chão e sobe com a energia
-	var carga := 1.0 if carro.carregando else 0.0
-	_tocar("assobio", _energia * (0.1 + 0.35 * minf(rapidez, 1.0) + 0.15 * maxf(acel, 0.0) + 0.2 * regenera) + carga * 0.3,
-		lerpf(0.55 + rapidez * 1.3 - regenera * 0.15, 0.7 + carro.energia / carro.energia_max * 1.2, carga), delta)
-
-	# Pouca aderência na pista: arcos elétricos cada vez mais frequentes
-	if gerando and carro.aderencia < 0.4 and randf() < (0.4 - carro.aderencia) / 0.4 * 7.0 * delta:
-		_efeito("faisca", 0.1 + 0.25 * (1.0 - carro.aderencia), randf_range(0.8, 1.3))
+	_tocar("assobio", _energia * (0.1 + 0.35 * minf(rapidez, 1.0) + 0.15 * maxf(acel, 0.0)),
+		0.55 + rapidez * 1.3, delta)
 
 ## Volume (0 a 1) e pitch de uma camada, com ataque rápido e soltura mais lenta
 func _tocar(nome: String, alvo: float, pitch: float, delta: float):
@@ -214,16 +210,12 @@ func _explodiu():
 	# O estrondo vem da própria explosão (explosao.gd), no lugar dela
 	motor.desligar()
 
-## Bipes de travamento: com a pirâmide mirando, "pi... pi..."; com míssil no ar, o
-## intervalo encolhe com o tempo que falta para acertar até virar o "piiii" contínuo
-func _alarme_missil(delta: float):
-	var falta := INF
-	for missil in get_tree().get_nodes_in_group("misseis"):
-		falta = minf(falta, missil.tempo_para_impacto())
-	var mirando := false
-	for piramide in get_tree().get_nodes_in_group("piramides"):
-		mirando = mirando or (piramide.travando and piramide.alvo == carro)
-	var continuo := falta < 0.6
+## Bipes da sobrecarga do lobby: um "pi" por segundo nos 10 s de aviso antes dela; na
+## sobrecarga o intervalo encolhe com o tempo que falta até virar o "piiii" contínuo
+func _alarme_sobrecarga(delta: float):
+	var falta: float = carro.segundos_para_explodir()
+	var sobrecarga: float = carro.tempo_sobrecarga
+	var continuo := falta < 1.0
 	if continuo != _bip_continuo.playing:
 		if continuo:
 			_bip_continuo.play()
@@ -232,27 +224,27 @@ func _alarme_missil(delta: float):
 	_proximo_bip -= delta
 	if continuo or _proximo_bip > 0.0:
 		return
-	if falta < INF:
+	if falta <= sobrecarga:
 		_bip.play()
-		_proximo_bip = clampf(falta * 0.2, 0.07, 0.6)
-	elif mirando:
+		_proximo_bip = clampf(falta / sobrecarga * 0.7, 0.1, 0.7)
+	elif falta <= sobrecarga + 10.0:
 		_bip.play()
-		_proximo_bip = 0.45
+		_proximo_bip = 1.0
 
-func _dash():
-	_rpm_dash = 2500.0
+func _turbo_placa():
+	_rpm_turbo = 2500.0
 	motor.arrancada()
 	_efeito("arrancada", 0.7, randf_range(0.95, 1.05))
-	if carro.gerando:
+	if carro.nitro_ativo:
 		_efeito("faisca", 0.35, 1.3)
 
-func _energia_mudou(ligada: bool, caiu: bool):
-	if ligada:
-		_efeito("carga", 0.6)
+func _nitro_mudou(ligado: bool):
+	if ligado:
+		_efeito("nitro", 0.9, randf_range(0.97, 1.03))
+		_efeito("carga", 0.4)
+		motor.arrancada()
 	else:
-		_efeito("descarga", 0.5)
-	if caiu:
-		_efeito("faisca", 0.5, 0.8)
+		_efeito("descarga", 0.4)
 
 func _impacto(forca: float, ponto: Vector3, material: StringName):
 	var onde := to_local(ponto)

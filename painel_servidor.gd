@@ -53,7 +53,7 @@ func _ready():
 	raiz.add_child(_montar_cabecalho())
 	raiz.add_child(_montar_indicadores())
 	# Os cards ficam com o que sobra; ranking e log numa faixa de altura fixa embaixo
-	var oculos := _secao("ÓCULOS CONECTADOS", _montar_cartoes())
+	var oculos := _secao("APARELHOS CONECTADOS", _montar_cartoes())
 	oculos.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	raiz.add_child(oculos)
 	var baixo := HBoxContainer.new()
@@ -124,7 +124,7 @@ func _montar_cabecalho() -> Control:
 func _montar_indicadores() -> Control:
 	var faixa := HBoxContainer.new()
 	faixa.add_theme_constant_override("separation", 12)
-	for chave in [["oculos", "ÓCULOS", TemaEvento.CIANO], ["jogando", "JOGANDO", TemaEvento.CIANO],
+	for chave in [["oculos", "APARELHOS", TemaEvento.CIANO], ["jogando", "JOGANDO", TemaEvento.CIANO],
 			["correndo", "CORRENDO", TemaEvento.VERDE], ["espectadores", "ESPECTADORES", TemaEvento.QUENTE],
 			["ligado", "LIGADO HÁ", TemaEvento.TEXTO]]:
 		var cartao := PanelContainer.new()
@@ -178,7 +178,7 @@ func _montar_cartoes() -> Control:
 	var conteudo := VBoxContainer.new()
 	conteudo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rolagem.add_child(conteudo)
-	_vazio = TemaEvento.rotulo("Nenhum óculos conectado ainda. Ligue os Quests na mesma rede: eles acham o servidor sozinhos.", 15, Color(TemaEvento.TEXTO_SUAVE, 0.8))
+	_vazio = TemaEvento.rotulo("Nenhum aparelho conectado ainda. Ligue os Quests (ou abra o modo GAME nos notebooks) na mesma rede: eles acham o servidor sozinhos.", 15, Color(TemaEvento.TEXTO_SUAVE, 0.8))
 	_vazio.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_vazio.custom_minimum_size.y = 120
 	conteudo.add_child(_vazio)
@@ -481,10 +481,10 @@ class CartaoDispositivo extends PanelContainer:
 		_encerrar = _botao(acoes, "Idle", func(): Rede.encerrar(peer))
 		_encerrar.tooltip_text = "Encerra a sessão e devolve o jogador à espera no Quest"
 		var apelido := _botao(acoes, "Apelido", func(): pediu_apelido.emit(peer))
-		apelido.tooltip_text = "Renomear este óculos"
+		apelido.tooltip_text = "Renomear este aparelho"
 		var desconectar := _botao(acoes, "✕", func(): Rede.desconectar(peer))
 		desconectar.theme_type_variation = "BotaoPerigo"
-		desconectar.tooltip_text = "Desconectar este óculos"
+		desconectar.tooltip_text = "Desconectar este aparelho"
 
 	func _botao(pai: Control, texto: String, acao: Callable) -> Button:
 		var b := Button.new()
@@ -548,6 +548,8 @@ class CartaoDispositivo extends PanelContainer:
 			partes.append("EXPLODIU")
 		elif t.get("na_esfera", false):
 			partes.append("NA ESFERA")
+		elif t.has("sobrecarga"):
+			partes.append("SOBRECARGA %ds" % ceili(float(t.sobrecarga)))
 		var mapa := str(t.get("mapa", ""))
 		if mapa != "":
 			partes.append(mapa.to_upper())

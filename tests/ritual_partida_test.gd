@@ -18,10 +18,9 @@ func _testar():
 	var carro = mapa.carro
 	ritual.arquivo_perfil = "res://.godot/test_piloto.cfg"
 	assert(carro.em_ritual and carro.freeze)
-	carro._dash()
-	carro._alternar_energia()
+	carro._alternar_nitro()
 	carro._registrar_choque(100.0, carro.global_position)
-	assert(carro.vida == carro.VIDA_MAX and not carro.gerando)
+	assert(carro.vida == carro.VIDA_MAX and not carro.nitro_ativo)
 	assert(carro.global_position.distance_to(mapa.get_node("EsferaInicial").global_position) < 0.01)
 	assert(ritual._sanitizar("  ab!c123456789  ") == "ABC12345")
 	ritual.nick = "   "
@@ -65,15 +64,15 @@ func _testar():
 	acelerador.pressed = false
 	Input.parse_input_event(acelerador)
 	Input.flush_buffered_events()
-	# Cria rastro real, incluindo a colisão, e morre duas vezes.
+	# Cria o rastro do nitro e morre duas vezes.
 	for vida in 2:
 		if vida == 1:
-			carro.energia = 3.0
-			carro._alternar_energia()
-			assert(carro.gerando)
-		carro.pista.comecar(carro.global_transform, carro._pontas())
-		var pontas: Array[Vector3] = [carro._pontas()[0] + Vector3.FORWARD, carro._pontas()[1] + Vector3.FORWARD]
-		carro.pista.adicionar(Transform3D(carro.global_basis, carro.global_position + Vector3.FORWARD), pontas)
+			carro.nitro = 3.0
+			carro._alternar_nitro()
+			assert(carro.nitro_ativo)
+		var traseira: Vector3 = carro.global_transform * carro.TRASEIRA
+		carro.pista.comecar(traseira, Vector3.UP)
+		carro.pista.adicionar(traseira + Vector3.FORWARD, Vector3.UP)
 		assert(not carro.pista._trechos.is_empty())
 		carro.tempo_renascer = 0.05
 		carro._explodir()
@@ -82,7 +81,7 @@ func _testar():
 			await physics_frame
 		assert(ritual.estado == ritual.Estado.ESCOLHA)
 		assert(carro.pista._trechos.is_empty())
-		assert(carro.vida == carro.VIDA_MAX and carro.energia == 0.0)
+		assert(carro.vida == carro.VIDA_MAX and carro.nitro == 0.0 and not carro.nitro_ativo)
 		assert(carro.em_ritual and carro.freeze and not carro.explodindo)
 		assert(ritual.nick == "TESTE1")
 		assert(carro.global_position.distance_to(mapa.get_node("EsferaInicial").global_position) < 0.01)

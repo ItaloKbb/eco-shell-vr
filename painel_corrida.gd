@@ -6,24 +6,24 @@ extends PainelHolografico
 enum Pagina { CONTROLES, CONTAGEM, CHEGADA }
 enum Dispositivo { VR, CONTROLE, TECLADO }
 
-## [tecla, ação] de cada dispositivo (no circuito não tem voo de energia)
+## [tecla, ação] de cada dispositivo
 const CONTROLES := {
 	Dispositivo.VR: [
 		["GATILHO D", "ACELERAR"], ["GATILHO E", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["GRIP", "PEGAR GUIDÃO"],
-		["B", "DASH"], ["X", "FREIO DE MÃO"],
+		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
+		["2 GATILHOS", "DRIFT"], ["X", "FREIO DE MÃO"],
 		["Y", "DESVIRAR"], ["CLIQUE E", "RECENTRAR"],
 	],
 	Dispositivo.CONTROLE: [
 		["RT", "ACELERAR"], ["LT", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["ANALÓG. D", "OLHAR"],
-		["B", "DASH / RT 2X"], ["X", "FREIO DE MÃO"],
-		["Y", "DESVIRAR"], ["R3", "CENTRAR VISÃO"],
+		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
+		["LT + RT", "DRIFT"], ["X", "FREIO DE MÃO"],
+		["Y", "DESVIRAR"], ["ANALÓG. D ↕", "NARIZ NO AR"],
 	],
 	Dispositivo.TECLADO: [
 		["W / ↑", "ACELERAR"], ["S / ↓", "FREIO / RÉ"],
-		["A D", "ESTERÇAR"], ["MOUSE", "OLHAR"],
-		["W W", "DASH"], ["ESPAÇO", "FREIO DE MÃO"],
+		["A D", "ESTERÇAR"], ["E", "NITRO"],
+		["W + S", "DRIFT"], ["ESPAÇO", "FREIO DE MÃO"],
 		["R", "DESVIRAR"], ["ESC", "SOLTAR MOUSE"],
 	],
 }
@@ -167,10 +167,12 @@ func _pagina(qual: Pagina):
 		_paginas[i].visible = i == qual
 	moldura_visivel(qual != Pagina.CONTAGEM)
 
-## `restante`: segundos até a largada começar sozinha
-func mostrar_controles(dispositivo: Dispositivo, restante: float):
+## `restante`: segundos até a largada começar sozinha. Corrida em grupo: `espera` vai
+## no lugar do "LARGADA EM" (prontos, tempo da janela) e `confirmado` troca a dica do
+## botão por "aguardando os outros"
+func mostrar_controles(dispositivo: Dispositivo, restante: float, espera := "", confirmado := false):
 	_pagina(Pagina.CONTROLES)
-	etapa.text = "LARGADA EM %ds" % ceili(restante)
+	etapa.text = espera if espera != "" else "LARGADA EM %ds" % ceili(restante)
 	if dispositivo != _dispositivo:
 		_dispositivo = dispositivo
 		_subtitulo.text = "COMANDOS  ·  %s" % NOMES[dispositivo]
@@ -179,12 +181,12 @@ func mostrar_controles(dispositivo: Dispositivo, restante: float):
 			filho.queue_free()
 		for linha in CONTROLES[dispositivo]:
 			_grade.add_child(_cartao_controle(linha[0], linha[1]))
-		var pronto := "ENTER" if dispositivo == Dispositivo.TECLADO else "A"
-		var dicas := [[pronto, "ESTOU PRONTO"]]
-		if dispositivo == Dispositivo.VR:
-			dicas.append(["CLIQUE D", "CONFORTO VR"])
-		definir_dicas(_dicas, dicas)
-	redesenhar("c|%d|%d" % [dispositivo, ceili(restante)])
+	var pronto := "ENTER" if dispositivo == Dispositivo.TECLADO else "A"
+	var dicas := [["✓", "PRONTO! AGUARDANDO OS OUTROS"]] if confirmado else [[pronto, "ESTOU PRONTO"]]
+	if dispositivo == Dispositivo.VR:
+		dicas.append(["CLIQUE D", "CONFORTO VR"])
+	definir_dicas(_dicas, dicas)
+	redesenhar("c|%d|%d|%s|%d" % [dispositivo, ceili(restante), espera, int(confirmado)])
 
 ## "3", "2", "1" em ciano esquentando; "VAI!" em verde
 func mostrar_contagem(texto: String, calor: float):
@@ -197,13 +199,14 @@ func mostrar_contagem(texto: String, calor: float):
 	_legenda_contagem.add_theme_color_override("font_color", cor.lightened(0.2))
 	redesenhar("n|" + texto)
 
-func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String):
+## `sprint`: pista ponta a ponta, sem "melhor volta"
+func mostrar_chegada(posicao: int, total_carros: int, total: String, melhor: String, vencedor: String, sprint := false, dica := "FIM DA CORRIDA"):
 	_pagina(Pagina.CHEGADA)
 	etapa.text = "RESULTADO"
 	_resultado[0].text = "%dº / %d" % [posicao, total_carros]
 	_resultado[1].text = total
-	_resultado[2].text = melhor
+	_resultado[2].text = "—" if sprint else melhor
 	_resultado[3].text = vencedor
 	_resultado[3].add_theme_color_override("font_color", COR_QUENTE if vencedor == "VOCÊ" else Color.WHITE)
-	definir_dicas(_dicas_chegada, [["PORTAL", "VOLTE PELO PORTAL AZUL NO MIOLO"]])
+	definir_dicas(_dicas_chegada, [["FIM", dica]])
 	redesenhar("r|%d|%s|%s|%s" % [posicao, total, melhor, vencedor])

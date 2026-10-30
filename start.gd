@@ -5,9 +5,16 @@ extends Node3D
 ## Supersampling moderado: no Link, 1,10 renderiza 21% mais pixels. O antigo
 ## 1,25 custava 56% mais pixels e, somado ao MSAA 4x, saturava a GPU/encoder.
 @export_range(1.0, 1.5, 0.05) var escala_render_vr_pc := 1.10
-## No APK fica em 1,0: qualquer outro valor desenha num buffer intermediário e
-## reamostra com filtro bilinear, o que borra a imagem e ainda custa banda da GPU.
-@export_range(1.0, 1.3, 0.05) var escala_render_vr_quest := 1.0
+## No APK fica em 1,0. Abaixo disso (FSR ou bilinear) o Godot 4.7.2 Mobile em XR
+## para de desenhar a cena (erros "!draw_list.active" a cada quadro); o ganho de GPU
+## para os 90 Hz vem da foveação dinâmica e da resolução dinâmica da Meta
+@export_range(0.5, 1.3, 0.05) var escala_render_vr_quest := 1.0
+## Taxa de atualização pedida ao Quest (Hz); fica na padrão se o headset não oferecer.
+## Medido no lobby: 90 FPS estáveis, ~9,3 ms de GPU do app (orçamento de 11,1 ms)
+@export var hz_quest := 90.0
+## Ajuste local no headset, sem gerar outro APK (seção [quest]: escala, fsr, hz). Num
+## APK de debug: adb shell run-as br.senai.ecoshellvr para gravar em files/
+const AJUSTE_LOCAL := "user://render_vr.cfg"
 
 @onready var camera_debug: Camera3D = $CameraDebug
 @onready var carro: RigidBody3D = $Carro
@@ -63,15 +70,28 @@ func _ready():
 func _configurar_render_vr():
 	var viewport := get_viewport()
 	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-	viewport.scaling_3d_scale = escala_render_vr_quest if OS.has_feature("android") else escala_render_vr_pc
+	viewport.scaling_3d_scale = escala_render_vr_pc
+	if OS.has_feature("android"):
+		var ajuste := ConfigFile.new()
+		ajuste.load(AJUSTE_LOCAL)
+		escala_render_vr_quest = ajuste.get_value("quest", "escala", escala_render_vr_quest)
+		hz_quest = ajuste.get_value("quest", "hz", hz_quest)
+		var fsr: bool = ajuste.get_value("quest", "fsr", true)
+		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if fsr and escala_render_vr_quest < 1.0 else Viewport.SCALING_3D_MODE_BILINEAR
+		viewport.scaling_3d_scale = escala_render_vr_quest
 	# No PC/Link, 2x mantém as bordas limpas sem multiplicar demais a carga antes
 	# da compressão de vídeo. No APK o tile renderer do Quest lida bem com 4x.
 	viewport.msaa_3d = Viewport.MSAA_4X if OS.has_feature("android") else Viewport.MSAA_2X
 	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
-	# Sem foveação: no Quest 3 ela cria a swapchain "subamostrada", mas o glow e os
-	# SubViewports fazem o Godot desligá-la ao desenhar, e o compositor lê a imagem
-	# no formato errado (tela piscando azul e preto).
-	print("Render VR: escala %.2fx, MSAA %s" % [viewport.scaling_3d_scale, "4x" if OS.has_feature("android") else "2x"])
+	# Quest: foveação fixa (nível e dinâmica em project.godot, só .android) aplicada
+	# pelo VRS do renderizador Mobile. Sem "subsampled images": era ela que, com o
+	# glow e os SubViewports, deixava a tela piscando azul e preto. Junto vêm a
+	# resolução dinâmica da Meta e o MQSR (supersampling + nitidez Quality na camada
+	# de projeção), que recupera no compositor a nitidez do buffer menor
+	if OS.has_feature("android"):
+		viewport.vrs_mode = Viewport.VRS_XR
+	print("Render VR: escala %.2fx (%s), MSAA %s" % [viewport.scaling_3d_scale,
+		"FSR" if viewport.scaling_3d_mode == Viewport.SCALING_3D_MODE_FSR else "bilinear", "4x" if OS.has_feature("android") else "2x"])
 
 ## Só durante o nascimento: evita renderizar tempestade e pós-processamento
 ## atrás da casca fechada. Restaura o perfil anterior antes de revelar a saída.
@@ -88,7 +108,7 @@ func ajustar_spawn_vr(ativo: bool):
 		_perfil_spawn["hex_visible"] = $HexWorld.visible
 		_perfil_spawn["sombra"] = $DirectionalLight3D.shadow_enabled
 		var nos_ocultos := {}
-		for nome in ["PistaEnergia", "Inimigos", "Portais"]:
+		for nome in ["PistaEnergia", "Portais"]:
 			var no: Node3D = get_node(nome)
 			nos_ocultos[nome] = [no.visible, no.process_mode]
 			no.visible = false
@@ -133,9 +153,35 @@ func _sessao_iniciada():
 	_sincronizar_fisica(_xr.display_refresh_rate)
 	if not _xr.refresh_rate_changed.is_connected(_sincronizar_fisica):
 		_xr.refresh_rate_changed.connect(_sincronizar_fisica)
-	# Fica nos 72 Hz padrão do Quest: pedir 90 sem a GPU sustentar faz o headset
-	# reprojetar quadros, e a tremedeira resultante é o que mais enjoa na VR.
+	# Quest: pede 90 Hz (a escala menor com FSR é o que deixa a GPU sustentar; sem
+	# folga o headset reprojeta quadros, e a tremedeira é o que mais enjoa na VR)
+	if OS.has_feature("android") and hz_quest in _xr.get_available_display_refresh_rates():
+		_xr.display_refresh_rate = hz_quest
+		_sincronizar_fisica(hz_quest)
 	carro.recentralizar()
+	_registrar_desempenho_vr()
+
+## O que o runtime aceitou de foveação, resolução dinâmica e MQSR (adb logcat -s godot),
+## para conferir no headset junto com o OVR Metrics Tool
+func _registrar_desempenho_vr():
+	var openxr := _xr as OpenXRInterface
+	if openxr == null:
+		return
+	var camada := "xr/openxr/extensions/meta/composition_layer_settings/main_projection_layer/filtering/"
+	print("Desempenho VR: foveação %s (nível %d, dinâmica %s, VRS %d) · resolução dinâmica Meta %s · MQSR supersampling %d nitidez %d · %.0f Hz · alvo %s" % [
+		"suportada" if openxr.is_foveation_supported() else "NÃO suportada", openxr.foveation_level,
+		openxr.foveation_dynamic, get_viewport().vrs_mode,
+		ProjectSettings.get_setting("xr/openxr/extensions/meta/dynamic_resolution", false),
+		ProjectSettings.get_setting(camada + "supersampling_mode", 0), ProjectSettings.get_setting(camada + "sharpening_mode", 0),
+		openxr.display_refresh_rate, openxr.get_render_target_size()])
+	print("Física: %d ticks/s · taxas do headset %s" % [Engine.physics_ticks_per_second, openxr.get_available_display_refresh_rates()])
+	# O que vale é o que a extensão aceitou na sessão (no headset, VrApi mostra
+	# ShrpLCnt/SSLCnt quando o compositor aplica)
+	if Engine.has_singleton("OpenXRFbCompositionLayerSettingsExtension"):
+		var ext := Engine.get_singleton("OpenXRFbCompositionLayerSettingsExtension")
+		print("MQSR: extensão %s, supersampling %d, nitidez %d, filtro automático %s" % [
+			"ativa" if ext.is_enabled() else "INATIVA", ext.get_projection_layer_supersampling_mode(),
+			ext.get_projection_layer_sharpening_mode(), ext.is_projection_layer_auto_filter_enabled()])
 
 ## Física no mesmo ritmo da tela do headset (72/90/120 Hz): o carro anda no passo
 ## da física e a câmera vai junto, então ritmos diferentes causam tremedeira na VR
@@ -152,8 +198,9 @@ func _unhandled_input(event):
 		var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# Tab alterna entre o carro e a câmera livre de debug
-	elif event.keycode == KEY_TAB and not get_viewport().use_xr and not carro.em_ritual and not carro.em_transicao:
+	# Tab alterna entre o carro e a câmera livre de debug (fora do evento: no notebook
+	# do modo GAME o público não pode sair voando pelo mapa)
+	elif event.keycode == KEY_TAB and not get_viewport().use_xr and Rede.modo != Rede.Modo.CLIENTE 			and not carro.em_ritual and not carro.em_transicao:
 		if camera_carro.current:
 			camera_debug.global_transform = camera_carro.global_transform
 			camera_debug.set("rot_x", camera_debug.rotation.x)

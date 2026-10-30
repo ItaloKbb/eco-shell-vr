@@ -1,26 +1,36 @@
 class_name AvatarRede
 extends Node3D
 ## Avatar de um jogador no lobby compartilhado. A raiz é só rede: um
-## MultiplayerSynchronizer com a pose do carro, cuja autoridade é o próprio dono.
+## MultiplayerSynchronizer com a pose do carro e o contador de nitros (o ronco toca no
+## avatar quando o dono liga o nitro), cuja autoridade é o próprio dono.
 ## O servidor cria e remove (Rede._criar_avatar, pelo MultiplayerSpawner); o visual
-## (casco neon e o nome por cima) só existe nos clientes, e nunca no do próprio dono,
-## que já tem o carro de verdade.
+## (o mesmo carro dos jogadores na corrida e no telão: CarroFantasma, com casco
+## pintado, rodas, nome e anel neon) só existe nos clientes, e nunca no do próprio
+## dono, que já tem o carro de verdade.
 
-## Pose enviada 20 vezes por segundo; o visual suaviza entre uma e outra
-const INTERVALO_SYNC := 0.05
-const COR := Color(1.0, 0.45, 0.15)
+## Pose enviada 30 vezes por segundo junto com o relógio do dono (`t`); o visual
+## interpola entre as poses no tempo em que foram medidas (InterpoladorRede)
+const INTERVALO_SYNC := 1.0 / 30.0
 
 var peer := 0
 var nome := ""
-var _visual: Node3D
+## Relógio do dono quando a pose foi tirada (sincronizado junto com ela)
+var t := 0.0
+## Quantas vezes o dono ligou o nitro (sincronizado); -1 visto = ainda não recebido
+var nitros := 0
+var _nitros_visto := -1
+var _com_visual := false
+var _visual: CarroFantasma
 var _carro: Node3D
+var _interpolador := InterpoladorRede.new()
+var _ultimo_t := -1.0
 
 func _init(peer_: int, nome_: String, com_visual: bool):
 	peer = peer_
 	nome = nome_
 	name = str(peer_)
 	var config := SceneReplicationConfig.new()
-	for propriedade in [NodePath(".:position"), NodePath(".:rotation")]:
+	for propriedade in [NodePath(".:position"), NodePath(".:quaternion"), NodePath(".:t"), NodePath(".:nitros")]:
 		config.add_property(propriedade)
 		config.property_set_spawn(propriedade, false)
 		config.property_set_replication_mode(propriedade, SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
@@ -30,12 +40,17 @@ func _init(peer_: int, nome_: String, com_visual: bool):
 	sync.replication_interval = INTERVALO_SYNC
 	add_child(sync)
 	set_multiplayer_authority(peer_)
-	if com_visual:
-		_visual = _montar_visual()
-		add_child(_visual)
+	_com_visual = com_visual
 
+## O casco dos carros só é gerado com um nó na árvore (CarroRival.preparar)
 func _ready():
-	if _visual:
+	if _com_visual:
+		CarroRival.preparar(self)
+		var pintura: Array = CarroFantasma.PINTURAS_JOGADOR[peer % CarroFantasma.PINTURAS_JOGADOR.size()]
+		_visual = CarroFantasma.new(pintura, nome, 0, true)
+		_visual.name = "Visual"
+		_visual.top_level = true
+		add_child(_visual)
 		_visual.global_transform = global_transform
 
 func _process(delta: float):
@@ -45,50 +60,21 @@ func _process(delta: float):
 			_carro = get_tree().get_first_node_in_group("carro") as Node3D
 		if _carro:
 			global_transform = _carro.global_transform
+			t = InterpoladorRede.agora()
+			nitros = int(_carro.get("nitros_ligados"))
 	elif _visual:
-		var peso := 1.0 - exp(-12.0 * delta)
-		_visual.global_transform = _visual.global_transform.interpolate_with(global_transform, peso)
-
-func _montar_visual() -> Node3D:
-	var raiz := Node3D.new()
-	raiz.name = "Visual"
-	raiz.top_level = true
-	var casco := MeshInstance3D.new()
-	var caixa := BoxMesh.new()
-	caixa.size = Vector3(1.0, 0.45, 2.1)
-	casco.mesh = caixa
-	casco.position.y = 0.45
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.03, 0.03, 0.08)
-	material.metallic = 0.8
-	material.roughness = 0.3
-	material.emission_enabled = true
-	material.emission = COR
-	material.emission_energy_multiplier = 0.6
-	casco.material_override = material
-	raiz.add_child(casco)
-	# Filete neon na base, como os carros do mundo
-	var filete := MeshInstance3D.new()
-	var barra := BoxMesh.new()
-	barra.size = Vector3(1.08, 0.06, 2.18)
-	filete.mesh = barra
-	filete.position.y = 0.25
-	var neon := StandardMaterial3D.new()
-	neon.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	neon.albedo_color = COR
-	neon.emission_enabled = true
-	neon.emission = COR
-	neon.emission_energy_multiplier = 3.0
-	filete.material_override = neon
-	raiz.add_child(filete)
-	var rotulo := Label3D.new()
-	rotulo.text = nome
-	rotulo.position.y = 1.6
-	rotulo.pixel_size = 0.006
-	rotulo.font_size = 64
-	rotulo.outline_size = 12
-	rotulo.modulate = COR
-	rotulo.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	rotulo.no_depth_test = true
-	raiz.add_child(rotulo)
-	return raiz
+		# Pose nova chegou (o `t` muda junto): entra no interpolador
+		if t != _ultimo_t:
+			_ultimo_t = t
+			_interpolador.adicionar(t, position, quaternion)
+		if not _interpolador.vazio():
+			var antes := _visual.global_position
+			_visual.global_transform = _interpolador.pose()
+			# Rodas pela velocidade da pose interpolada (a pose não traz velocidade)
+			if delta > 0.0:
+				_visual.vel = lerpf(_visual.vel, (_visual.global_position - antes).length() / delta, 0.3)
+		# Só depois da primeira pose: o contador chega no mesmo pacote dela
+		if t > 0.0:
+			if _nitros_visto >= 0 and nitros > _nitros_visto:
+				CarroFantasma.roncar(_visual)
+			_nitros_visto = nitros

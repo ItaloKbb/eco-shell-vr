@@ -47,9 +47,15 @@ textures/vram_compression/import_etc2_astc=true
 
 openxr/enabled=true
 openxr/reference_space=0
+openxr/foveation_eye_tracked=false
+openxr/foveation_with_subsampled_images=false
 openxr/startup_alert=false
 openxr/extensions/hand_tracking=true
 openxr/extensions/hand_interaction_profile=true
 shaders/enabled=true
 openxr/extensions/meta/render_model=true
 openxr/extensions/meta/hand_tracking_mesh=true
+openxr/foveation_level.android=2
+openxr/foveation_dynamic.android=true
+openxr/extensions/meta/composition_layer_settings/main_projection_layer/filtering/supersampling_mode=2
+openxr/extensions/meta/composition_layer_settings/main_projection_layer/filtering/sharpening_mode=2

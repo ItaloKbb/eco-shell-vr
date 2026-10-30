@@ -1,7 +1,8 @@
 extends Control
 ## PC sem headset: pergunta se este computador é o servidor do evento (painel do
-## operador) ou um espectador (telão com a transmissão dos jogadores). Teclas 1 e 2
-## escolhem direto. Pular a pergunta: --servidor ou --espectador.
+## operador), um espectador (telão com a transmissão dos jogadores) ou um jogo no
+## teclado (notebook para o público jogar). Teclas 1, 2 e 3 escolhem direto. Pular a
+## pergunta: --servidor, --espectador ou --jogo.
 
 func _ready():
 	theme = TemaEvento.criar()
@@ -33,15 +34,19 @@ func _ready():
 	var espectador := _cartao("2", "ESPECTADOR", "Transmissão ao vivo para o telão:\ncâmeras alternando entre os jogadores.", TemaEvento.QUENTE)
 	espectador.pressed.connect(Inicializador.iniciar.bind("espectador"))
 	cartoes.add_child(espectador)
+	var jogo := _cartao("3", "GAME", "Jogar no teclado e mouse (ou gamepad):
+o notebook entra no evento como um óculos.", TemaEvento.VERDE)
+	jogo.pressed.connect(Inicializador.iniciar.bind("jogo"))
+	cartoes.add_child(jogo)
 	servidor.grab_focus()
 
-	var dica := TemaEvento.rotulo("Atalhos: 1 servidor · 2 espectador   ·   Pular esta tela: --servidor ou --espectador", 13, Color(TemaEvento.TEXTO_SUAVE, 0.7))
+	var dica := TemaEvento.rotulo("Atalhos: 1 servidor · 2 espectador · 3 game   ·   Pular esta tela: --servidor, --espectador ou --jogo", 13, Color(TemaEvento.TEXTO_SUAVE, 0.7))
 	dica.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(dica)
 
 func _cartao(tecla: String, titulo: String, texto: String, cor: Color) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(400, 230)
+	b.custom_minimum_size = Vector2(340, 230)
 	b.add_theme_stylebox_override("normal", TemaEvento.estilo(TemaEvento.CARTAO, Color(cor, 0.45), 2, 12, 24.0))
 	b.add_theme_stylebox_override("hover", TemaEvento.estilo(TemaEvento.CARTAO_CLARO, cor, 2, 12, 24.0))
 	b.add_theme_stylebox_override("focus", TemaEvento.estilo(Color.TRANSPARENT, cor, 3, 12, 24.0))
@@ -82,3 +87,5 @@ func _unhandled_key_input(event: InputEvent):
 			Inicializador.iniciar("servidor")
 		KEY_2, KEY_KP_2:
 			Inicializador.iniciar("espectador")
+		KEY_3, KEY_KP_3:
+			Inicializador.iniciar("jogo")

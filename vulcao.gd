@@ -24,17 +24,15 @@ const COLUNAS := 45
 ## Campos minados: [fração da corrida, padrão, espelhado]
 const CAMPOS := [[0.12, 0, false], [0.27, 1, false], [0.42, 2, false],
 	[0.58, 1, true], [0.74, 2, true], [0.9, 1, true]]
-## (ds, d) de cada mina em volta do centro do campo (m). Fileiras desencontradas, mas
-## sempre com faixa reta livre
+## (ds, d) de cada mina em volta do centro do campo (m). Poucas e espalhadas: fileiras
+## de duas minas a ~24 m uma da outra, desencontradas (A: -6.5/2.5, B: -2.5/6.5), e
+## sempre com faixa reta livre no meio e nas bordas
 const PADROES := [
-	[Vector2(-5.0, -3.2), Vector2(-5.0, 4.4), Vector2(5.0, 0.6), Vector2(5.0, -7.0)],
-	[Vector2(-8.0, -6.4), Vector2(-8.0, -0.9), Vector2(-8.0, 4.6),
-		Vector2(0.0, -3.6), Vector2(0.0, 1.8), Vector2(0.0, 7.3),
-		Vector2(8.0, -7.3), Vector2(8.0, -0.9), Vector2(8.0, 5.0)],
-	[Vector2(-12.0, -8.0), Vector2(-12.0, -2.5), Vector2(-12.0, 3.0),
-		Vector2(-4.0, -5.2), Vector2(-4.0, 0.4), Vector2(-4.0, 6.0),
-		Vector2(4.0, -7.6), Vector2(4.0, -2.0), Vector2(4.0, 3.6), Vector2(4.0, 8.6),
-		Vector2(12.0, -4.6), Vector2(12.0, 1.0), Vector2(12.0, 6.4)],
+	[Vector2(-12.0, -6.5), Vector2(-12.0, 2.5), Vector2(12.0, -2.5), Vector2(12.0, 6.5)],
+	[Vector2(-24.0, -6.5), Vector2(-24.0, 2.5), Vector2(0.0, -2.5), Vector2(0.0, 6.5),
+		Vector2(24.0, -6.5), Vector2(24.0, 2.5)],
+	[Vector2(-36.0, -2.5), Vector2(-36.0, 6.5), Vector2(-12.0, -6.5), Vector2(-12.0, 2.5),
+		Vector2(12.0, -2.5), Vector2(12.0, 6.5), Vector2(36.0, -6.5), Vector2(36.0, 2.5)],
 ]
 
 var obstaculos: ObstaculosPista

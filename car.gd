@@ -152,6 +152,8 @@ const ENTRE_EIXOS := 1.45
 @export var pouso_duro := 9.0
 ## Maior mudança de velocidade que uma batida com adversário causa num passo (m/s)
 @export var tranco_rival := 5.0
+## Quanto uma batida com adversário pode mudar o giro do carro em volta de si (rad/s)
+@export var tranco_giro_rival := 0.2
 @export var tempo_renascer := 3.0
 ## Lobby (mundo neon): segundos livres depois de sair da esfera; passado isso o casco
 ## entra em sobrecarga e perde a vida aos poucos, explodindo em `tempo_sobrecarga`.
@@ -275,6 +277,10 @@ var _mostrador_vel: Label3D
 var _mostrador_info: Label3D
 ## Velocidade no passo anterior (limita o tranco de uma batida com adversário)
 var _vel_anterior := Vector3.ZERO
+## Giro (em torno do eixo do carro) antes de encostar num adversário
+var _giro_livre := 0.0
+## Velocidade vertical antes de encostar num adversário
+var _subida_livre := 0.0
 ## Última amostra da pista perto do carro (acelera a busca de _sob_a_pista)
 var _dica_pista := -1
 var _ultimo_dano := -10.0
@@ -1095,14 +1101,20 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 			_ponto_raspagem = state.get_contact_collider_position(i)
 	if com_rival:
 		var v := _vel_anterior + (state.linear_velocity - _vel_anterior).limit_length(tranco_rival)
-		# Um adversário nunca levanta o carro: sobe no máximo o que já subia (ou 1 m/s),
-		# mesmo encostado vários passos seguidos
-		v.y = minf(v.y, maxf(_vel_anterior.y, 1.0))
+		# Um adversário nunca levanta o carro (nem passa por baixo da traseira dele): sobe
+		# no máximo o que já subia antes de encostar, mesmo encostado vários passos seguidos
+		v.y = minf(v.y, maxf(_subida_livre, 0.3))
 		state.linear_velocity = v
 		var cima := state.transform.basis.y
 		var w := state.angular_velocity
-		var giro := w.project(cima)
-		state.angular_velocity = giro + (w - giro).limit_length(1.0)
+		var giro := w.dot(cima)
+		# Batida de adversário (na traseira, de lado) não roda o carro: o giro fica perto
+		# do que era antes do contato, mesmo encostado vários passos seguidos
+		giro = clampf(giro, _giro_livre - tranco_giro_rival, _giro_livre + tranco_giro_rival)
+		state.angular_velocity = cima * giro + (w - w.project(cima)).limit_length(0.3)
+	else:
+		_giro_livre = state.angular_velocity.dot(state.transform.basis.y)
+		_subida_livre = state.linear_velocity.y
 	_vel_anterior = state.linear_velocity
 
 func _atualizar_atrito():
@@ -1296,6 +1308,8 @@ func _reposicionar(t: Transform3D):
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_vel_anterior = Vector3.ZERO
+	_giro_livre = 0.0
+	_subida_livre = 0.0
 	_capotado = 0.0
 	# Depois de um salto de lugar a dica não vale (no Deserto ela poderia apontar o
 	# viaduto acima da pista de baixo)

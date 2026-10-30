@@ -19,6 +19,10 @@ signal jogador_atacado(rival: CarroRival)
 const ALCANCE_ATAQUE := 18.0
 ## Tranco extra de um ataque no jogador (m/s de variação de velocidade)
 const TRANCO_ATAQUE := 2.2
+## Adversário logo atrás do jogador encosta no máximo isso mais rápido que ele (m/s)
+const TOQUE_TRASEIRA := 3.0
+## Quanto da folga até a traseira do jogador o adversário ainda pode fechar por segundo
+const FECHAR_POR_METRO := 4.0
 
 var pista: PistaCorrida
 var carro: RigidBody3D
@@ -120,6 +124,8 @@ func _physics_process(dt: float):
 		if obstaculos:
 			obstaculos.guiar(rival)
 	for rival in rivais:
+		if jogador.presente:
+			limitar_atras(rival)
 		rival.mover(dt)
 	if obstaculos:
 		obstaculos.colidir_rivais()
@@ -284,13 +290,28 @@ func _contatos_com_jogador():
 		if atacando and rival_atras:
 			_tranco_no_jogador(rival, -lado, rival_atras)
 
+## Adversário vindo por trás na faixa do jogador (até de turbo) freia antes: encosta
+## no máximo TOQUE_TRASEIRA m/s mais rápido. O corpo dele é animável e, rápido demais,
+## entrava no carro do jogador de um passo para o outro; a física desfazia isso
+## levantando e girando o carro (enjoo em VR)
+func limitar_atras(rival: CarroRival):
+	var atras := -delta_s(jogador, rival.info)
+	if atras <= 0.0 or atras > CarroRival.COMPRIMENTO + 12.0:
+		return
+	if absf(rival.d - jogador.d) >= CarroRival.LARGURA + 0.4:
+		return
+	var folga := maxf(atras - CarroRival.COMPRIMENTO, 0.0)
+	var permitida := maxf(jogador.v, 0.0) + TOQUE_TRASEIRA + folga * FECHAR_POR_METRO
+	if rival.v > permitida:
+		rival.v = permitida
+
 ## Pancada de brigão: empurra o carro do jogador (para a frente se veio por trás,
-## para o lado se veio de lado) e treme o controle
+## para o lado se veio de lado) e treme o controle. Nunca gira o carro: rodar com
+## batida na traseira enjoa em VR
 func _tranco_no_jogador(rival: CarroRival, lado: float, por_tras: bool):
 	var q := pista.global_transform * pista.quadro(jogador.s)
-	var direcao: Vector3 = (-q.basis.z * 0.6 + q.basis.x * lado * 0.4) if por_tras else (q.basis.x * lado)
-	carro.apply_central_impulse(direcao.normalized() * TRANCO_ATAQUE * carro.mass)
-	carro.apply_torque_impulse(q.basis.y * lado * 0.4 * carro.mass)
+	var direcao: Vector3 = -q.basis.z if por_tras else (q.basis.x * lado)
+	carro.apply_central_impulse(direcao * TRANCO_ATAQUE * carro.mass)
 	carro._vibrar_ambas(0.8, 0.2)
 	carro._avisar("%s TE ACERTOU!" % rival.perfil.nome, 1.2)
 	jogador_atacado.emit(rival)

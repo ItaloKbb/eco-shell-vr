@@ -158,10 +158,12 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 		mapa.position = _destinos[destino][1]
 		add_child(mapa)
 		await mapa.construir()
-		mapa.portal_volta.alvo = carro
-		mapa.portal_volta.atravessado.connect(voltar)
+		# Sem portal de saída: passou da chegada, a corrida acaba sozinha
+		mapa.portal_volta.visible = false
+		mapa.portal_volta.process_mode = Node.PROCESS_MODE_DISABLED
 		mapa.corrida.carro = carro
 		mapa.corrida.terminou.connect(func(total: float, _melhor: float): Rede.registrar_tempo(total, destino))
+		mapa.corrida.terminou.connect(_fim_da_corrida.bind(mapa).unbind(2))
 		mapas[destino] = mapa
 	_transicao.atualizar_loading(titulo, "Posicionando piloto na largada")
 	await get_tree().process_frame
@@ -191,6 +193,12 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	if musica:
 		musica.tocar_corrida(mapa.faixa_corrida)
 	_trocando = false
+
+## Bandeirada: o resultado fica na frente do piloto um tempo e ele volta ao mundo neon
+func _fim_da_corrida(mapa: MapaCorrida):
+	await get_tree().create_timer(Corrida.TEMPO_RESULTADO).timeout
+	if mapa_atual == mapa and mapa.corrida.fase == Corrida.Fase.CHEGADA:
+		voltar()
 
 func voltar():
 	if _trocando or mapa_atual == null:

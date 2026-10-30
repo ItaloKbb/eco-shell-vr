@@ -127,11 +127,12 @@ func _testar():
 	carro.linear_velocity = Vector3.ZERO
 	# O tanque acaba e o nitro desliga sozinho; desligado, volta a encher sozinho
 	await na_pista(mapa, carro, pista.s_largada + 300.0)
-	carro.nitro = 0.3
+	# (liga só com meia barra ou mais)
+	carro.nitro = 0.55
 	tecla(KEY_E, true)
 	tecla(KEY_E, false)
 	assert(carro.nitro_ativo)
-	for i in 30:
+	for i in 60:
 		await physics_frame
 	assert(not carro.nitro_ativo and carro.nitro < 0.05, "O nitro desliga com o tanque vazio")
 	var antes: float = carro.nitro
@@ -153,6 +154,9 @@ func _testar():
 		var traseira: Vector3 = carro.global_transform * Vector3(0.0, 0.0, 0.7)
 		var vel_traseira: Vector3 = carro.linear_velocity + carro.angular_velocity.cross(traseira - carro.global_position)
 		escorregou = maxf(escorregou, absf(vel_traseira.dot(carro.global_basis.x)))
+		# Mede só a curva, antes de encostar no muro do outro lado
+		if pista.projetar(pista.to_local(carro.global_position)).y < -pista.meia_util + 1.5:
+			break
 	tecla(KEY_W, false)
 	tecla(KEY_A, false)
 	print("Escorregamento lateral da traseira acelerando na curva: %.2f m/s" % escorregou)
@@ -197,8 +201,8 @@ func _testar():
 	assert(materiais.has(&"rival"), "Não encostou no adversário")
 	assert(carro.vida == carro.VIDA_MAX, "Levou dano batendo na traseira: vida %d" % carro.vida)
 
-	# Adversário a 34 m/s acertando a traseira do jogador parado: empurra, mas não
-	# joga o carro para o alto (o carro dele é animável, massa "infinita")
+	# Adversário a 34 m/s vindo na traseira do jogador parado: freia e só encosta,
+	# empurra sem jogar o carro para o alto nem rodar (o carro dele é animável)
 	var batedor: CarroRival = mapa.rivais[1]
 	batedor.ativar(true)
 	var s_jogador := pista.s_largada + 1300.0
@@ -207,10 +211,15 @@ func _testar():
 	var altura_max := 0.0
 	var subida_max := 0.0
 	var empurrado := 0.0
+	var giro_max := 0.0
+	var frente0: Vector3 = -carro.global_basis.z
 	for i in 60 * 2:
 		batedor.v_alvo = 34.0
 		batedor.v = 34.0
 		batedor.d_alvo = 0.0
+		# O tráfego faz o adversário frear antes de entrar na traseira do jogador
+		mapa.trafego._ver_jogador()
+		mapa.trafego.limitar_atras(batedor)
 		batedor.mover(1.0 / 60.0)
 		await physics_frame
 		var local: Vector3 = pista.to_local(carro.global_position)
@@ -218,9 +227,11 @@ func _testar():
 		altura_max = maxf(altura_max, (local - pista.quadro(proj.x).origin).dot(pista.quadro(proj.x).basis.y))
 		subida_max = maxf(subida_max, carro.linear_velocity.y)
 		empurrado = maxf(empurrado, carro.linear_velocity.length())
-	print("Batida de adversário a 34 m/s: carro subiu %.2f m (%.1f m/s para cima), empurrado a %.1f m/s" % [altura_max, subida_max, empurrado])
+		giro_max = maxf(giro_max, rad_to_deg(frente0.angle_to(-carro.global_basis.z)))
+	print("Batida de adversário a 34 m/s: carro subiu %.2f m (%.1f m/s para cima), empurrado a %.1f m/s, virou %.0f°" % [altura_max, subida_max, empurrado, giro_max])
 	assert(empurrado > 3.0, "A batida tem que empurrar")
 	assert(altura_max < 0.8 and subida_max < 1.6, "A batida jogou o carro para o alto")
+	assert(giro_max < 30.0, "A batida na traseira rodou o carro: %.0f°" % giro_max)
 	batedor.estacionar(pista.s_largada + 1600.0, 0.0)
 
 	# No ar, estilo GTA: analógico (aqui Shift = puxar) levanta o nariz e o carro gira de lado

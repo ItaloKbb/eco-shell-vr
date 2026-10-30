@@ -5,8 +5,9 @@ extends Node
 ## e corre as voltas da pista (pista.voltas). A volta só vale passando por todos os
 ## portões da pista na ordem (sem atalho pelo miolo); a primeira passagem pela linha,
 ## logo depois do grid, só arma a contagem. Pista aberta (ponta a ponta): uma "volta"
-## só, da largada até o último portão, que é a linha de chegada. Ao fechar a última volta mostra o resultado, e o piloto segue
-## livre para sair pelo portal. O texto do visor vai em car.gd painel_corrida.
+## só, da largada até o último portão, que é a linha de chegada. Ao fechar a última volta
+## mostra o resultado e, passado TEMPO_RESULTADO, a corrida acaba (mundos.gd leva o
+## piloto de volta ao mundo neon; não tem portal de saída). O texto do visor vai em car.gd painel_corrida.
 ## Os adversários correm por conta própria (TrafegoCorrida + IARival): ficam parados
 ## no grid até o VAI!, e a posição compara o progresso deles com o do piloto.
 ## Em grupo (Rede.sala): a contagem só sai quando o servidor dá a largada (todos
@@ -125,10 +126,10 @@ func abortar():
 func _mudar(nova: Fase):
 	fase = nova
 	_tempo_fase = 0.0
-	# Barreira invisível nas bordas do grid até a chegada: ninguém sai da pista correndo.
-	# Parada ou depois da bandeirada, livre para ir ao portal de volta
+	# Barreira invisível nas bordas do grid até o fim: ninguém sai da pista correndo
+	# (depois da bandeirada a volta ao mundo neon é automática, não tem portal)
 	if pista:
-		pista.barreira_ligada(nova in [Fase.CONTROLES, Fase.CONTAGEM, Fase.CORRENDO])
+		pista.barreira_ligada(nova != Fase.PARADA)
 	fase_mudou.emit(nova)
 
 func _modo_vr() -> bool:

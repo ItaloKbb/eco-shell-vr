@@ -606,9 +606,11 @@ func _physics_process(delta):
 			sobe += 1.0
 			freio_mao = true
 		if Input.is_key_pressed(KEY_SHIFT): sobe -= 1.0
+		# Gatilhos só somam (0 a 1): um controle cujo gatilho solto marca -1 não
+		# pode frear sozinho. O RT do volante EcoShell é proporcional (alavanca).
 		var rt := eixo_controle(JOY_AXIS_TRIGGER_RIGHT)
-		pedal += _analogico(rt)
-		pedal_freio += _analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT))
+		pedal += maxf(_analogico(rt), 0.0)
+		pedal_freio += maxf(_analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT)), 0.0)
 		vira -= _analogico(eixo_controle(JOY_AXIS_LEFT_X))
 		# No Godot o eixo Y dos analógicos é positivo para baixo
 		sobe -= _analogico(eixo_manche())

@@ -21,7 +21,7 @@ func tecla(codigo: Key, pressionada: bool):
 	Input.flush_buffered_events()
 
 func _testar():
-	create_timer(600.0).timeout.connect(func():
+	create_timer(1200.0).timeout.connect(func():
 		push_error("Timeout no teste das sprints")
 		quit(1))
 	var mapa = load("res://menu.tscn").instantiate()
@@ -36,9 +36,9 @@ func _testar():
 	mapa.ritual._painel.hide()
 	carro.em_ritual = false
 
-	for caso in [[portais.CIANO, "Sistema S", PistaSistemaS.LARGURA_S, 1500.0, 1750.0],
-			[portais.VIOLETA, "Parque Industrial", PistaIndustrial.LARGURA_I, 1790.0, 1830.0],
-			[portais.CARMESIM, "I de Incrível", PistaVulcao.LARGURA_V, 1990.0, 2040.0]]:
+	for caso in [[portais.CIANO, "Sistema S", PistaSistemaS.LARGURA_S, 3000.0, 3500.0],
+			[portais.VIOLETA, "Parque Industrial", PistaIndustrial.LARGURA_I, 3580.0, 3660.0],
+			[portais.CARMESIM, "I de Incrível", PistaVulcao.LARGURA_V, 3980.0, 4080.0]]:
 		var portal: Portal = portais._portais[caso[0]]
 		assert(portal.destino_corrida == caso[1])
 		assert(portal.has_node("MarcadorCorrida"))

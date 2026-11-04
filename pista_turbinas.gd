@@ -1,14 +1,14 @@
 class_name PistaTurbinas
 extends PistaCorrida
-## Circuito do Vale das Turbinas: um laço fechado de ~720 m com curvas para os dois
+## Circuito do Vale das Turbinas: um laço fechado de ~1,45 km com curvas para os dois
 ## lados (um círculo deformado por duas ondas) que sobe e desce acompanhando o relevo
 ## do vale. Corre num aterro de concreto um pouco acima do terreno, então a pista
 ## nunca afunda no morro. Os obstáculos móveis ficam em ObstaculosPista.
 
 ## Raio médio do laço e as duas ondas que o deformam (m)
-const RAIO := 112.0
-const ONDA_2 := 22.0
-const ONDA_3 := 13.0
+const RAIO := 224.0
+const ONDA_2 := 44.0
+const ONDA_3 := 26.0
 ## Quanto o terreno fica abaixo da pista em volta dela (o aterro)
 const ATERRO := 1.4
 
@@ -42,7 +42,7 @@ func _chao(x: float, z: float) -> float:
 func _sob_viaduto(_p: Vector3) -> bool:
 	return false
 
-## Largada no trecho mais reto do laço (menor curvatura média em ~±50 m)
+## Largada no trecho mais reto do laço (menor curvatura média em ~±100 m)
 func _t_largada() -> float:
 	var n := 360
 	var curva := PackedFloat32Array()

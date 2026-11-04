@@ -14,8 +14,8 @@ extends MapaCorrida
 ## no total, a maior parte no chão. No miolo de um dos laços fica o portal de volta.
 
 ## Tamanho do chão (m) e quantos quadrados por lado
-const TAMANHO := 1600.0
-const DIVISOES := 128
+const TAMANHO := 2400.0
+const DIVISOES := 160
 ## Largura da pista do Deserto (m): mais folga para disputar posição no infinito
 const LARGURA_PISTA := 16.0
 ## Paleta do mapa: céu azul forte, areia quente, rocha vermelha, cacto verde vivo e o
@@ -182,7 +182,7 @@ func _mesas():
 	rng.seed = 7
 	for i in 11:
 		var a := TAU * i / 11.0 + rng.randf_range(-0.2, 0.2)
-		var d := rng.randf_range(330.0, 540.0)
+		var d := rng.randf_range(PistaCorrida.A + 230.0, PistaCorrida.A + 440.0)
 		var raio := rng.randf_range(32.0, 72.0)
 		var alto := rng.randf_range(40.0, 100.0)
 		var lados := rng.randi_range(6, 9)
@@ -227,8 +227,8 @@ func _cactos():
 	var pecas: Array[Transform3D] = []
 	var cores: Array[Color] = []
 	var feitos := 0
-	while feitos < 55:
-		var p := Vector2(rng.randf_range(-320.0, 320.0), rng.randf_range(-260.0, 260.0))
+	while feitos < 90:
+		var p := Vector2(rng.randf_range(-(PistaCorrida.A + 200.0), PistaCorrida.A + 200.0), rng.randf_range(-260.0, 260.0))
 		if not _fora_da_pista(p, 25.0):
 			continue
 		feitos += 1
@@ -264,8 +264,8 @@ func _pedras():
 	var lugares: Array[Transform3D] = []
 	var cores: Array[Color] = []
 	var feitas := 0
-	while feitas < 90:
-		var p := Vector2(rng.randf_range(-300.0, 300.0), rng.randf_range(-220.0, 220.0))
+	while feitas < 150:
+		var p := Vector2(rng.randf_range(-(PistaCorrida.A + 185.0), PistaCorrida.A + 185.0), rng.randf_range(-220.0, 220.0))
 		if not _fora_da_pista(p, 14.0):
 			continue
 		feitas += 1

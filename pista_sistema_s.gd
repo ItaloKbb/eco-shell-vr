@@ -2,12 +2,12 @@ class_name PistaSistemaS
 extends PistaAberta
 ## Pista do Sistema S: um S enorme e bem largo, ponta a ponta. Reta do grid, a curva de
 ## cima (250° em volta de um círculo), o meio do S e a curva de baixo no sentido contrário
-## (mais 250°), terminando na reta de frenagem. ~1,6 km de corrida no chão plano.
+## (mais 250°), terminando na reta de frenagem. ~3,2 km de corrida no chão plano.
 
 const LARGURA_S := 24.0
 ## Raios das duas barrigas do S (m): a de baixo um pouco mais aberta
-const RAIO_CIMA := 170.0
-const RAIO_BAIXO := 200.0
+const RAIO_CIMA := 340.0
+const RAIO_BAIXO := 400.0
 ## Onde a curva de cima começa (rad, no círculo de cima) e onde a de baixo termina
 const INICIO_CIMA := deg_to_rad(20.0)
 const FIM_BAIXO := deg_to_rad(-160.0)

@@ -129,7 +129,8 @@ func altura(x: float, z: float) -> float:
 	var dist := _distancia_pista(lx, lz)
 	var base := PistaTurbinas.relevo(lx, lz)
 	var aterro := PistaTurbinas.ATERRO * (1.0 - smoothstep(PERTO, LONGE, dist))
-	var morro := smoothstep(40.0, 160.0, dist)
+	# Miolo do laço plano: o portal de volta e o campo solar ficam numa clareira
+	var morro := smoothstep(40.0, 160.0, dist) * smoothstep(60.0, 120.0, Vector2(lx, lz).length())
 	var crista := 1.0 - absf(_ruido.get_noise_2d(lx, lz))
 	return global_position.y + base - aterro + (crista * crista * 34.0 + 3.0) * morro
 
@@ -315,7 +316,7 @@ func _turbinas():
 		tentativas += 1
 		var marco := feitas == 0
 		var a := rng.randf() * TAU
-		var d := rng.randf_range(230.0, 300.0) if marco else rng.randf_range(60.0, 420.0)
+		var d := rng.randf_range(420.0, 480.0) if marco else rng.randf_range(60.0, 620.0)
 		var p := Vector2(cos(a), sin(a)) * d
 		if _distancia_pista(p.x, p.y) < (90.0 if marco else 45.0):
 			continue
@@ -422,9 +423,9 @@ func _arvores():
 	var pedras: Array[Transform3D] = []
 	var cores_pedras: Array[Color] = []
 	var tentativas := 0
-	while troncos.size() < 160 and tentativas < 3000:
+	while troncos.size() < 280 and tentativas < 6000:
 		tentativas += 1
-		var p := Vector2(rng.randf_range(-330.0, 330.0), rng.randf_range(-330.0, 330.0))
+		var p := Vector2(rng.randf_range(-520.0, 520.0), rng.randf_range(-520.0, 520.0))
 		var dist := _distancia_pista(p.x, p.y)
 		if dist < 30.0 or dist > 160.0 or p.length() < 25.0 or (absf(p.x) < 40.0 and p.y > -5.0 and p.y < 60.0):
 			continue

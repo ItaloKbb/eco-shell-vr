@@ -4,7 +4,7 @@ extends MapaCorrida
 ## pista em "i" (PistaVulcao), com seis campos de minas terrestres piscando em vermelho
 ## ao longo da reta e a praça do pingo no fim, onde fica o portal de volta.
 ## O vulcão fumegando fica no horizonte, à frente e à esquerda: ele acompanha o piloto
-## (como o sol), porque a reta tem 2 km e a câmera só enxerga 600 m. Colunas de basalto
+## (como o sol), porque a reta tem 4 km e a câmera só enxerga 600 m. Colunas de basalto
 ## e pedras no meio da lava, e brasas subindo em volta do carro.
 ## Estilo low poly: vulcão, pedras e colunas facetados em basalto violeta chapado, a
 ## lava em placas grandes com veios suaves (lava.gdshader, sem ruído fino), céu de
@@ -23,8 +23,8 @@ const CRATERA := 34.0
 ## Até onde vão as pedras e colunas (m da pista): mais longe o vulcão, que anda junto
 ## com o piloto, passaria por cima delas
 const ALCANCE_CENARIO := 220.0
-const PEDRAS := 140
-const COLUNAS := 45
+const PEDRAS := 280
+const COLUNAS := 90
 ## Paleta do anoitecer na lava: céu violeta para vermelho, basalto violeta e o laranja
 ## da lava (o neon da pista é o mesmo laranja)
 const CEU_ALTO := Color("1b1035")
@@ -170,7 +170,7 @@ func _basalto():
 	var cores: Array[Color] = []
 	var x_max := PistaVulcao.CORRIDA * 0.5 + 200.0
 	var tentativas := 0
-	while pecas.size() < PEDRAS and tentativas < 3000:
+	while pecas.size() < PEDRAS and tentativas < 6000:
 		tentativas += 1
 		var p := Vector2(rng.randf_range(-x_max, x_max), rng.randf_range(-ALCANCE_CENARIO, ALCANCE_CENARIO))
 		var tamanho := Vector3(rng.randf_range(2.0, 9.0), rng.randf_range(0.8, 3.0), rng.randf_range(2.0, 8.0))
@@ -191,7 +191,7 @@ func _basalto():
 	var cores_colunas: Array[Color] = []
 	tentativas = 0
 	var grupos := 0
-	while grupos < COLUNAS and tentativas < 2000:
+	while grupos < COLUNAS and tentativas < 4000:
 		tentativas += 1
 		var centro := Vector2(rng.randf_range(-x_max, x_max), rng.randf_range(-ALCANCE_CENARIO, ALCANCE_CENARIO))
 		if distancia_pista(centro.x, centro.y) < pista.largura * 0.5 + 25.0:

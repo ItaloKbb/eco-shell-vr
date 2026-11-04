@@ -31,7 +31,7 @@ const VELOCIDADE_SOBREVOO := 110.0
 ## Na abertura a câmera sobe muito acima da do Quest: a névoa do mapa recua tanto
 const NEVOA_AEREA := 3.0
 const ALCANCE_CAMERA := 1500.0
-const ALCANCE_AEREO := 4000.0
+const ALCANCE_AEREO := 6000.0
 
 ## Os mapas de corrida do jeito que os portais abrem (destino -> [classe, origem])
 var _destinos := {

@@ -1,13 +1,13 @@
 class_name PistaIndustrial
 extends PistaAberta
-## Pista do Parque Industrial: o "i". A haste é uma reta de ~1,8 km (com curvas de raio
+## Pista do Parque Industrial: o "i". A haste é uma reta de ~3,6 km (com curvas de raio
 ## enorme só para não ficar monótona) e quatro rampas de salto com turbo no pouso
 ## (RampasPista), alternando esquerda, centro e direita. O pingo é uma praça redonda
 ## depois da área de frenagem, aberta para a pista, com o portal de volta no meio.
 
 const LARGURA_I := 18.0
 ## Metros de corrida (da largada à chegada)
-const CORRIDA := 1800.0
+const CORRIDA := 3600.0
 ## Ondulação suave da reta: amplitude e comprimento de onda (m)
 const ONDA := 22.0
 const COMPRIMENTO_ONDA := 950.0

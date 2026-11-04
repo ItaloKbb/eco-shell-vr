@@ -18,11 +18,11 @@ extends Node3D
 
 signal portao(indice: int)
 
-## Escala do infinito (m): ~630 m de volta
-const A := 115.0
+## Escala do infinito (m): ~1,26 km de volta
+const A := 230.0
 const LARGURA := 12.0
 const ALTURA_VIADUTO := 6.5
-const AMOSTRAS := 720
+const AMOSTRAS := 1440
 ## Velocidade para a qual a inclinação das curvas é calculada (m/s) e o máximo (22°)
 const VELOCIDADE_PROJETO := 15.0
 const INCLINACAO_MAX := 0.384

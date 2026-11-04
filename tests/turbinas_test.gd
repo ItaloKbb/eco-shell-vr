@@ -15,7 +15,7 @@ func tecla(codigo: Key, pressionada: bool):
 	Input.flush_buffered_events()
 
 func _testar():
-	create_timer(240.0).timeout.connect(func():
+	create_timer(480.0).timeout.connect(func():
 		push_error("Timeout no teste do Vale das Turbinas")
 		quit(1))
 	var mapa = load("res://menu.tscn").instantiate()
@@ -71,7 +71,7 @@ func _testar():
 			assert(borda.y - vale.altura(borda.x, borda.z) > 0.05, "Terreno atravessa a pista na amostra %d" % i)
 	assert(menor_raio > 18.0, "Curva fechada demais: raio %.1f m" % menor_raio)
 	assert(mais_alto - mais_baixo > 6.0, "A pista deve subir e descer (desnível %.1f m)" % (mais_alto - mais_baixo))
-	assert(pista.comprimento > 650.0 and pista.comprimento < 850.0, "Volta de %.0f m" % pista.comprimento)
+	assert(pista.comprimento > 1300.0 and pista.comprimento < 1700.0, "Volta de %.0f m" % pista.comprimento)
 	# Grid num trecho quase plano e reto
 	for posicao in MapaCorrida.ADVERSARIOS + 1:
 		var vaga: Vector2 = pista.grid_sd(posicao)
@@ -191,7 +191,7 @@ func _testar():
 	carro.freeze = true
 	var inicio := obstaculos.tempo
 	var quadros := 0
-	while obstaculos.tempo - inicio < 100.0:
+	while obstaculos.tempo - inicio < 200.0:
 		await physics_frame
 		quadros += 1
 		if OS.has_environment("DEBUG_OBSTACULOS") and quadros % 120 == 0:

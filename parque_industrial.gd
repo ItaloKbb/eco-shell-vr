@@ -9,9 +9,9 @@ extends MapaCorrida
 ## faixa neon verde da pista embaixo de cada pórtico e duas torres de resfriamento
 ## como marcos (uma em cada metade da reta). Tudo em MultiMesh, sem luz além do sol.
 
-const GALPOES := 34
-const CHAMINES := 14
-const PILHAS := 60
+const GALPOES := 68
+const CHAMINES := 28
+const PILHAS := 120
 ## Distância entre os pórticos que cruzam a pista (m) e a altura livre embaixo
 const PASSO_PORTICO := 300.0
 const VAO_PORTICO := 10.0
@@ -100,7 +100,7 @@ func _galpoes():
 	var cores: Array[Color] = []
 	for i in GALPOES:
 		var lado := 1.0 if i % 2 == 0 else -1.0
-		var x := lerpf(-1000.0, 1000.0, (i + rng.randf()) / GALPOES)
+		var x := lerpf(-1950.0, 1950.0, (i + rng.randf()) / GALPOES)
 		var tamanho := Vector3(rng.randf_range(50.0, 90.0), rng.randf_range(12.0, 20.0), rng.randf_range(30.0, 50.0))
 		var z := lado * (pista.largura * 0.5 + rng.randf_range(70.0, 160.0))
 		pecas.append(Transform3D(Basis.from_scale(tamanho), Vector3(x, tamanho.y * 0.5, z)))
@@ -124,7 +124,7 @@ func _galpoes():
 	var pontas: Array[Transform3D] = []
 	for i in CHAMINES:
 		var lado := 1.0 if i % 2 == 1 else -1.0
-		var x := lerpf(-950.0, 950.0, (i + rng.randf()) / CHAMINES)
+		var x := lerpf(-1900.0, 1900.0, (i + rng.randf()) / CHAMINES)
 		var alto := rng.randf_range(40.0, 70.0)
 		var z := lado * rng.randf_range(190.0, 300.0)
 		corpos.append(Transform3D(Basis.from_scale(Vector3(1.0, alto, 1.0)), Vector3(x, alto * 0.5, z)))
@@ -143,7 +143,7 @@ func _conteineres():
 	var feitas := 0
 	while feitas < PILHAS:
 		var lado := 1.0 if rng.randf() < 0.5 else -1.0
-		var x := rng.randf_range(-980.0, 980.0)
+		var x := rng.randf_range(-1930.0, 1930.0)
 		var base_z := lado * (pista.largura * 0.5 + rng.randf_range(16.0, 70.0))
 		# A reta ondula: confere a distância de verdade até o muro
 		if distancia_pista(x, base_z) < pista.largura * 0.5 + 12.0:
@@ -212,7 +212,7 @@ func _torres():
 	var branco := LowPoly.liso(Color("e9e6dc"))
 	var malha_baixo := LowPoly.facetar(baixo)
 	var malha_cima := LowPoly.facetar(cima)
-	for lugar: Vector3 in [Vector3(-450.0, 0.0, -(pista.largura * 0.5 + 330.0)), Vector3(520.0, 0.0, pista.largura * 0.5 + 360.0)]:
+	for lugar: Vector3 in [Vector3(-900.0, 0.0, -(pista.largura * 0.5 + 330.0)), Vector3(1040.0, 0.0, pista.largura * 0.5 + 360.0)]:
 		for parte: Array in [[malha_baixo, 25.0, branco], [malha_cima, 61.0, branco], [borda, 72.0, LowPoly.neon(NEON, 2.5)]]:
 			var m := MeshInstance3D.new()
 			m.mesh = parte[0]

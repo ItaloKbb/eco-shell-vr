@@ -1,14 +1,14 @@
 class_name PistaVulcao
 extends PistaAberta
 ## Pista do I de Incrível: um "i" comprido cortando o campo de lava. A haste é uma reta
-## de ~2 km que serpenteia de leve (duas ondas sobrepostas, nada que exija frear), com
+## de ~4 km que serpenteia de leve (duas ondas sobrepostas, nada que exija frear), com
 ## campos de minas terrestres (CampoMinado, postos pelo mapa) e o pingo no fim: a praça
 ## de basalto com o portal de volta. Muro dos dois lados o tempo todo: a lava fica do
 ## lado de fora, um pouco abaixo do asfalto.
 
 const LARGURA_V := 20.0
 ## Metros de corrida (da largada à chegada)
-const CORRIDA := 2000.0
+const CORRIDA := 4000.0
 ## Ondulação: duas ondas de amplitude e comprimento diferentes (m)
 const ONDA := 14.0
 const COMPRIMENTO_ONDA := 760.0

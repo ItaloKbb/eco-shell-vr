@@ -10,8 +10,8 @@ extends MapaCorrida
 
 ## Quanto antes do fim da pista fica o portal de volta (m)
 const PORTAL_ANTES_DO_FIM := 25.0
-const PREDIOS := 70
-const ARVORES := 160
+const PREDIOS := 140
+const ARVORES := 320
 ## Paleta do campus no fim da tarde: fachadas (azul SENAI, laranja, branco, turquesa,
 ## amarelo), gramado em dois verdes, copas, céu e o neon âmbar da pista
 const FACHADAS: Array[Color] = [Color("1e6ad2"), Color("f28c28"), Color("f2f4f8"),
@@ -94,9 +94,9 @@ func _predios():
 	var cores: Array[Color] = []
 	var coroas: Array[Transform3D] = []
 	var tentativas := 0
-	while pecas.size() < PREDIOS and tentativas < 2000:
+	while pecas.size() < PREDIOS and tentativas < 4000:
 		tentativas += 1
-		var p := Vector2(rng.randf_range(-650.0, 650.0), rng.randf_range(-750.0, 650.0))
+		var p := Vector2(rng.randf_range(-1000.0, 1000.0), rng.randf_range(-1150.0, 1000.0))
 		var tamanho := Vector3(rng.randf_range(18.0, 50.0), rng.randf_range(10.0, 45.0), rng.randf_range(18.0, 40.0))
 		if distancia_pista(p.x, p.y) < pista.largura * 0.5 + 18.0 + tamanho.length() * 0.5:
 			continue
@@ -129,9 +129,9 @@ func _arvores():
 	var copas: Array[Transform3D] = []
 	var cores_copas: Array[Color] = []
 	var tentativas := 0
-	while troncos.size() < ARVORES and tentativas < 3000:
+	while troncos.size() < ARVORES and tentativas < 6000:
 		tentativas += 1
-		var p := Vector2(rng.randf_range(-450.0, 450.0), rng.randf_range(-550.0, 450.0))
+		var p := Vector2(rng.randf_range(-750.0, 750.0), rng.randf_range(-950.0, 800.0))
 		if distancia_pista(p.x, p.y) < pista.largura * 0.5 + 8.0:
 			continue
 		var alto := rng.randf_range(3.0, 6.0)

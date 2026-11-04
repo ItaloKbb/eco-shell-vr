@@ -8,7 +8,7 @@ func _initialize():
 	_testar.call_deferred()
 
 func _testar():
-	create_timer(240.0).timeout.connect(func():
+	create_timer(480.0).timeout.connect(func():
 		push_error("Timeout no teste da IA")
 		quit(1))
 	var mapa = load("res://menu.tscn").instantiate()
@@ -104,9 +104,9 @@ func _testar():
 		assert(perfil.estilo == PerfilPiloto.Estilo.BRIGAO, "%s atacou sem ser brigão" % nome)
 	assert(fora == 0)
 	assert(sobreposicoes < 60, "Carros atravessando uns aos outros: %d" % sobreposicoes)
-	# 3 voltas de ~630 m, reta a ~24 m/s e curvas no ritmo de antes: ~1 a 2 minutos
+	# 3 voltas de ~1,26 km, reta a ~24 m/s e curvas no ritmo de antes: ~2 a 4 minutos
 	var primeiro: float = tempo_chegada[trafego.chegada[0].nome()]
-	assert(primeiro > 50.0 and primeiro < 130.0, "Tempo do vencedor fora do esperado: %.1f" % primeiro)
+	assert(primeiro > 100.0 and primeiro < 260.0, "Tempo do vencedor fora do esperado: %.1f" % primeiro)
 	print("IA_OK: 10 adversários, ultrapassagens, ataques e %d turbos táticos" % total_turbo)
 	mapa.queue_free()
 	for i in 5:

@@ -98,6 +98,29 @@ func _ready():
 
 ## Começa do grid: carro preso, controles na tela. Em grupo, avisa o servidor que
 ## chegou e espera a largada dele
+## Atrás da tela de loading (mundos.gd, antes de revelar): cria o painel e desenha uma
+## vez cada página que ele vai mostrar. Os números grandes da contagem e o resultado
+## rasterizam aqui, e não na hora do 3-2-1 (era a travada ao abrir a corrida)
+func aquecer():
+	if carro == null:
+		return
+	_criar_painel()
+	for texto in ["3", "2", "1", "VAI!"]:
+		_painel.mostrar_contagem(texto, 0.5)
+		await get_tree().process_frame
+	_painel.mostrar_chegada(1, total_carros(), "0:00.000", "0:00.000", "VOCÊ")
+	await get_tree().process_frame
+	_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES)
+	await get_tree().process_frame
+
+func _criar_painel():
+	if _painel == null:
+		_painel = PainelCorrida.new(_modo_vr())
+		_painel.visible = false
+		if not carro.mao_direita.button_pressed.is_connected(_botao_vr):
+			carro.mao_direita.button_pressed.connect(_botao_vr)
+	_ancorar_painel()
+
 func iniciar(grupo_ := {}):
 	grupo = grupo_
 	ordem_chegada.clear()
@@ -120,12 +143,7 @@ func iniciar(grupo_ := {}):
 	# Preso no grid o tanque não carrega: larga com a metade
 	carro.nitro = carro.nitro_max * NITRO_LARGADA
 	pista.semaforo(-1)
-	if _painel == null:
-		_painel = PainelCorrida.new(_modo_vr())
-		_painel.visible = false
-		if not carro.mao_direita.button_pressed.is_connected(_botao_vr):
-			carro.mao_direita.button_pressed.connect(_botao_vr)
-	_ancorar_painel()
+	_criar_painel()
 	_mudar(Fase.CONTROLES)
 	_painel.mostrar_controles(_dispositivo(), TEMPO_CONTROLES)
 	_painel.mostrar()

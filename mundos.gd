@@ -203,6 +203,9 @@ func entrar_mapa(portal: Portal, destino: String, grupo := {}):
 	carro.atualizar_ambiente_traseira()
 	mapa_atual = mapa
 	await get_tree().physics_frame
+	# Painel da corrida desenhado ainda atrás do loading (sem travada no grid/contagem)
+	_transicao.atualizar_loading(titulo, "Preparando o painel da corrida")
+	await mapa.corrida.aquecer()
 	await _transicao.descobrir()
 	carro.terminar_transicao()
 	# A sala pode ter mudado durante a transição: o grid sai com a versão final

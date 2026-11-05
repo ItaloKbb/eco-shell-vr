@@ -463,6 +463,13 @@ func _montar_portico(i: int, texto: String, com_semaforo: bool):
 	bola.height = 0.64
 	for k in 3:
 		var material := StandardMaterial3D.new()
+		# Emissão sempre ligada (apagada = energia zero): ligar/desligar emission_enabled
+		# troca a variante do shader e o Godot compilava um shader novo na hora da
+		# primeira contagem (travada de ~0,3 s)
+		material.emission_enabled = true
+		material.emission = Color.BLACK
+		material.emission_energy_multiplier = 0.0
+		material.albedo_color = Color(0.08, 0.08, 0.09)
 		_lampadas.append(material)
 		for face: float in [-1.0, 1.0]:
 			var lampada := MeshInstance3D.new()
@@ -531,10 +538,10 @@ func semaforo(estado: int):
 	for k in _lampadas.size():
 		var m: StandardMaterial3D = _lampadas[k]
 		var acesa := estado == 4 or k < estado
-		m.emission_enabled = acesa
-		m.emission = Color(0.2, 1.0, 0.35) if estado == 4 else Color(1.0, 0.12, 0.08)
-		m.emission_energy_multiplier = 4.0
-		m.albedo_color = m.emission if acesa else Color(0.08, 0.08, 0.09)
+		var cor := Color(0.2, 1.0, 0.35) if estado == 4 else Color(1.0, 0.12, 0.08)
+		m.emission = cor if acesa else Color.BLACK
+		m.emission_energy_multiplier = 4.0 if acesa else 0.0
+		m.albedo_color = cor if acesa else Color(0.08, 0.08, 0.09)
 
 # --- Navegação (IA dos adversários) -------------------------------------------
 

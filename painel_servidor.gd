@@ -32,6 +32,10 @@ var _dialogo_apelido: ConfirmationDialog
 var _campo_apelido: LineEdit
 var _peer_apelido := 0
 var _confirma_limpar: ConfirmationDialog
+## Liberar com outros na espera: "Apenas este" ou "Liberar todos"
+var _dialogo_liberar: AcceptDialog
+var _liberar_peer := 0
+var _liberar_nome := ""
 var _tempo_refresco := 0.0
 
 func _ready():
@@ -200,6 +204,7 @@ func _sincronizar_cartoes():
 			cartao.custom_minimum_size.x = LARGURA_CARTAO
 			cartao.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			cartao.pediu_apelido.connect(_pedir_apelido)
+			cartao.pediu_liberar.connect(_pedir_liberacao)
 			_cartoes_box.add_child(cartao)
 			_cartoes[peer] = cartao
 		_cartoes[peer].atualizar()
@@ -211,6 +216,40 @@ func _pedir_apelido(peer: int):
 	_dialogo_apelido.popup_centered(Vector2i(380, 130))
 	_campo_apelido.grab_focus()
 	_campo_apelido.select_all()
+
+## Outros aparelhos na espera: pergunta se libera só este ou todos de uma vez
+func _pedir_liberacao(peer: int, nome: String):
+	var outros := _aguardando(peer)
+	if outros.is_empty():
+		Rede.liberar(peer, nome)
+		return
+	_liberar_peer = peer
+	_liberar_nome = nome
+	var linhas := PackedStringArray()
+	for outro in outros:
+		var quem: String = _cartoes[outro].nome_para_liberar() if _cartoes.has(outro) else ""
+		linhas.append("  •  %s: %s" % [Dispositivos.obter(outro).apelido, quem if quem != "" else "sem nome (continua aguardando)"])
+	_dialogo_liberar.dialog_text = "Existem outros jogadores aguardando liberação:
+
+%s" % "
+".join(linhas)
+	_dialogo_liberar.popup_centered(Vector2i(460, 0))
+
+## Peers registrados e ainda não liberados, menos `exceto`
+func _aguardando(exceto: int) -> Array:
+	var peers := []
+	for outro in Dispositivos.lista:
+		var d: Dictionary = Dispositivos.lista[outro]
+		if outro != exceto and not d.liberado and d.apelido != "":
+			peers.append(outro)
+	return peers
+
+func _liberar_todos():
+	Rede.liberar(_liberar_peer, _liberar_nome)
+	for outro in _aguardando(_liberar_peer):
+		var nome: String = _cartoes[outro].nome_para_liberar() if _cartoes.has(outro) else ""
+		if nome != "":
+			Rede.liberar(outro, nome)
 
 # --- Ranking ------------------------------------------------------------------------
 
@@ -359,6 +398,17 @@ func _montar_dialogos():
 	_confirma_limpar.dialog_text = "Apagar TODAS as tentativas do ranking?\nUma cópia de segurança é salva antes."
 	_confirma_limpar.confirmed.connect(_limpar_ranking)
 	add_child(_confirma_limpar)
+	_dialogo_liberar = AcceptDialog.new()
+	_dialogo_liberar.title = "Liberar jogador"
+	_dialogo_liberar.ok_button_text = "Liberar todos"
+	_dialogo_liberar.add_button("Apenas este", false, "apenas")
+	_dialogo_liberar.add_cancel_button("Cancelar")
+	_dialogo_liberar.confirmed.connect(_liberar_todos)
+	_dialogo_liberar.custom_action.connect(func(acao: StringName):
+		if acao == &"apenas":
+			Rede.liberar(_liberar_peer, _liberar_nome)
+			_dialogo_liberar.hide())
+	add_child(_dialogo_liberar)
 
 func _secao(titulo: String, conteudo: Control) -> PanelContainer:
 	var painel := PanelContainer.new()
@@ -385,6 +435,8 @@ func _secao(titulo: String, conteudo: Control) -> PanelContainer:
 class CartaoDispositivo extends PanelContainer:
 
 	signal pediu_apelido(peer: int)
+	## Liberar (não renomear): o painel decide se pergunta pelos outros na espera
+	signal pediu_liberar(peer: int, nome: String)
 
 	var peer := 0
 	var _caixa: StyleBoxFlat
@@ -404,6 +456,8 @@ class CartaoDispositivo extends PanelContainer:
 	var _liberar: Button
 	var _encerrar: Button
 	var _liberado_antes := false
+	## Último nome digitado pelo jogador (notebook) que foi posto no campo
+	var _sugestao_antes := ""
 
 	func _init(peer_: int):
 		peer = peer_
@@ -494,11 +548,22 @@ class CartaoDispositivo extends PanelContainer:
 		return b
 
 	func _liberar_jogador():
-		if _nome.text.strip_edges().is_empty():
+		var nome := nome_para_liberar()
+		if nome.is_empty():
 			_nome.grab_focus()
 			return
-		Rede.liberar(peer, _nome.text)
 		_nome.release_focus()
+		if Dispositivos.obter(peer).get("liberado", false):
+			Rede.liberar(peer, nome)
+		else:
+			pediu_liberar.emit(peer, nome)
+
+	## O que o operador digitou; vazio, o nome que o jogador digitou no notebook
+	func nome_para_liberar() -> String:
+		var nome := _nome.text.strip_edges()
+		if nome.is_empty():
+			nome = str(Dispositivos.obter(peer).get("nome_sugerido", "")).strip_edges()
+		return nome
 
 	func atualizar():
 		var d := Dispositivos.obter(peer)
@@ -513,7 +578,7 @@ class CartaoDispositivo extends PanelContainer:
 		_titulo.text = d.apelido if d.apelido != "" else "Registrando…"
 		_peer.text = "#%d" % peer
 		TemaEvento.mudar_pilula(_estado, d.estado.to_upper(), cor_estado)
-		_jogador.text = d.jogador if d.liberado else "Aguardando liberação"
+		_jogador.text = d.jogador if d.liberado else ("Aguardando liberação · digitou \"%s\"" % d.nome_sugerido if d.nome_sugerido != "" else "Aguardando liberação")
 		_jogador.add_theme_color_override("font_color", Color.WHITE if d.liberado else TemaEvento.TEXTO_SUAVE)
 		_aparelho.text = "%s · %s" % [d.ip, d.aparelho if d.aparelho != "" else "registrando"]
 		_mostrar_telemetria(Dispositivos.telemetria(d))
@@ -537,6 +602,12 @@ class CartaoDispositivo extends PanelContainer:
 		elif _liberado_antes and not d.liberado:
 			# Sessão encerrada: campo limpo para a próxima pessoa
 			_nome.text = ""
+			_sugestao_antes = ""
+		elif not d.liberado and not _nome.has_focus() and _nome.text == _sugestao_antes:
+			# O jogador digitou o nome no notebook: entra no campo, a não ser que o
+			# operador já tenha escrito outro
+			_nome.text = d.nome_sugerido
+			_sugestao_antes = d.nome_sugerido
 		_liberado_antes = d.liberado
 
 	func _mostrar_telemetria(t: Dictionary):

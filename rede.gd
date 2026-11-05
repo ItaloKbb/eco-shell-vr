@@ -30,7 +30,7 @@ extends Node
 ## apertaram PRONTO, ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.4"
+const VERSAO := "1.5"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -40,6 +40,8 @@ const INTERVALO_RECONEXAO := 2.0
 ## Quanto o cliente espera o servidor tirar o avatar antes de ir para a corrida (s)
 const ESPERA_CONFIRMACAO := 2.0
 const MAX_EVENTOS := 2000
+## Cliente: id sorteado deste aparelho (ver _id_aparelho)
+const ARQUIVO_APARELHO := "user://aparelho.cfg"
 ## Cliente -> servidor: telemetria do carro (s). O servidor repassa cada pacote na hora,
 ## e quem recebe interpola entre eles (InterpoladorRede): 30 Hz deixa sempre duas
 ## amostras dentro do atraso de 0,1 s da interpolação
@@ -519,6 +521,11 @@ func terminar_sessao():
 	nome_jogador = ""
 	pedir_encerramento.rpc_id(1)
 
+## Espera (notebook): o nome que o jogador digitou aparece no painel do operador
+func enviar_nome_sugerido(nome: String):
+	if conectado and not liberado and modo == Modo.CLIENTE:
+		sugerir_nome.rpc_id(1, nome)
+
 ## Fim da corrida: só conta para o ranking com o Quest liberado pelo operador
 func registrar_tempo(tempo: float, pista: String):
 	if conectado and liberado:
@@ -607,10 +614,11 @@ func _conectou():
 		sessao_mudou.emit()
 		return
 	var xr := XRServer.find_interface("OpenXR")
+	# Sem XR é um PC jogando no teclado (modo jogo): vira "Notebook N" no painel
+	var notebook := xr == null or not xr.is_initialized()
 	registrar_dispositivo.rpc_id(1, {
-		"unique_id": OS.get_unique_id(),
-		# Sem XR é um PC jogando no teclado (modo jogo): vira "Notebook N" no painel
-		"tipo": "oculos" if xr != null and xr.is_initialized() else "notebook",
+		"unique_id": _id_aparelho(notebook),
+		"tipo": "notebook" if notebook else "oculos",
 		"modelo": OS.get_model_name(),
 		"aparelho": "%s (%s)" % [OS.get_model_name(), OS.get_name()],
 		"versao": VERSAO,
@@ -618,6 +626,21 @@ func _conectou():
 	})
 	print("Conectado ao servidor do evento")
 	sessao_mudou.emit()
+
+## No Windows o OS.get_unique_id() se repete em notebooks clonados da mesma imagem:
+## no notebook o id leva junto um sorteio guardado em user:// na primeira execução
+func _id_aparelho(notebook: bool) -> String:
+	var id := OS.get_unique_id()
+	if not notebook:
+		return id
+	var config := ConfigFile.new()
+	config.load(ARQUIVO_APARELHO)
+	var sorteio := str(config.get_value("aparelho", "id", ""))
+	if sorteio.is_empty():
+		sorteio = Crypto.new().generate_random_bytes(8).hex_encode()
+		config.set_value("aparelho", "id", sorteio)
+		config.save(ARQUIVO_APARELHO)
+	return "%s/%s" % [id, sorteio]
 
 func _falhou():
 	_conectando = false
@@ -669,6 +692,13 @@ func registrar_dispositivo(info: Dictionary):
 	definir_apelido.rpc_id(peer, novo)
 	atualizar_ranking.rpc_id(peer, Ranking.top)
 	registrar_evento("dispositivo", "%s registrado: %s" % [novo, info.get("aparelho", "?")])
+
+@rpc("any_peer", "call_remote", "reliable")
+func sugerir_nome(nome: String):
+	if modo != Modo.SERVIDOR:
+		return
+	pacotes_recebidos += 1
+	Dispositivos.sugerir_nome(multiplayer.get_remote_sender_id(), nome.left(32))
 
 ## O Quest acabou a vida do piloto (explodiu ou terminou a corrida): encerra como o
 ## operador faria, voltando para idle

@@ -1694,6 +1694,11 @@ func telemetria() -> Dictionary:
 		dados.total = mapa.corrida.total_carros()
 		dados.progresso = mapa.trafego.jogador.progresso
 		dados.chegou = mapa.corrida.fase == Corrida.Fase.CHEGADA
+		# Resultado para o pódio do telão: ordem da bandeirada e o tempo deste piloto
+		if not mapa.corrida.ordem_chegada.is_empty():
+			dados.chegada = mapa.corrida.ordem_chegada
+		if dados.chegou:
+			dados.tempo_total = mapa.corrida._total
 		# Grid (controles/contagem): o telão mostra a abertura da pista do céu
 		dados.fase = mapa.corrida.fase
 		# [número, posição, rotação, progresso, velocidade] dos adversários da corrida: o

@@ -47,8 +47,6 @@ var _tela_mapa: SubViewport
 var _visor_mapa: MeshInstance3D
 var _mapa: MapaHud
 var _pista_mapa: PistaCorrida
-var _mapa_centro := Vector2.ZERO
-var _mapa_escala := 1.0
 var _tempo_mapa := 0.0
 
 func _ready():
@@ -131,23 +129,25 @@ func mostrar(posicao: int, total: int, nitro: float, ligado: bool, aviso: String
 func mostrar_mapa(pista: PistaCorrida, jogador: Vector3, rumo: Vector3, rivais: PackedVector3Array,
 		outros: PackedVector3Array, contramao: bool, delta: float):
 	if pista != _pista_mapa:
-		_preparar_mapa(pista)
+		# Enquadra o traçado inteiro (a reta de 4 km do I de Incrível vira um traço comprido)
+		_pista_mapa = pista
+		_mapa.definir_pista(pista, Vector2(RESOLUCAO_MAPA))
 	_visor_mapa.visible = true
 	_tempo_mapa -= delta
 	if _tempo_mapa > 0.0 and contramao == _mapa.contramao:
 		return
 	_tempo_mapa = 1.0 / QUADROS_MAPA
-	_mapa.jogador = _no_mapa(jogador)
+	_mapa.jogador = _mapa.no_mapa(jogador)
 	var plano := Vector2(rumo.x, rumo.z)
 	_mapa.rumo = plano.normalized() if plano.length() > 0.01 else Vector2.UP
 	_mapa.contramao = contramao
 	var pontos := PackedVector2Array()
 	for p in rivais:
-		pontos.append(_no_mapa(p))
+		pontos.append(_mapa.no_mapa(p))
 	_mapa.rivais = pontos
 	var amigos := PackedVector2Array()
 	for p in outros:
-		amigos.append(_no_mapa(p))
+		amigos.append(_mapa.no_mapa(p))
 	_mapa.outros = amigos
 	_mapa.queue_redraw()
 	_tela_mapa.render_target_update_mode = SubViewport.UPDATE_ONCE
@@ -156,34 +156,6 @@ func mostrar_mapa(pista: PistaCorrida, jogador: Vector3, rumo: Vector3, rivais: 
 func esconder_mapa():
 	if _visor_mapa:
 		_visor_mapa.visible = false
-
-## Traçado da pista na tela do mapa: enquadra o traçado inteiro com margem, mantendo a
-## proporção (a reta de 4 km do I de Incrível vira um traço comprido no meio)
-func _preparar_mapa(pista: PistaCorrida):
-	_pista_mapa = pista
-	var caixa := Rect2(Vector2(pista.pontos[0].x, pista.pontos[0].z), Vector2.ZERO)
-	for p in pista.pontos:
-		caixa = caixa.expand(Vector2(p.x, p.z))
-	_mapa_centro = caixa.get_center()
-	var util := Vector2(RESOLUCAO_MAPA) * 0.86
-	_mapa_escala = minf(util.x / maxf(caixa.size.x, 1.0), util.y / maxf(caixa.size.y, 1.0))
-	var trilha := PackedVector2Array()
-	for i in range(0, PistaCorrida.AMOSTRAS, 6):
-		trilha.append(_no_mapa(pista.pontos[i]))
-	if pista.aberta:
-		trilha.append(_no_mapa(pista.pontos[PistaCorrida.AMOSTRAS - 1]))
-	else:
-		trilha.append(trilha[0])
-	_mapa.trilha = trilha
-	# Linha de largada: um tracinho atravessado na pista
-	var q := pista.quadro(pista.s_largada)
-	var meio := _no_mapa(q.origin)
-	var lado := Vector2(q.basis.x.x, q.basis.x.z).normalized() * 7.0
-	_mapa.largada = PackedVector2Array([meio - lado, meio + lado])
-
-## Ponto local da pista (x, z) em pixels da tela do mapa (norte, -Z, para cima)
-func _no_mapa(p: Vector3) -> Vector2:
-	return (Vector2(p.x, p.z) - _mapa_centro) * _mapa_escala + Vector2(RESOLUCAO_MAPA) * 0.5
 
 ## Tela de alta densidade, transparente, só 2D, desenhada sob demanda
 func _tela(resolucao: Vector2i) -> SubViewport:

@@ -52,6 +52,9 @@ static func iniciar(modo: String):
 			if _reabrir_em_vulkan(modo):
 				return
 			_janela_pc(Vector2i(1600, 900), "Eco Shell VR · Espectador")
+			# Telão da feira: transmissão em tela cheia, sem cursor (F11 volta à janela)
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+			Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 			# Transmissão: animação fluida para o telão/OBS
 			OS.low_processor_usage_mode = false
 			Engine.max_fps = FPS_ESPECTADOR

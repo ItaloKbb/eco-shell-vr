@@ -74,6 +74,10 @@ var remotos := {}
 var _pronto_enviado := false
 ## Indo na direção contrária da pista agora (aviso no visor e seta vermelha no mapa)
 var contramao := false
+## Ordem da bandeirada: [nome, real] de cada um que recebeu (adversários, este piloto e
+## os outros jogadores do grupo). Vai na telemetria para o telão montar o pódio
+var ordem_chegada: Array = []
+var _chegadas_ia := 0
 var _contramao_tempo := 0.0
 ## Contagem de prontos que o servidor manda: {prontos, total, restante (-1 = carregando)}
 var _status := {}
@@ -96,6 +100,8 @@ func _ready():
 ## chegou e espera a largada dele
 func iniciar(grupo_ := {}):
 	grupo = grupo_
+	ordem_chegada.clear()
+	_chegadas_ia = 0
 	_pronto_enviado = false
 	_status = {}
 	volta = 0
@@ -234,11 +240,13 @@ func _physics_process(delta: float):
 		Fase.CORRENDO:
 			_atualizar_posicao()
 			_vigiar_contramao(delta)
+			_anotar_chegadas_ia()
 			# O "VAI!" fica um instante e recolhe
 			if _painel.visible and _tempo_fase > 0.8:
 				_painel.fechar()
 		Fase.CHEGADA:
 			# O ranking fica na frente do piloto até sair; o carro anda sozinho, fantasma
+			_anotar_chegadas_ia()
 			_dirigir_sozinho()
 			if _todos_chegaram():
 				_todos_chegaram_ha += delta
@@ -328,6 +336,8 @@ func _dirigir_sozinho():
 
 func _chegar():
 	_total = _relogio - _largada
+	_anotar_chegadas_ia()
+	_anotar_chegada(carro.nickname, true)
 	# Quem já recebeu a bandeirada chegou antes (adversários e outros jogadores)
 	var jogadores_antes := remotos.values().filter(func(r): return r.chegou)
 	posicao = trafego.chegada.size() + jogadores_antes.size() + 1
@@ -406,7 +416,11 @@ func receber_remoto(item: Dictionary):
 	remoto.carro.receber(t, pos, item.get("rot", Quaternion.IDENTITY), float(item.get("vel", 0.0)))
 	remoto.carro.ver_nitro(int(item.get("nitros", 0)))
 	remoto.progresso = float(item.get("progresso", -INF))
+	var chegou_agora: bool = item.get("chegou", false) and not remoto.chegou
 	remoto.chegou = item.get("chegou", false)
+	if chegou_agora:
+		_anotar_chegadas_ia()
+		_anotar_chegada(remoto.nome if remoto.nome != "" else "PILOTO", true)
 	remoto.visto_em = InterpoladorRede.agora()
 	if not trafego.remoto:
 		# Anfitrião: a IA desvia e disputa posição com ele
@@ -456,6 +470,18 @@ func _vigiar_contramao(delta: float):
 	contramao = agora
 	if contramao:
 		carro._avisar("CONTRAMÃO! DÊ A VOLTA", 0.3)
+
+## Adversários que receberam a bandeirada desde a última olhada, na ordem do tráfego
+func _anotar_chegadas_ia():
+	while _chegadas_ia < trafego.chegada.size():
+		_anotar_chegada(trafego.chegada[_chegadas_ia].nome(), false)
+		_chegadas_ia += 1
+
+func _anotar_chegada(nome: String, real: bool):
+	for linha in ordem_chegada:
+		if linha[0] == nome:
+			return
+	ordem_chegada.append([nome, real])
 
 func _tocar(nome: String, pitch: float, volume: float):
 	var som: AudioStream = SomGerador.biblioteca.get(nome)

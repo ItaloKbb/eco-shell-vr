@@ -4,6 +4,10 @@ extends Control
 ## espectadores, tempo ligado), os óculos em cards (estado, telemetria ao vivo do carro,
 ## bateria, ping e as ações do operador: liberar com o nome do jogador, encerrar sessão,
 ## apelido, desconectar), ranking geral com pódio e log de eventos.
+## AUTO LAUNCH (no cabeçalho, lembrado entre sessões): a cada INTERVALO_AUTO s confere se
+## a pista está livre (ninguém liberado, no lobby ou correndo). Livre, e com todos os
+## óculos em espera já com nome (o que o operador digitou no cartão ou o que o próprio
+## jogador escreveu no aparelho), libera todos de uma vez. Falta nome de alguém: espera.
 ## Toda a lógica fica em Rede, Dispositivos e Ranking; aqui só se mostra e se aciona.
 
 const CORES_EVENTO := {
@@ -14,6 +18,9 @@ const CORES_EVENTO := {
 const TEMPO_DESTAQUE := 8.0
 const LARGURA_CARTAO := 460.0
 const ALTURA_BAIXO := 220.0
+## Auto launch: de quanto em quanto tempo confere (s) e onde guarda se está ligado
+const INTERVALO_AUTO := 3.0
+const ARQUIVO_PAINEL := "user://painel_servidor.cfg"
 
 var _ip: Label
 var _anuncio: PanelContainer
@@ -37,6 +44,9 @@ var _dialogo_liberar: AcceptDialog
 var _liberar_peer := 0
 var _liberar_nome := ""
 var _tempo_refresco := 0.0
+var _auto: CheckButton
+var _auto_status: Label
+var _tempo_auto := 0.0
 
 func _ready():
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -86,6 +96,10 @@ func _process(delta: float):
 	# O selo do anúncio pulsa a cada quadro; o resto refaz a cada 0,5 s
 	var ativo := Rede.modo == Rede.Modo.SERVIDOR
 	_anuncio.modulate.a = 0.55 + 0.45 * absf(sin(Time.get_ticks_msec() * 0.003)) if ativo else 1.0
+	_tempo_auto -= delta
+	if _tempo_auto <= 0.0:
+		_tempo_auto = INTERVALO_AUTO
+		_verificar_auto_launch()
 	_tempo_refresco -= delta
 	if _tempo_refresco > 0.0:
 		return
@@ -120,10 +134,80 @@ func _montar_cabecalho() -> Control:
 	_contadores.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	endereco.add_child(_contadores)
 	caixa.add_child(endereco)
+	caixa.add_child(_montar_auto_launch())
 	_anuncio = TemaEvento.pilula("●  ANUNCIANDO", TemaEvento.QUENTE, 15)
 	_anuncio.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	caixa.add_child(_anuncio)
 	return caixa
+
+# --- Auto launch ----------------------------------------------------------------------
+
+func _montar_auto_launch() -> Control:
+	var coluna := VBoxContainer.new()
+	coluna.alignment = BoxContainer.ALIGNMENT_CENTER
+	coluna.add_theme_constant_override("separation", 0)
+	_auto = CheckButton.new()
+	_auto.text = "AUTO LAUNCH"
+	_auto.tooltip_text = "Com a pista livre (ninguém no lobby nem correndo), libera sozinho\ntodos os óculos em espera, desde que todos já tenham nome."
+	var config := ConfigFile.new()
+	if config.load(ARQUIVO_PAINEL) == OK:
+		_auto.button_pressed = bool(config.get_value("painel", "auto_launch", false))
+	_auto.toggled.connect(func(ligado: bool):
+		var arquivo := ConfigFile.new()
+		arquivo.load(ARQUIVO_PAINEL)
+		arquivo.set_value("painel", "auto_launch", ligado)
+		arquivo.save(ARQUIVO_PAINEL)
+		Rede.registrar_evento("servidor", "Auto launch %s" % ("ligado" if ligado else "desligado"))
+		_tempo_auto = 0.0)
+	coluna.add_child(_auto)
+	_auto_status = TemaEvento.rotulo("", 12, TemaEvento.TEXTO_SUAVE, true)
+	_auto_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_auto_status.custom_minimum_size.x = 260
+	coluna.add_child(_auto_status)
+	return coluna
+
+## Pista livre e todos em espera com nome: libera todos. Óculos sem resposta (sem
+## heartbeat) ou ainda registrando não contam nem seguram os outros
+func _verificar_auto_launch():
+	if _auto == null:
+		return
+	if not _auto.button_pressed:
+		_status_auto("DESLIGADO", TemaEvento.TEXTO_SUAVE)
+		return
+	var ocupados := 0
+	var prontos := []
+	var sem_nome := PackedStringArray()
+	for peer in Dispositivos.lista:
+		var d: Dictionary = Dispositivos.lista[peer]
+		if d.apelido == "" or Dispositivos.sem_resposta(d):
+			continue
+		if d.liberado or d.estado == "lobby" or d.estado == "correndo":
+			ocupados += 1
+			continue
+		var nome: String = _cartoes[peer].nome_para_liberar() if _cartoes.has(peer) else str(d.get("nome_sugerido", "")).strip_edges()
+		if nome == "":
+			sem_nome.append(d.apelido)
+		else:
+			prontos.append([peer, nome])
+	if ocupados > 0:
+		_status_auto("PISTA OCUPADA · %d JOGANDO" % ocupados, TemaEvento.QUENTE)
+		return
+	if not sem_nome.is_empty():
+		_status_auto("AGUARDANDO NOME: %s" % ", ".join(sem_nome), TemaEvento.QUENTE)
+		return
+	if prontos.is_empty():
+		_status_auto("NENHUM ÓCULOS EM ESPERA", TemaEvento.TEXTO_SUAVE)
+		return
+	var nomes := PackedStringArray()
+	for par in prontos:
+		Rede.liberar(par[0], par[1])
+		nomes.append(par[1])
+	Rede.registrar_evento("sessao", "Auto launch liberou %d: %s" % [prontos.size(), ", ".join(nomes)])
+	_status_auto("LIBEROU %d · %s" % [prontos.size(), ", ".join(nomes)], TemaEvento.VERDE)
+
+func _status_auto(texto: String, cor: Color):
+	_auto_status.text = texto
+	_auto_status.add_theme_color_override("font_color", cor)
 
 func _montar_indicadores() -> Control:
 	var faixa := HBoxContainer.new()

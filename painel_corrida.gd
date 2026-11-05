@@ -8,7 +8,7 @@ enum Dispositivo { VR, CONTROLE, TECLADO }
 
 ## [tecla, ação] de cada dispositivo
 const CONTROLES := {
-	# Acessibilidade: o mesmo mapa no Quest e no Xbox (ver car.gd, pedal_acelerador)
+	# Acessibilidade: o mesmo mapa no Quest e no Xbox / ROG Ally (ver car.gd, pedal_acelerador)
 	Dispositivo.VR: [
 		["GATILHOS D", "ACELERAR"], ["GATILHOS E", "FREIO / RÉ"],
 		["ANALÓGICOS", "CURVAS"], ["A", "NITRO"],
@@ -17,7 +17,7 @@ const CONTROLES := {
 	],
 	Dispositivo.CONTROLE: [
 		["RT / RB", "ACELERAR"], ["LT / LB", "FREIO / RÉ"],
-		["ANALÓGICOS", "CURVAS"], ["A", "NITRO"],
+		["ANALÓG. / D-PAD", "CURVAS"], ["A", "NITRO"],
 		["B", "ACELERAR"], ["SEGURE X", "DESISTIR"],
 		["Y", "DESVIRAR"], ["ACEL. + FREIO", "DRIFT"],
 	],

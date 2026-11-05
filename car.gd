@@ -711,14 +711,18 @@ func pedal_de_freio() -> float:
 		p = maxf(p, _analogico(mao_esquerda.get_float("grip")))
 	return clampf(p, 0.0, 1.0)
 
-## Curva (-1 a 1, positivo = esquerda). Teclado: A/D e ←/→. Xbox e Quest: qualquer
-## um dos dois analógicos (vale o mais inclinado, sem somar)
+## Curva (-1 a 1, positivo = esquerda). Teclado: A/D e ←/→. Xbox (e ROG Ally) e Quest:
+## qualquer um dos dois analógicos (vale o mais inclinado, sem somar); no Xbox também o
+## D-pad
 func comando_curva() -> float:
 	var v := 0.0
 	if _ativo():
 		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): v += 1.0
 		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): v -= 1.0
 		v -= _analogico(_mais_inclinado(eixo_controle(JOY_AXIS_LEFT_X), eixo_controle(JOY_AXIS_RIGHT_X)))
+		# D-pad também faz a curva (estilo Xbox: quem prefere botão a analógico)
+		if botao_controle(JOY_BUTTON_DPAD_LEFT): v += 1.0
+		if botao_controle(JOY_BUTTON_DPAD_RIGHT): v -= 1.0
 	if get_viewport().use_xr:
 		v -= _analogico(_mais_inclinado(mao_esquerda.get_vector2("primary").x, mao_direita.get_vector2("primary").x))
 	return clampf(v, -1.0, 1.0)
@@ -1243,7 +1247,7 @@ func _vibrar(mao: XRController3D, forca: float, tempo: float):
 		return
 	if get_viewport().use_xr:
 		mao.trigger_haptic_pulse("haptic", 0.0, forca, tempo, 0.0)
-	for pad in Input.get_connected_joypads():
+	for pad in gamepads():
 		Input.start_joy_vibration(pad, forca, forca, tempo)
 
 # --- Gamepad ------------------------------------------------------------------
@@ -1251,11 +1255,27 @@ func _vibrar(mao: XRController3D, forca: float, tempo: float):
 ## Eixo de maior amplitude entre todos os gamepads conectados (sem zona morta)
 func eixo_controle(eixo: JoyAxis) -> float:
 	var maior := 0.0
-	for pad in Input.get_connected_joypads():
+	for pad in gamepads():
 		var v := Input.get_joy_axis(pad, eixo)
 		if absf(v) > absf(maior):
 			maior = v
 	return maior
+
+## Gamepads que o jogo escuta: os reconhecidos com o mapa padrão (Xbox/XInput, como o
+## controle embutido do ROG Ally e de outros portáteis, PlayStation etc.) e o volante
+## EcoShell. Um dispositivo sem mapa só conta se não houver nenhum desses (controle
+## genérico de feira): o Ally e outros portáteis expõem HIDs extras sem mapa, e como
+## eixos e botões valem "o mais inclinado de todos", um eixo fora do centro num deles
+## acelerava ou virava sozinho
+func gamepads() -> Array[int]:
+	var reconhecidos: Array[int] = []
+	var outros: Array[int] = []
+	for pad in Input.get_connected_joypads():
+		if Input.is_joy_known(pad) or volante_ecoshell(pad):
+			reconhecidos.append(pad)
+		else:
+			outros.append(pad)
+	return reconhecidos if not reconhecidos.is_empty() else outros
 
 ## Volante EcoShell (Raspberry Pi + EV3): manda curva e manche no analógico esquerdo.
 ## Reconhecido pelo nome no Bluetooth, que precisa conter "EcoShell"
@@ -1266,7 +1286,7 @@ func volante_ecoshell(pad: int) -> bool:
 ## esquerdo Y no volante EcoShell. Eixo de maior amplitude, sem zona morta
 func eixo_manche() -> float:
 	var maior := 0.0
-	for pad in Input.get_connected_joypads():
+	for pad in gamepads():
 		var eixo := JOY_AXIS_LEFT_Y if volante_ecoshell(pad) else JOY_AXIS_RIGHT_Y
 		var v := Input.get_joy_axis(pad, eixo)
 		if absf(v) > absf(maior):
@@ -1275,7 +1295,7 @@ func eixo_manche() -> float:
 
 ## Botão apertado em qualquer gamepad conectado
 func botao_controle(botao_pad: JoyButton) -> bool:
-	for pad in Input.get_connected_joypads():
+	for pad in gamepads():
 		if Input.is_joy_button_pressed(pad, botao_pad):
 			return true
 	return false

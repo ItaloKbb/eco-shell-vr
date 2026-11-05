@@ -66,7 +66,7 @@ var _fade_spawn: Transicao
 
 func _ready():
 	_modo_vr = get_viewport().use_xr
-	_usando_controle = not Input.get_connected_joypads().is_empty()
+	_usando_controle = not carro.gamepads().is_empty()
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
 	carro.retorno_solicitado.connect(voltar_ao_ovo)

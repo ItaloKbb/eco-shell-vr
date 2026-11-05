@@ -99,7 +99,7 @@ func iniciar(grupo_ := {}):
 	_ultima = -1.0
 	_melhor = -1.0
 	_total = -1.0
-	_usando_controle = not Input.get_connected_joypads().is_empty()
+	_usando_controle = not carro.gamepads().is_empty()
 	trafego.carro = carro
 	trafego.preparar()
 	carro.segurar()

@@ -1767,6 +1767,29 @@ func _animar(delta: float):
 	_faiscas.emitting = vida <= 1
 	guidao.rotation.z = direcao * 2.0
 
+## Mapa holográfico do visor, só nos mapas de corrida com a corrida em andamento (grid,
+## contagem, correndo e chegada): a pista, o piloto (seta, vermelha na contramão), os
+## adversários e os outros jogadores do grupo, em coordenadas da pista
+func _atualizar_mapa():
+	var mapa: MapaCorrida = hex_world as MapaCorrida
+	if mapa == null or mapa.pista == null or mapa.corrida == null or mapa.corrida.fase == Corrida.Fase.PARADA:
+		capacete.esconder_mapa()
+		return
+	var pista: PistaCorrida = mapa.pista
+	var corrida: Corrida = mapa.corrida
+	var rivais := PackedVector3Array()
+	for rival in corrida.rivais:
+		if rival.visible:
+			rivais.append(pista.to_local(rival.global_position))
+	var outros := PackedVector3Array()
+	for remoto: Dictionary in corrida.remotos.values():
+		var fantasma = remoto.get("carro")
+		if fantasma is Node3D and is_instance_valid(fantasma):
+			outros.append(pista.to_local(fantasma.global_position))
+	var rumo := pista.global_basis.inverse() * -global_basis.z
+	capacete.mostrar_mapa(pista, pista.to_local(global_position), rumo, rivais, outros, corrida.contramao,
+		get_physics_process_delta_time())
+
 ## Visor do capacete (posição na corrida e barra do nitro, mais avisos curtos) e o
 ## mostrador do painel do carro (velocidade, vida e volta)
 func _atualizar_painel():
@@ -1794,6 +1817,7 @@ func _atualizar_painel():
 	# Na câmera livre de debug o visor não faz sentido
 	capacete.visible = _ativo() and not em_transicao
 	capacete.mostrar(posicao, total, nitro / nitro_max, nitro_ativo, aviso, HUD_ALERTA if aviso != "" and aviso != "+NITRO" and aviso != "NITRO!" else HUD_ENERGIA)
+	_atualizar_mapa()
 
 	var km_h := 0 if explodindo else roundi((velocidade if not _trilho.is_empty() else linear_velocity.length()) * 3.6)
 	var texto_vel := "%03d" % km_h

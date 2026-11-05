@@ -31,6 +31,11 @@ const NITRO_LARGADA := 0.5
 const VOLTA_LENTA := 12.0
 ## Jogador da corrida em grupo sem telemetria há mais que isso (s) saiu: o fantasma some
 const SUMIR_REMOTO := 2.0
+## Contramão: andando para trás ao longo da pista, com o bico virado para trás, mais
+## rápido que CONTRAMAO_VELOCIDADE (m/s) por CONTRAMAO_TEMPO (s). Dar ré depois de uma
+## batida (bico para a frente) não conta
+const CONTRAMAO_VELOCIDADE := 3.0
+const CONTRAMAO_TEMPO := 1.0
 
 signal fase_mudou(fase: Fase)
 signal terminou(total: float, melhor: float)
@@ -67,6 +72,9 @@ var grupo := {}
 ## Outros jogadores do grupo: peer -> {carro: CarroFantasma, nome, progresso, chegou, visto_em}
 var remotos := {}
 var _pronto_enviado := false
+## Indo na direção contrária da pista agora (aviso no visor e seta vermelha no mapa)
+var contramao := false
+var _contramao_tempo := 0.0
 ## Contagem de prontos que o servidor manda: {prontos, total, restante (-1 = carregando)}
 var _status := {}
 ## O autoload Rede, buscado na árvore: Corrida é classe global e também é compilada
@@ -139,6 +147,8 @@ func abortar():
 
 func _mudar(nova: Fase):
 	fase = nova
+	contramao = false
+	_contramao_tempo = 0.0
 	_tempo_fase = 0.0
 	# Barreira invisível nas bordas do grid até o fim: ninguém sai da pista correndo
 	# (depois da bandeirada a volta ao mundo neon é automática, não tem portal)
@@ -223,6 +233,7 @@ func _physics_process(delta: float):
 				_tocar("bip", 1.0, -4.0)
 		Fase.CORRENDO:
 			_atualizar_posicao()
+			_vigiar_contramao(delta)
 			# O "VAI!" fica um instante e recolhe
 			if _painel.visible and _tempo_fase > 0.8:
 				_painel.fechar()
@@ -423,6 +434,28 @@ func _tirar_remoto(peer: int):
 	remotos.erase(peer)
 	if trafego:
 		trafego.tirar_remoto(peer)
+
+## Avisa quem está indo na direção contrária da pista: no visor enquanto durar, com
+## vibração e bip na hora em que começa
+func _vigiar_contramao(delta: float):
+	if carro.explodindo or carro.autopiloto:
+		_contramao_tempo = 0.0
+		contramao = false
+		return
+	var s: float = trafego.jogador.s
+	var tangente: Vector3 = pista.global_basis * -pista.quadro(s).basis.z
+	var bico: float = (-carro.global_basis.z).dot(tangente)
+	if trafego.jogador.v < -CONTRAMAO_VELOCIDADE and bico < -0.3:
+		_contramao_tempo += delta
+	elif trafego.jogador.v > -1.0 or bico > 0.0:
+		_contramao_tempo = 0.0
+	var agora := _contramao_tempo >= CONTRAMAO_TEMPO
+	if agora and not contramao:
+		carro._vibrar_ambas(0.7, 0.3)
+		_tocar("bip", 0.6, -4.0)
+	contramao = agora
+	if contramao:
+		carro._avisar("CONTRAMÃO! DÊ A VOLTA", 0.3)
 
 func _tocar(nome: String, pitch: float, volume: float):
 	var som: AudioStream = SomGerador.biblioteca.get(nome)

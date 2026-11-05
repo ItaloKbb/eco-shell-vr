@@ -6,12 +6,18 @@ extends Node3D
 ## aparecem embaixo da posição só enquanto duram. A velocidade fica no painel do carro.
 ## Cada bloco é uma SubViewport de alta densidade projetada num quad que se desenha por
 ## cima de tudo, em modo aditivo. Fica filho da câmera ativa (o carro cuida disso).
+## Na corrida, embaixo à esquerda, o mapa holográfico (MapaHud): traçado da pista, linha
+## de largada, adversários em pontos e o piloto numa seta, que fica vermelha na
+## contramão. Norte sempre para cima: mapa girando junto com o carro enjoa em VR.
 
 ## Distância dos blocos até o olho (m)
 @export var distancia := 1.0
 ## Quanto os blocos ficam para os lados e para baixo do centro da visão (graus)
 @export var abertura := 24.0
 @export var descida := 17.0
+## Onde fica o mapa (graus para a esquerda e para baixo do centro da visão)
+@export var abertura_mapa := 27.0
+@export var descida_mapa := 36.0
 
 const SHADER := preload("res://visor_holografico.gdshader")
 const RESOLUCAO := Vector2i(320, 128)
@@ -21,6 +27,10 @@ const AZUL := Color(0.3, 0.7, 1.0)
 const ACESO := Color(0.75, 0.97, 1.0)
 ## Barra do nitro (px na tela da direita)
 const BARRA := Vector2(300.0, 30.0)
+## Tela do mapa (px) e quantas vezes por segundo ele é redesenhado
+const RESOLUCAO_MAPA := Vector2i(200, 200)
+const QUADROS_MAPA := 15.0
+const VERMELHO := Color(1.0, 0.32, 0.25)
 
 var _fonte := SystemFont.new()
 var _telas: Array[SubViewport] = []
@@ -32,6 +42,14 @@ var _estilo_moldura := StyleBoxFlat.new()
 var _enchimento: ColorRect
 ## Último estado desenhado (só redesenha a tela quando muda)
 var _desenhado := {}
+## Mapa: a tela, o desenho, a pista desenhada e o relógio do redesenho
+var _tela_mapa: SubViewport
+var _visor_mapa: MeshInstance3D
+var _mapa: MapaHud
+var _pista_mapa: PistaCorrida
+var _mapa_centro := Vector2.ZERO
+var _mapa_escala := 1.0
+var _tempo_mapa := 0.0
 
 func _ready():
 	# Grayscale preserva bordas suaves na textura sem o fringing colorido do LCD.
@@ -70,6 +88,16 @@ func _ready():
 		marca.size = Vector2(2.0, BARRA.y - 8.0)
 		_moldura.add_child(marca)
 
+	_tela_mapa = _tela(RESOLUCAO_MAPA)
+	_mapa = MapaHud.new()
+	_mapa.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_mapa.cor = AZUL
+	_mapa.cor_piloto = ACESO
+	_mapa.cor_contramao = VERMELHO
+	_tela_mapa.add_child(_mapa)
+	_visor_mapa = _visor(_tela_mapa, RESOLUCAO_MAPA, -abertura_mapa, descida_mapa)
+	_visor_mapa.visible = false
+
 ## `posicao` 0 = fora de corrida (sem número). `nitro` de 0 a 1. `aviso` vazio some
 func mostrar(posicao: int, total: int, nitro: float, ligado: bool, aviso: String, cor_aviso: Color):
 	nitro = snappedf(clampf(nitro, 0.0, 1.0), 0.01)
@@ -97,15 +125,102 @@ func mostrar(posicao: int, total: int, nitro: float, ligado: bool, aviso: String
 		_estilo_moldura.border_color = cor
 		_telas[1].render_target_update_mode = SubViewport.UPDATE_ONCE
 
-## Cria a tela de um lado (-1 esquerda, 1 direita) e devolve a caixa onde vão os itens
-func _bloco(lado: float) -> VBoxContainer:
+## Mapa holográfico da corrida. `jogador`, `rumo` (para onde o bico aponta) e as
+## posições em coordenadas locais da pista; `outros` são os jogadores do grupo.
+## Redesenha a QUADROS_MAPA por segundo (e na hora quando a contramão muda)
+func mostrar_mapa(pista: PistaCorrida, jogador: Vector3, rumo: Vector3, rivais: PackedVector3Array,
+		outros: PackedVector3Array, contramao: bool, delta: float):
+	if pista != _pista_mapa:
+		_preparar_mapa(pista)
+	_visor_mapa.visible = true
+	_tempo_mapa -= delta
+	if _tempo_mapa > 0.0 and contramao == _mapa.contramao:
+		return
+	_tempo_mapa = 1.0 / QUADROS_MAPA
+	_mapa.jogador = _no_mapa(jogador)
+	var plano := Vector2(rumo.x, rumo.z)
+	_mapa.rumo = plano.normalized() if plano.length() > 0.01 else Vector2.UP
+	_mapa.contramao = contramao
+	var pontos := PackedVector2Array()
+	for p in rivais:
+		pontos.append(_no_mapa(p))
+	_mapa.rivais = pontos
+	var amigos := PackedVector2Array()
+	for p in outros:
+		amigos.append(_no_mapa(p))
+	_mapa.outros = amigos
+	_mapa.queue_redraw()
+	_tela_mapa.render_target_update_mode = SubViewport.UPDATE_ONCE
+
+## Fora da corrida o mapa some
+func esconder_mapa():
+	if _visor_mapa:
+		_visor_mapa.visible = false
+
+## Traçado da pista na tela do mapa: enquadra o traçado inteiro com margem, mantendo a
+## proporção (a reta de 4 km do I de Incrível vira um traço comprido no meio)
+func _preparar_mapa(pista: PistaCorrida):
+	_pista_mapa = pista
+	var caixa := Rect2(Vector2(pista.pontos[0].x, pista.pontos[0].z), Vector2.ZERO)
+	for p in pista.pontos:
+		caixa = caixa.expand(Vector2(p.x, p.z))
+	_mapa_centro = caixa.get_center()
+	var util := Vector2(RESOLUCAO_MAPA) * 0.86
+	_mapa_escala = minf(util.x / maxf(caixa.size.x, 1.0), util.y / maxf(caixa.size.y, 1.0))
+	var trilha := PackedVector2Array()
+	for i in range(0, PistaCorrida.AMOSTRAS, 6):
+		trilha.append(_no_mapa(pista.pontos[i]))
+	if pista.aberta:
+		trilha.append(_no_mapa(pista.pontos[PistaCorrida.AMOSTRAS - 1]))
+	else:
+		trilha.append(trilha[0])
+	_mapa.trilha = trilha
+	# Linha de largada: um tracinho atravessado na pista
+	var q := pista.quadro(pista.s_largada)
+	var meio := _no_mapa(q.origin)
+	var lado := Vector2(q.basis.x.x, q.basis.x.z).normalized() * 7.0
+	_mapa.largada = PackedVector2Array([meio - lado, meio + lado])
+
+## Ponto local da pista (x, z) em pixels da tela do mapa (norte, -Z, para cima)
+func _no_mapa(p: Vector3) -> Vector2:
+	return (Vector2(p.x, p.z) - _mapa_centro) * _mapa_escala + Vector2(RESOLUCAO_MAPA) * 0.5
+
+## Tela de alta densidade, transparente, só 2D, desenhada sob demanda
+func _tela(resolucao: Vector2i) -> SubViewport:
 	var tela := SubViewport.new()
-	tela.size = RESOLUCAO
+	tela.size = resolucao
 	tela.transparent_bg = true
 	tela.disable_3d = true
 	tela.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR
 	tela.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(tela)
+	return tela
+
+## Projeta a tela num quad holográfico (aditivo, por cima de tudo), girado `giro_h`
+## graus para o lado (negativo = esquerda) e `giro_v` para baixo, de frente para o olho
+func _visor(tela: SubViewport, resolucao: Vector2i, giro_h: float, giro_v: float) -> MeshInstance3D:
+	var material := ShaderMaterial.new()
+	material.shader = SHADER
+	material.render_priority = Material.RENDER_PRIORITY_MAX
+	material.set_shader_parameter("tela", tela.get_texture())
+	material.set_shader_parameter("resolucao", Vector2(resolucao))
+	material.set_shader_parameter("grade_pixels", 0.18)
+	material.set_shader_parameter("forca_halo", 0.16)
+	material.set_shader_parameter("forca_cintilacao", 0.0)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(resolucao) * TEXEL * distancia
+	var visor := MeshInstance3D.new()
+	visor.mesh = quad
+	visor.material_override = material
+	visor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var b := Basis(Vector3.UP, -deg_to_rad(giro_h)) * Basis(Vector3.RIGHT, -deg_to_rad(giro_v))
+	visor.transform = Transform3D(b, b * Vector3(0.0, 0.0, -distancia))
+	add_child(visor)
+	return visor
+
+## Cria a tela de um lado (-1 esquerda, 1 direita) e devolve a caixa onde vão os itens
+func _bloco(lado: float) -> VBoxContainer:
+	var tela := _tela(RESOLUCAO)
 	_telas.append(tela)
 
 	var caixa := VBoxContainer.new()
@@ -116,25 +231,8 @@ func _bloco(lado: float) -> VBoxContainer:
 	caixa.alignment = BoxContainer.ALIGNMENT_END
 	caixa.add_theme_constant_override("separation", 0)
 	tela.add_child(caixa)
-
-	var material := ShaderMaterial.new()
-	material.shader = SHADER
-	material.render_priority = Material.RENDER_PRIORITY_MAX
-	material.set_shader_parameter("tela", tela.get_texture())
-	material.set_shader_parameter("resolucao", Vector2(RESOLUCAO))
-	material.set_shader_parameter("grade_pixels", 0.18)
-	material.set_shader_parameter("forca_halo", 0.16)
-	material.set_shader_parameter("forca_cintilacao", 0.0)
-	var quad := QuadMesh.new()
-	quad.size = Vector2(RESOLUCAO) * TEXEL * distancia
-	var visor := MeshInstance3D.new()
-	visor.mesh = quad
-	visor.material_override = material
-	visor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# Gira para o lado e para baixo, sempre de frente para o olho
-	var b := Basis(Vector3.UP, -lado * deg_to_rad(abertura)) * Basis(Vector3.RIGHT, -deg_to_rad(descida))
-	visor.transform = Transform3D(b, b * Vector3(0.0, 0.0, -distancia))
-	add_child(visor)
+	_visor(tela, RESOLUCAO, lado * abertura, descida)
 	return caixa
 
 func _rotulo(pai: Control, tamanho: int, alinhamento: HorizontalAlignment) -> Label:

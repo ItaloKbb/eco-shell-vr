@@ -45,6 +45,8 @@ signal botao_apertado(ponto: Vector3)
 signal dano(barras: int)
 signal explodiu
 signal retorno_solicitado
+## O piloto segurou X: desistiu do jogo (ritual_partida volta para o ovo)
+signal desistiu
 signal renasceu
 signal visao_recentralizada
 ## Pegou um turbo de nitro; recusa (nitro vazio, portal fechado): bip grave
@@ -136,6 +138,13 @@ const ENTRE_EIXOS := 1.45
 @export var amortece_tombo := 4.0
 ## No ar sem comando: quão rápido o carro se nivela de lado para pousar nas rodas (1/s²)
 @export var nivelar_no_ar := 4.0
+## Limite RÍGIDO (capotar e rodar de acidente são proibidos: dão tontura). De lado: acima
+## das curvas inclinadas (até 22°) e da ponte do velódromo (20°); de frente: acima das
+## rampas (20°) e dos saltos. Passou, a física é corrigida no mesmo passo
+@export_range(10.0, 80.0) var rolagem_max_graus := 30.0
+@export_range(10.0, 80.0) var arfagem_max_graus := 40.0
+## Superfície mais inclinada que isso em relação ao teto do carro não é chão para a roda
+@export_range(30.0, 85.0) var chao_max_graus := 55.0
 
 @export_group("Dano")
 ## Força de um choque = variação brusca de velocidade (m/s). Abaixo disso, só barulho.
@@ -174,7 +183,9 @@ const ENTRE_EIXOS := 1.45
 const ANCORA_CABECA_LOCAL := Vector3(0.0, 0.8, 0.05)
 
 @export_group("Gamepad")
-## Velocidade de giro da cabeça com o analógico direito (rad/s)
+## Velocidade de giro da cabeça com o analógico direito (rad/s). Sem uso por enquanto:
+## o analógico direito agora também faz a curva (acessibilidade); fica para um modo
+## alternativo de câmera
 @export var giro_olhar_controle := 2.5
 
 ## Cores do texto no visor do capacete
@@ -189,6 +200,8 @@ const HUD_ALERTA := Color(1.0, 0.3, 0.25)
 ## Modelos dos controles do Quest e malhas das mãos rastreadas: [esquerda, direita]
 @onready var controles: Array[Node3D] = [$OrigemXR/MaoEsquerda/Controle, $OrigemXR/MaoDireita/Controle]
 @onready var maos_rastreadas: Array[Node3D] = [$OrigemXR/MaoRastreadaE, $OrigemXR/MaoRastreadaD]
+## Modelo simples de reserva de cada controle (ver _montar_controles_simples)
+var _controles_simples: Array[Node3D] = []
 @onready var rodas: Array[Node3D] = [$RodaFE, $RodaFD, $RodaT]
 @onready var giros_rodas: Array[Node3D] = [$RodaFE/Giro, $RodaFD/Giro, $RodaT/Giro]
 @onready var guidao: Node3D = $Guidao
@@ -304,6 +317,19 @@ var _trilho_i := 0
 var _trilho_desvio := 0.0
 ## Tempo com as três rodas no ar (s)
 var _no_ar := 0.0
+## Onde o carro estava quando começou a contar o tempo capotado (empurrões e tremor
+## não zeram a contagem: vale o deslocamento, não a velocidade)
+var _capotado_desde := Vector3.ZERO
+## Vigia de encalhe (ver _vigiar_encalhe): tempo sem sair do lugar e de onde contou
+var _preso := 0.0
+var _preso_desde := Vector3.ZERO
+## Última vez que o vigia destravou (s): repetido no mesmo lugar, recua mais
+var _ultimo_destravar := -10.0
+## Giro (guinada) máximo permitido agora, calculado no passo de física (ver _giro_max)
+var _ultimo_giro_max := 3.0
+## Segurar X para desistir: tempo segurando e se já soltou desde a última desistência
+var _tempo_x := 0.0
+var _x_solto := true
 
 func _ready():
 	# A rede (telemetria, avatar do lobby) procura o carro por este grupo
@@ -329,6 +355,7 @@ func _ready():
 	_olhar_repouso = _olhar
 	mao_esquerda.button_pressed.connect(_botao_esquerdo)
 	mao_direita.button_pressed.connect(_botao_direito)
+	_montar_controles_simples()
 	# Choques do casco: lidos em _integrate_forces pelo impulso de cada contato
 	contact_monitor = true
 	max_contacts_reported = 4
@@ -395,9 +422,22 @@ func _process(delta):
 func _rastreador_mao(i: int) -> XRHandTracker:
 	return XRServer.get_tracker("/user/hand_tracker/left" if i == 0 else "/user/hand_tracker/right") as XRHandTracker
 
+## Segurando o controle do Quest nessa mão: vale o perfil de interação ativo do
+## rastreador da mão (Touch / Touch Plus), não a fonte do rastreamento de mãos. Com o
+## controle na mão o runtime pode continuar mandando juntas da mão com fonte
+## "desconhecida", e o jogo achava que era mão livre e escondia o controle
+func _segurando_controle(i: int) -> bool:
+	var rastreador := XRServer.get_tracker(&"left_hand" if i == 0 else &"right_hand") as XRPositionalTracker
+	if rastreador == null:
+		return false
+	var perfil := rastreador.profile
+	return perfil != "" and not perfil.containsn("hand_interaction")
+
 ## Mão rastreada de verdade (sem controle na mão): mostra a malha da mão do Quest;
 ## senão, o modelo do controle. Sem rastreamento nenhum, esconde os dois
 func _mao_livre(i: int) -> bool:
+	if _segurando_controle(i):
+		return false
 	var rastreador := _rastreador_mao(i)
 	return rastreador != null and rastreador.has_tracking_data \
 		and rastreador.hand_tracking_source != XRHandTracker.HAND_TRACKING_SOURCE_CONTROLLER
@@ -407,7 +447,79 @@ func _trocar_maos():
 		var livre := _mao_livre(i)
 		var mao: XRController3D = mao_esquerda if i == 0 else mao_direita
 		maos_rastreadas[i].visible = livre
-		controles[i].visible = not livre and mao.get_has_tracking_data()
+		var ver_controle := not livre and mao.get_has_tracking_data()
+		controles[i].visible = ver_controle
+		# O modelo oficial (OpenXRFbRenderModel) vem do runtime e só ganha filhos quando
+		# carrega; enquanto isso (ou se falhar) aparece o modelo simples
+		if i < _controles_simples.size():
+			_controles_simples[i].visible = ver_controle and controles[i].get_child_count() == 0
+
+## Modelo simples do controle do Quest (cabo, face com analógico e botões), na pose do
+## grip: reserva para quando o modelo oficial do runtime não carrega
+func _montar_controles_simples():
+	var corpo := StandardMaterial3D.new()
+	corpo.albedo_color = Color(0.13, 0.13, 0.15)
+	corpo.roughness = 0.55
+	var detalhe := StandardMaterial3D.new()
+	detalhe.albedo_color = Color(0.32, 0.32, 0.36)
+	detalhe.roughness = 0.4
+	var luz := StandardMaterial3D.new()
+	luz.albedo_color = HUD_AZUL
+	luz.emission_enabled = true
+	luz.emission = HUD_AZUL
+	luz.emission_energy_multiplier = 1.2
+	for i in 2:
+		var lado := -1.0 if i == 0 else 1.0
+		var raiz := Node3D.new()
+		raiz.name = "ControleSimples"
+		raiz.visible = false
+		# Cabo: na pose do grip ele corre ao longo de -Z, um pouco inclinado para a frente
+		var cabo := CylinderMesh.new()
+		cabo.top_radius = 0.017
+		cabo.bottom_radius = 0.021
+		cabo.height = 0.1
+		cabo.radial_segments = 10
+		cabo.rings = 1
+		cabo.material = corpo
+		var m_cabo := MeshInstance3D.new()
+		m_cabo.mesh = cabo
+		m_cabo.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-70.0)), Vector3(0.0, -0.005, 0.015))
+		raiz.add_child(m_cabo)
+		# Cabeça: disco achatado no topo, onde ficam analógico e botões
+		var cabeca := CylinderMesh.new()
+		cabeca.top_radius = 0.032
+		cabeca.bottom_radius = 0.034
+		cabeca.height = 0.022
+		cabeca.radial_segments = 14
+		cabeca.rings = 1
+		cabeca.material = corpo
+		var topo := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(20.0)), Vector3(0.006 * lado, 0.022, -0.045))
+		var m_cabeca := MeshInstance3D.new()
+		m_cabeca.mesh = cabeca
+		m_cabeca.transform = topo
+		raiz.add_child(m_cabeca)
+		# Analógico e os dois botões (A/B ou X/Y), um pouco acima da face
+		var pino := CylinderMesh.new()
+		pino.top_radius = 0.009
+		pino.bottom_radius = 0.009
+		pino.height = 0.012
+		pino.radial_segments = 10
+		pino.rings = 1
+		pino.material = detalhe
+		var botao_m := CylinderMesh.new()
+		botao_m.top_radius = 0.0055
+		botao_m.bottom_radius = 0.0055
+		botao_m.height = 0.006
+		botao_m.radial_segments = 8
+		botao_m.rings = 1
+		botao_m.material = luz
+		for peca: Array in [[pino, Vector3(-0.008 * lado, 0.014, 0.004)], [botao_m, Vector3(0.012 * lado, 0.012, -0.004)], [botao_m, Vector3(0.006 * lado, 0.012, 0.014)]]:
+			var m := MeshInstance3D.new()
+			m.mesh = peca[0]
+			m.transform = topo * Transform3D(Basis(), peca[1])
+			raiz.add_child(m)
+		(mao_esquerda if i == 0 else mao_direita).add_child(raiz)
+		_controles_simples.append(raiz)
 
 ## Ponta que aperta o botão do painel: o indicador da mão rastreada, ou a frente do controle
 func _ponta_dedo(i: int) -> Vector3:
@@ -556,6 +668,90 @@ func _input(event):
 		_olhar.x = clamp(_olhar.x - event.relative.y * sensibilidade, -1.0, 0.8)
 		camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 
+# --- Comandos (acessibilidade) -----------------------------------------------------
+# Mesmo mapa no controle de Xbox (notebooks: mais fácil para quem joga pouco) e no do
+# Quest: os dois gatilhos da direita aceleram e os dois da esquerda freiam; A liga o
+# nitro; B também acelera (criança que não alcança o gatilho); os dois analógicos fazem
+# a curva; segurar X desiste. Y desvira
+
+## Segurando X por esse tempo (s), o piloto desiste e volta para o ovo
+const TEMPO_DESISTIR := 2.0
+
+## Acelerador (0 a 1). Teclado: W/↑. Xbox: RT, RB ou B. Quest: gatilho, grip ou B do
+## controle direito
+func pedal_acelerador() -> float:
+	var p := 0.0
+	if _ativo():
+		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+			p = 1.0
+		# Gatilhos só contam de 0 a 1: um controle cujo gatilho solto marca -1 não freia
+		# nem acelera sozinho. O RT do volante EcoShell é proporcional (alavanca)
+		p = maxf(p, _analogico(eixo_controle(JOY_AXIS_TRIGGER_RIGHT)))
+		if botao_controle(JOY_BUTTON_RIGHT_SHOULDER) or botao_controle(JOY_BUTTON_B):
+			p = 1.0
+	if get_viewport().use_xr:
+		p = maxf(p, _analogico(mao_direita.get_float("trigger")))
+		p = maxf(p, _analogico(mao_direita.get_float("grip")))
+		if mao_direita.is_button_pressed("by_button"):
+			p = 1.0
+	return clampf(p, 0.0, 1.0)
+
+## Freio / ré (0 a 1). Teclado: S/↓. Xbox: LT ou LB. Quest: gatilho ou grip do
+## controle esquerdo
+func pedal_de_freio() -> float:
+	var p := 0.0
+	if _ativo():
+		if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+			p = 1.0
+		p = maxf(p, _analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT)))
+		if botao_controle(JOY_BUTTON_LEFT_SHOULDER):
+			p = 1.0
+	if get_viewport().use_xr:
+		p = maxf(p, _analogico(mao_esquerda.get_float("trigger")))
+		p = maxf(p, _analogico(mao_esquerda.get_float("grip")))
+	return clampf(p, 0.0, 1.0)
+
+## Curva (-1 a 1, positivo = esquerda). Teclado: A/D e ←/→. Xbox e Quest: qualquer
+## um dos dois analógicos (vale o mais inclinado, sem somar)
+func comando_curva() -> float:
+	var v := 0.0
+	if _ativo():
+		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): v += 1.0
+		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): v -= 1.0
+		v -= _analogico(_mais_inclinado(eixo_controle(JOY_AXIS_LEFT_X), eixo_controle(JOY_AXIS_RIGHT_X)))
+	if get_viewport().use_xr:
+		v -= _analogico(_mais_inclinado(mao_esquerda.get_vector2("primary").x, mao_direita.get_vector2("primary").x))
+	return clampf(v, -1.0, 1.0)
+
+func _mais_inclinado(a: float, b: float) -> float:
+	return a if absf(a) >= absf(b) else b
+
+## X apertado agora (Xbox, ou o X do controle esquerdo do Quest)
+func _segurando_x() -> bool:
+	var x := _ativo() and botao_controle(JOY_BUTTON_X)
+	if get_viewport().use_xr:
+		x = x or mao_esquerda.is_button_pressed("ax_button")
+	return x
+
+## Segurar X por TEMPO_DESISTIR desiste (no lobby ou no meio da corrida): o visor conta
+## o tempo e, no fim, `desistiu` leva o piloto de volta ao ovo. Soltar antes cancela;
+## depois de desistir, só conta de novo quando soltar o botão
+func _vigiar_desistencia(delta: float):
+	if not _segurando_x():
+		_tempo_x = 0.0
+		_x_solto = true
+		return
+	if not _x_solto:
+		return
+	_tempo_x += delta
+	_avisar("SEGURE X PARA DESISTIR: %d" % ceili(TEMPO_DESISTIR - _tempo_x), 0.2)
+	if _tempo_x >= TEMPO_DESISTIR:
+		_tempo_x = 0.0
+		_x_solto = false
+		_aviso_tempo = 0.0
+		_vibrar_ambas(0.6, 0.2)
+		desistiu.emit()
+
 func _botao_esquerdo(nome: String):
 	if nome in ["primary_click", "menu_button"]:
 		recentralizar()
@@ -597,36 +793,20 @@ func _physics_process(delta):
 	# Acelerador e freio separados: os dois juntos viram drift em vez de se anularem
 	var pedal := 0.0
 	var pedal_freio := 0.0
+	# Acessibilidade: mesmo mapa no Xbox e no Quest (ver pedal_acelerador e afins)
+	pedal = pedal_acelerador()
+	pedal_freio = pedal_de_freio()
+	vira = comando_curva()
 	if _ativo():
-		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): pedal += 1.0
-		if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pedal_freio += 1.0
-		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): vira += 1.0
-		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): vira -= 1.0
 		if Input.is_key_pressed(KEY_SPACE):
 			sobe += 1.0
 			freio_mao = true
 		if Input.is_key_pressed(KEY_SHIFT): sobe -= 1.0
-		# Gatilhos só somam (0 a 1): um controle cujo gatilho solto marca -1 não
-		# pode frear sozinho. O RT do volante EcoShell é proporcional (alavanca).
-		var rt := eixo_controle(JOY_AXIS_TRIGGER_RIGHT)
-		pedal += maxf(_analogico(rt), 0.0)
-		pedal_freio += maxf(_analogico(eixo_controle(JOY_AXIS_TRIGGER_LEFT)), 0.0)
-		vira -= _analogico(eixo_controle(JOY_AXIS_LEFT_X))
 		# No Godot o eixo Y dos analógicos é positivo para baixo
 		sobe -= _analogico(eixo_manche())
-		freio_mao = freio_mao or botao_controle(JOY_BUTTON_X)
-		var olhar_x := _analogico(eixo_controle(JOY_AXIS_RIGHT_X))
-		if olhar_x != 0.0 and not get_viewport().use_xr:
-			_olhar.y = clamp(_olhar.y - olhar_x * giro_olhar_controle * delta, -1.9, 1.9)
-			camera.rotation = Vector3(_olhar.x, _olhar.y, 0.0)
 	if get_viewport().use_xr:
-		pedal += _analogico(mao_direita.get_float("trigger"))
-		pedal_freio += _analogico(mao_esquerda.get_float("trigger"))
-		vira -= _analogico(mao_esquerda.get_vector2("primary").x)
 		sobe += _analogico(mao_direita.get_vector2("primary").y)
-		freio_mao = freio_mao or mao_esquerda.is_button_pressed("ax_button")
-	pedal = minf(pedal, 1.0)
-	pedal_freio = minf(pedal_freio, 1.0)
+	_vigiar_desistencia(delta)
 	if autopiloto:
 		pedal = maxf(comando_automatico.x, 0.0)
 		pedal_freio = maxf(-comando_automatico.x, 0.0)
@@ -672,6 +852,7 @@ func _physics_process(delta):
 		_avisar("REPOSICIONADO", 1.5)
 	elif _sob_a_pista():
 		_avisar("REPOSICIONADO", 1.5)
+	_vigiar_encalhe(delta)
 	_aplicar_puxao()
 	_animar(delta)
 	_atualizar_painel()
@@ -711,7 +892,9 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 		_consulta_roda.motion = -cima * (curso_suspensao + FOLGA_RODA)
 		var fracao := espaco_fisico.cast_motion(_consulta_roda)
 		_distancias[i] = alcance
-		if fracao[0] >= 1.0:
+		# Parede (muro, barreira, lateral de ponte) não é chão: a roda que encostava
+		# nela empurrava o carro parede acima, ele "andava" no muro e capotava
+		if fracao[0] >= 1.0 or not _chao_pisavel(espaco_fisico, fracao[1], cima):
 			_tocando[i] = false
 			continue
 		rodas_no_chao += 1
@@ -789,6 +972,7 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 		apply_central_force(frente * empuxo_nitro * acel * mass)
 
 	_no_ar = _no_ar + delta if rodas_no_chao == 0 else 0.0
+	_ultimo_giro_max = _giro_max()
 	# No ar, como no GTA: analógico direito para a frente abaixa o nariz, para trás
 	# levanta; o esquerdo de lado gira o carro no eixo da frente. Sem comando, o nariz
 	# acompanha a trajetória sozinho (salto rápido), para pousar com as rodas
@@ -808,8 +992,13 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 
 	if rodas_no_chao == 3 and cima.y > 0.8:
 		_ultimo_seguro = global_transform
-	# Capotou e parou: desvira sozinho logo
-	if cima.y < 0.3 and linear_velocity.length() < 1.0:
+	# Capotou e não sai do lugar: desvira sozinho logo. Mede o deslocamento, não a
+	# velocidade: adversários raspando ou o casco tremendo na barreira passavam de 1 m/s
+	# e o carro nunca era desvirado
+	if cima.y < 0.3:
+		if _capotado == 0.0 or global_position.distance_to(_capotado_desde) > 2.0:
+			_capotado_desde = global_position
+			_capotado = 0.0
 		_capotado += delta
 		if _capotado > 1.0:
 			_desvirar()
@@ -1143,7 +1332,75 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 	else:
 		_giro_livre = state.angular_velocity.dot(state.transform.basis.y)
 		_subida_livre = state.linear_velocity.y
+	if anti_capotagem and _trilho.is_empty() and not explodindo:
+		_limitar_tombo_e_giro(state)
 	_vel_anterior = state.linear_velocity
+
+## Capotar e rodar de acidente são proibidos (tontura em VR). Corrige no próprio passo:
+## - a inclinação de lado passa de rolagem_max ou a de frente de arfagem_max: o carro
+##   volta para o limite e perde o giro naquele eixo (não chega nem a tombar);
+## - a guinada passa do que volante e pneu conseguem fazer nessa velocidade (com folga
+##   para o drift): batida de adversário ou no muro não roda o carro 360°
+func _limitar_tombo_e_giro(state: PhysicsDirectBodyState3D):
+	var b := state.transform.basis.orthonormalized()
+	var w := state.angular_velocity
+	var frente := -b.z
+	var plano := Vector3(frente.x, 0.0, frente.z)
+	if plano.length() < 0.05:
+		# Bico apontado para cima ou para baixo: o rumo sai do teto
+		plano = Vector3(b.y.x, 0.0, b.y.z) * signf(-frente.y)
+		if plano.length() < 0.05:
+			plano = Vector3.FORWARD
+	plano = plano.normalized()
+	var arfagem := asin(clampf(frente.y, -1.0, 1.0))
+	var arfagem_max := deg_to_rad(arfagem_max_graus)
+	var arfagem_ok := clampf(arfagem, -arfagem_max, arfagem_max)
+	var f := plano * cos(arfagem_ok) + Vector3.UP * sin(arfagem_ok)
+	# Base nivelada de lado com este rumo, e a rolagem do carro em volta dela
+	var direita0 := f.cross(Vector3.UP).normalized()
+	var cima0 := direita0.cross(f)
+	var rolagem := atan2(b.x.dot(cima0), b.x.dot(direita0))
+	var rolagem_max := deg_to_rad(rolagem_max_graus)
+	var rolagem_ok := clampf(rolagem, -rolagem_max, rolagem_max)
+	var corrigir := false
+	if absf(arfagem - arfagem_ok) > 0.0001:
+		w -= w.project(direita0)
+		corrigir = true
+	if absf(rolagem - rolagem_ok) > 0.0001:
+		w -= w.project(f)
+		corrigir = true
+	if corrigir:
+		var direita := direita0 * cos(rolagem_ok) + cima0 * sin(rolagem_ok)
+		state.transform = Transform3D(Basis(direita, direita.cross(f), -f), state.transform.origin)
+	# Guinada: em volta do teto
+	var cima := state.transform.basis.y
+	var giro := w.dot(cima)
+	if absf(giro) > _ultimo_giro_max:
+		w += cima * (signf(giro) * _ultimo_giro_max - giro)
+	state.angular_velocity = w
+
+## Guinada máxima (rad/s) que volante e pneu fazem nesta velocidade: o menor entre a
+## geometria da direção (v·tan(esterço)/entre-eixos) e a aderência (a_lateral / v), com
+## folga, e mais no drift e no freio de mão
+func _giro_max() -> float:
+	var v := maxf(absf(velocidade), 0.5)
+	var lateral := atrito_pneu * GRAVIDADE * (1.0 + minf(aero * v * v, aero_max))
+	var limite := minf(v * tan(direcao_max) / ENTRE_EIXOS, lateral / v)
+	return limite * (1.8 if drift or freio > 0.5 else 1.25) + 0.35
+
+## A roda achou algo: é chão (não parede)? Encosta a esfera da roda onde o movimento
+## parou e lê a normal do contato
+func _chao_pisavel(espaco: PhysicsDirectSpaceState3D, fracao: float, cima: Vector3) -> bool:
+	var origem := _consulta_roda.transform
+	var movimento := _consulta_roda.motion
+	_consulta_roda.transform = Transform3D(Basis(), origem.origin + movimento * fracao)
+	_consulta_roda.motion = Vector3.ZERO
+	var contato := espaco.get_rest_info(_consulta_roda)
+	_consulta_roda.transform = origem
+	_consulta_roda.motion = movimento
+	if contato.is_empty():
+		return true
+	return (contato.normal as Vector3).dot(cima) > cos(deg_to_rad(chao_max_graus))
 
 func _atualizar_atrito():
 	var ativo := raspagem > 1.8 and not explodindo and not em_ritual and not em_transicao
@@ -1205,12 +1462,113 @@ func _sob_a_pista() -> bool:
 		or altura > PistaCorrida.ALTURA_BARREIRA + 1.0)
 	if not fora and (absf(proj.y) > circuito.largura * 0.5 or altura > -0.9):
 		return false
-	q.origin += q.basis.x * clampf(proj.y, -circuito.meia_util, circuito.meia_util) + q.basis.y * 0.3
 	var antes := linear_velocity.length()
-	_reposicionar(circuito.global_transform * q)
+	_por_na_pista(circuito, proj.x, clampf(proj.y, -circuito.meia_util, circuito.meia_util))
 	# Segue andando para a frente da pista, sem perder a corrida inteira
 	linear_velocity = -global_basis.z * minf(antes, velocidade_max * 0.5)
 	return true
+
+## Põe o carro no asfalto em (s, d), alinhado com a pista e um pouco acima dela
+func _por_na_pista(circuito: PistaCorrida, s: float, d: float):
+	var q := circuito.quadro(s)
+	q.origin += q.basis.x * d + q.basis.y * 0.3
+	_reposicionar(circuito.global_transform * q)
+
+# --- Vigia de encalhe ---------------------------------------------------------
+
+## Tempo sem sair do lugar até destravar: pedindo para andar, ou tombado/sem rodas no
+## chão mesmo sem pedal (s)
+const PRESO_ACELERANDO := 2.5
+const PRESO_SEM_APOIO := 2.0
+## Deslocamento no plano que conta como "saiu do lugar" (m)
+const PRESO_DESLOCAMENTO := 1.5
+const PRESO_DESLOCAMENTO_SEM_APOIO := 0.5
+
+## Encalhado (de lado na barreira, barriga num degrau, rodas no ar apoiado em algo):
+## o desvirar automático só pega capotado de vez, e o botão de desvirar ninguém conhece.
+## Mede o progresso real (deslocamento), não a velocidade: empurrões dos adversários e
+## o tremor do casco na barreira não enganam
+func _vigiar_encalhe(delta: float):
+	if segurado or autopiloto or explodindo or em_ritual or em_transicao or not _trilho.is_empty():
+		_preso = 0.0
+		_preso_desde = global_position
+		return
+	var acelerando := absf(comando_acel) > 0.3
+	var sem_apoio := global_basis.y.y < 0.6 or rodas_no_chao == 0
+	var andou := Vector2(global_position.x - _preso_desde.x, global_position.z - _preso_desde.z).length()
+	var limite := PRESO_DESLOCAMENTO_SEM_APOIO if sem_apoio and not acelerando else PRESO_DESLOCAMENTO
+	# De pé esperando a comporta abrir (ou empurrando um obstáculo) não é encalhe
+	var esperando := not sem_apoio and _obstaculo_logo_a_frente()
+	if andou > limite or not (acelerando or sem_apoio) or esperando:
+		_preso = 0.0
+		_preso_desde = global_position
+		return
+	_preso += delta
+	if global_basis.y.y < 0.6 and _preso > 0.8:
+		_avisar("Y: DESVIRAR", 0.3)
+	if _preso >= (PRESO_SEM_APOIO if sem_apoio else PRESO_ACELERANDO):
+		_destravar()
+
+## Nada (além do asfalto) ocupando o espaço do carro em pé em (s, d): uma caixa do
+## tamanho do casco, começando 0,4 m acima da pista
+func _lugar_livre(circuito: PistaCorrida, s: float, d: float) -> bool:
+	var q := circuito.global_transform * circuito.quadro(s)
+	q.origin += q.basis.x * d + q.basis.y * 1.0
+	var caixa := BoxShape3D.new()
+	caixa.size = Vector3(1.1, 1.2, 2.6)
+	var consulta := PhysicsShapeQueryParameters3D.new()
+	consulta.shape = caixa
+	consulta.transform = q
+	consulta.collision_mask = 1 | CarroRival.CAMADA
+	consulta.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_shape(consulta, 1).is_empty()
+
+## Obstáculo sólido da pista (comporta, guindaste, turbina) a menos de 15 m à frente
+func _obstaculo_logo_a_frente() -> bool:
+	if not hex_world is MapaCorrida or hex_world.trafego == null:
+		return false
+	var obstaculos = hex_world.get("obstaculos")
+	if not obstaculos is ObstaculosPista:
+		return false
+	var s: float = hex_world.trafego.jogador.s
+	var perto: ObstaculoPista = obstaculos._proximo(s)
+	return perto != null and perto.solido and -obstaculos._ds(perto, s) < 15.0
+
+## Tira o carro do encalhe. Na corrida volta para o asfalto no mesmo ponto da pista (de
+## pé, alinhado, fora dos obstáculos); de novo no mesmo lugar logo em seguida, um pouco
+## para trás. No mundo neon desvira; se não bastou, volta ao último lugar seguro
+func _destravar():
+	var agora := Time.get_ticks_msec() / 1000.0
+	var repetido := agora - _ultimo_destravar < 6.0
+	_ultimo_destravar = agora
+	var circuito: PistaCorrida = hex_world.pista if hex_world is MapaCorrida else null
+	if circuito:
+		var proj := circuito.projetar(circuito.to_local(global_position), _dica_pista)
+		var s := proj.x - (8.0 if repetido else 0.0)
+		var d := clampf(proj.y, -circuito.meia_util * 0.4, circuito.meia_util * 0.4)
+		# Mesmo ponto primeiro; ocupado (o que encalhou, um adversário, um obstáculo),
+		# tenta o meio da pista e vai recuando
+		var obstaculos = hex_world.get("obstaculos")
+		var escolhido := Vector2(s, d)
+		for k in 10:
+			var tentativa := Vector2(s - 4.0 * (k / 2), d if k % 2 == 0 else 0.0)
+			if circuito.aberta:
+				tentativa.x = clampf(tentativa.x, 0.0, circuito.comprimento - PistaCorrida.FOLGA_FIM)
+			if obstaculos is ObstaculosPista:
+				var obstaculo: ObstaculoPista = obstaculos.bloqueado(tentativa.x, tentativa.y, obstaculos.tempo)
+				if obstaculo and obstaculo.solido:
+					continue
+			if _lugar_livre(circuito, tentativa.x, tentativa.y):
+				escolhido = tentativa
+				break
+		_por_na_pista(circuito, escolhido.x, escolhido.y)
+	elif repetido:
+		_reposicionar(_ultimo_seguro)
+	else:
+		_desvirar()
+	_preso = 0.0
+	_preso_desde = global_position
+	_avisar("REPOSICIONADO", 1.5)
 
 ## No mundo neon (não nos mapas de corrida): caiu abaixo do piso ou passou da borda dele
 func _fora_do_lobby() -> bool:

@@ -58,6 +58,9 @@ var largura := LARGURA
 var meia_util := MEIA_UTIL
 ## Ponta a ponta (sem dar a volta): ver PistaAberta
 var aberta := false
+## Inclinação máxima das curvas (rad). Curva deitada gira o horizonte e enjoa em VR: as
+## pistas que precisam de conforto (Deserto) usam bem menos
+var inclinacao_max := INCLINACAO_MAX
 ## Voltas da corrida (pista aberta: 1, da largada à chegada)
 var voltas := 3
 ## Muro dos dois lados em toda a pista (senão só por fora das curvas e no viaduto)
@@ -86,6 +89,8 @@ var _lampadas: Array[StandardMaterial3D] = []
 var _corpo_barreira: StaticBody3D
 ## Altura da barreira acima do asfalto (m): o carro não passa por cima nem saltando
 const ALTURA_BARREIRA := 5.0
+## Camada física da barreira (bit 2): fora da máscara de chão das rodas
+const CAMADA_BARREIRA := 2
 
 func _ready():
 	meia_util = largura * 0.5 - 0.9
@@ -149,7 +154,7 @@ func _calcular():
 		var f2 := Vector2(c.x - b.x, c.z - b.z)
 		var lado := -f1.y * f2.x + f1.x * f2.y
 		var k := 2.0 * lado / maxf(f1.length() * f2.length() * Vector2(c.x - a.x, c.z - a.z).length(), 0.0001)
-		crua[i] = clampf(atan(VELOCIDADE_PROJETO * VELOCIDADE_PROJETO * k / 9.8), -INCLINACAO_MAX, INCLINACAO_MAX)
+		crua[i] = clampf(atan(VELOCIDADE_PROJETO * VELOCIDADE_PROJETO * k / 9.8), -inclinacao_max, inclinacao_max)
 	# Suaviza para a pista não "torcer" de repente
 	for passada in 2:
 		var lisa := PackedFloat32Array()
@@ -318,10 +323,13 @@ func _barreira():
 	_corpo_barreira.add_child(forma)
 	add_child(_corpo_barreira)
 
-## Liga/desliga a barreira invisível das bordas (Corrida, conforme a fase)
+## Liga/desliga a barreira invisível das bordas (Corrida, conforme a fase). Fica na
+## camada 2 (CAMADA_BARREIRA): o casco do carro bate nela (máscara 1+2), mas o raio das
+## rodas (mascara_chao = 1) não a enxerga. Na camada do chão, encostado de lado nela o
+## carro "apoiava as rodas" na parede vertical e ficava encalhado
 func barreira_ligada(sim: bool):
 	if _corpo_barreira:
-		_corpo_barreira.collision_layer = 1 if sim else 0
+		_corpo_barreira.collision_layer = CAMADA_BARREIRA if sim else 0
 
 func tem_barreira() -> bool:
 	return _corpo_barreira != null and _corpo_barreira.collision_layer != 0

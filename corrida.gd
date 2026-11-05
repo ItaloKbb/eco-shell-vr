@@ -24,6 +24,9 @@ const TEMPO_CONTROLES := 8.0
 const TEMPO_CONTAGEM := 3.0
 ## Todos os jogadores com a bandeirada: quanto tempo até sair da pista (s)
 const TEMPO_SAIDA := 3.0
+## Fração do tanque de nitro com que todos largam (jogador, outros jogadores do grupo,
+## cada um no seu Quest, e adversários da IA): ninguém sai com vantagem
+const NITRO_LARGADA := 0.5
 ## Piloto automático depois da chegada: volta lenta (em grupo, esperando os outros)
 const VOLTA_LENTA := 12.0
 ## Jogador da corrida em grupo sem telemetria há mais que isso (s) saiu: o fantasma some
@@ -100,6 +103,8 @@ func iniciar(grupo_ := {}):
 	trafego.carro = carro
 	trafego.preparar()
 	carro.segurar()
+	# Preso no grid o tanque não carrega: larga com a metade
+	carro.nitro = carro.nitro_max * NITRO_LARGADA
 	pista.semaforo(-1)
 	if _painel == null:
 		_painel = PainelCorrida.new(_modo_vr())

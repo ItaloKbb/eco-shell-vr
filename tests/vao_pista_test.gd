@@ -3,8 +3,8 @@ extends SceneTree
 ## terreno, e a saia de concreto é só visual. Quem saía pelo lado sem muro passava por
 ## baixo da pista. Agora o acostamento (rampa com colisão) fecha o vão, quem sai da pista
 ## consegue voltar subindo por ele e, se ainda assim o carro parar embaixo do asfalto,
-## a rede de segurança o põe de volta em cima. No Deserto, quem passa embaixo do viaduto
-## não é puxado para cima dele.
+## a rede de segurança o põe de volta em cima. O Deserto é um oval plano, sem viaduto e
+## quase sem inclinação nas curvas.
 ## godot --headless --path . --xr-mode off --fixed-fps 60 --script res://tests/vao_pista_test.gd
 
 func _initialize():
@@ -132,32 +132,27 @@ func _testar():
 	for i in 10:
 		await physics_frame
 
-	# 5. Deserto: andar embaixo do viaduto não teleporta para cima dele
+	# 5. Deserto: oval plano (sem viaduto) e quase sem inclinação nas curvas (conforto em VR)
 	await mundos.entrar_mapa(portais._portais[portais.AMBAR], "Deserto")
 	var deserto: Deserto = mundos.deserto
 	deserto.corrida.abortar()
 	carro.soltar()
 	var circuito: PistaCorrida = deserto.pista
-	var baixo := -1
-	for i in PistaCorrida.AMOSTRAS:
-		if Vector2(circuito.pontos[i].x, circuito.pontos[i].z).length() < 3.0 and circuito.pontos[i].y < 0.5:
-			baixo = i
-	assert(baixo >= 0, "Achar a pista de baixo no cruzamento")
-	var antes := circuito.quadro(circuito.distancias[baixo] - 30.0)
-	carro.teleportar(deserto.global_transform * Transform3D(antes.basis, antes.origin + antes.basis.y * 0.3))
-	for i in 20:
-		await physics_frame
-	carro.linear_velocity = -carro.global_basis.z * 10.0
-	tecla(KEY_W, true)
+	assert(circuito is PistaOval)
 	var mais_alto := 0.0
-	for i in 60 * 3:
-		await physics_frame
-		mais_alto = maxf(mais_alto, carro.global_position.y - deserto.global_position.y)
-	tecla(KEY_W, false)
-	print("Pista de baixo do Deserto: maior altura %.2f m (viaduto a %.1f m)" % [mais_alto, PistaCorrida.ALTURA_VIADUTO])
-	assert(mais_alto < 2.0, "Passou embaixo do viaduto e foi parar em cima dele")
+	var mais_deitada := 0.0
+	for i in PistaCorrida.AMOSTRAS:
+		mais_alto = maxf(mais_alto, circuito.pontos[i].y)
+		mais_deitada = maxf(mais_deitada, absf(circuito.inclinacoes[i]))
+	print("Deserto: altura máxima %.2f m, inclinação máxima %.1f°, volta de %.0f m" % [mais_alto, rad_to_deg(mais_deitada), circuito.comprimento])
+	assert(mais_alto < 1.0, "O Deserto tem que ser plano")
+	assert(mais_deitada <= PistaOval.INCLINACAO_OVAL + 0.001, "Curva deitada demais no Deserto")
+	assert(circuito.comprimento > 1200.0 and circuito.comprimento < 1320.0)
+	# Grid inteiro na reta
+	for vaga in MapaCorrida.ADVERSARIOS + 1:
+		assert(absf(circuito.curvatura(circuito.grid_sd(vaga).x)) < 0.001, "Vaga %d numa curva" % vaga)
 
-	print("VAO_PISTA_OK: acostamento fecha o vão, dá para voltar à pista, rede de segurança e viaduto do Deserto")
+	print("VAO_PISTA_OK: acostamento fecha o vão, dá para voltar à pista, rede de segurança e Deserto plano")
 	await mundos.voltar()
 	cena.queue_free()
 	for i in 5:

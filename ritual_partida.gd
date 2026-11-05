@@ -70,6 +70,7 @@ func _ready():
 	carro.em_ritual = true
 	carro.explodiu.connect(_morreu)
 	carro.retorno_solicitado.connect(voltar_ao_ovo)
+	carro.desistiu.connect(_desistir)
 	carro.visao_recentralizada.connect(_visao_recentralizada)
 	carro.mao_direita.button_pressed.connect(_botao_vr)
 	Rede.sessao_mudou.connect(_sessao_mudou)
@@ -105,6 +106,13 @@ func _sanitizar(valor: String) -> String:
 
 ## Explodiu ou terminou a corrida: a vida acaba, o piloto volta para o ovo e, no
 ## evento, a sessão encerra (servidor em idle, esfera esperando o operador)
+## O piloto segurou X: desiste do jogo (no lobby ou no meio da corrida) e volta para o
+## ovo, como no fim de uma corrida
+func _desistir():
+	if estado == Estado.MORTE or _reiniciando:
+		return
+	voltar_ao_ovo()
+
 func voltar_ao_ovo():
 	Rede.terminar_sessao()
 	_nova_vida()
@@ -289,10 +297,8 @@ func _physics_process(delta: float):
 			analogico = pad
 		_editar_nick(delta, analogico)
 	if estado == Estado.CARGA:
-		var acel := 1.0 if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP) else 0.0
-		acel = maxf(acel, carro.eixo_controle(JOY_AXIS_TRIGGER_RIGHT))
-		if get_viewport().use_xr:
-			acel = maxf(acel, carro.mao_direita.get_float("trigger"))
+		# O mesmo acelerador da direção: gatilhos da direita, RB/grip ou B
+		var acel: float = carro.pedal_acelerador()
 		if acel < 0.15:
 			_soltou = true
 		if _soltou:
@@ -517,7 +523,7 @@ func _atualizar_texto():
 			var preenchido := clampf(exibida * SEGMENTOS - i, 0.0, 1.0)
 			var cor := COR_CIANO.lerp(COR_QUENTE, float(i) / (SEGMENTOS - 1))
 			_segmentos[i].color = Color(COR_CIANO, 0.12).lerp(Color(cor, pulso), preenchido)
-		var tecla := "GATILHO" if _modo_vr else ("RT" if _usando_controle else "W")
+		var tecla := "GATILHO D OU B" if _modo_vr else ("RT OU B" if _usando_controle else "W")
 		var dicas_carga: Array = [[tecla, "SOLTE PARA ARMAR" if not _soltou else "SEGURE PARA ROMPER A CASCA"]]
 		if _modo_vr:
 			dicas_carga.append(["L3/R3", "CENTRALIZAR"])

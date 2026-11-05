@@ -8,17 +8,18 @@ enum Dispositivo { VR, CONTROLE, TECLADO }
 
 ## [tecla, ação] de cada dispositivo
 const CONTROLES := {
+	# Acessibilidade: o mesmo mapa no Quest e no Xbox (ver car.gd, pedal_acelerador)
 	Dispositivo.VR: [
-		["GATILHO D", "ACELERAR"], ["GATILHO E", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
-		["2 GATILHOS", "DRIFT"], ["X", "FREIO DE MÃO"],
+		["GATILHOS D", "ACELERAR"], ["GATILHOS E", "FREIO / RÉ"],
+		["ANALÓGICOS", "CURVAS"], ["A", "NITRO"],
+		["B", "ACELERAR"], ["SEGURE X", "DESISTIR"],
 		["Y", "DESVIRAR"], ["CLIQUE E", "RECENTRAR"],
 	],
 	Dispositivo.CONTROLE: [
-		["RT", "ACELERAR"], ["LT", "FREIO / RÉ"],
-		["ANALÓG. E", "ESTERÇAR"], ["A", "NITRO"],
-		["LT + RT", "DRIFT"], ["X", "FREIO DE MÃO"],
-		["Y", "DESVIRAR"], ["ANALÓG. D ↕", "NARIZ NO AR"],
+		["RT / RB", "ACELERAR"], ["LT / LB", "FREIO / RÉ"],
+		["ANALÓGICOS", "CURVAS"], ["A", "NITRO"],
+		["B", "ACELERAR"], ["SEGURE X", "DESISTIR"],
+		["Y", "DESVIRAR"], ["ACEL. + FREIO", "DRIFT"],
 	],
 	Dispositivo.TECLADO: [
 		["W / ↑", "ACELERAR"], ["S / ↓", "FREIO / RÉ"],

@@ -1,17 +1,17 @@
 class_name Deserto
 extends MapaCorrida
-## Mapa do primeiro portal: um deserto low poly ao meio-dia em volta do circuito em
-## infinito (pista_corrida.gd), com 16 m de largura. Tudo gerado em código na primeira
+## Mapa do primeiro portal: um deserto low poly ao meio-dia em volta do circuito oval
+## (pista_oval.gd: plano, retas longas), com 16 m de largura. Tudo gerado em código na primeira
 ## visita, em cores chapadas e facetas (LowPoly), sem textura:
 ##  - dunas facetadas (planície clara em volta da pista, laranja e dourado longe);
 ##  - mesas de arenito em degraus no horizonte, um arco de pedra e duas torres de
-##    rocha como marcos (dá para se localizar no infinito pela direção deles);
+##    rocha como marcos (dá para se localizar no oval pela direção deles);
 ##  - totens com tampa neon do lado de fora das curvas (referência de frenagem e o
 ##    toque Tron, sem luz real);
 ##  - pedras e cactos espalhados perto da pista (referência fixa de velocidade).
 ## Desempenho (Quest 3): cada grupo repetido é um MultiMesh (uma chamada de desenho
 ## cada), sem luzes além do sol, sem sombras no Quest (mundos.gd) e ~50 mil triângulos
-## no total, a maior parte no chão. No miolo de um dos laços fica o portal de volta.
+## no total, a maior parte no chão. No miolo do oval fica o portal de volta.
 
 ## Tamanho do chão (m) e quantos quadrados por lado
 const TAMANHO := 2400.0
@@ -53,19 +53,19 @@ func _etapas() -> Array:
 	]
 
 func _nova_pista() -> PistaCorrida:
-	var pista_nova := PistaCorrida.new()
+	var pista_nova := PistaOval.new()
 	pista_nova.largura = LARGURA_PISTA
 	return pista_nova
 
-## Portal de volta no miolo do laço da direita, longe da pista (o puxão não alcança)
+## Portal de volta no meio do miolo do oval, longe da pista (o puxão não alcança)
 func _posicao_portal_volta() -> Vector3:
-	return Vector3(PistaCorrida.A * 0.6, 0.0, 0.0)
+	return Vector3.ZERO
 
 ## Altura do chão no ponto do mundo: plano em volta da pista, dunas mais longe
 func altura(x: float, z: float) -> float:
 	var p := Vector2(x - global_position.x, z - global_position.z)
 	# Distância até uma caixa que cobre o circuito (com folga)
-	var meia := Vector2(PistaCorrida.A + 35.0, PistaCorrida.A * 0.36 + 35.0)
+	var meia := Vector2(PistaOval.MEIA_X + 35.0, PistaOval.MEIA_Z + 35.0)
 	var q := (p.abs() - meia).max(Vector2.ZERO)
 	var duna := smoothstep(0.0, 80.0, q.length())
 	var crista := 1.0 - absf(_ruido.get_noise_2dv(p))
@@ -77,7 +77,7 @@ func _chao_local(x: float, z: float) -> float:
 
 ## Fora da caixa da pista (com `folga` m), onde pode ter cenário
 func _fora_da_pista(p: Vector2, folga: float) -> bool:
-	return absf(p.x) > PistaCorrida.A + folga or absf(p.y) > PistaCorrida.A * 0.36 + folga
+	return absf(p.x) > PistaOval.MEIA_X + folga or absf(p.y) > PistaOval.MEIA_Z + folga
 
 func _montar_ambiente():
 	# Céu em gradiente forte (ProceduralSky, sem textura) e sol estilizado
@@ -182,7 +182,7 @@ func _mesas():
 	rng.seed = 7
 	for i in 11:
 		var a := TAU * i / 11.0 + rng.randf_range(-0.2, 0.2)
-		var d := rng.randf_range(PistaCorrida.A + 230.0, PistaCorrida.A + 440.0)
+		var d := rng.randf_range(PistaOval.MEIA_X + 150.0, PistaOval.MEIA_X + 360.0)
 		var raio := rng.randf_range(32.0, 72.0)
 		var alto := rng.randf_range(40.0, 100.0)
 		var lados := rng.randi_range(6, 9)
@@ -196,11 +196,11 @@ func _mesas():
 			var desvio := Vector3(rng.randf_range(-0.2, 0.2), 0.0, rng.randf_range(-0.2, 0.2)) * raio
 			_rocha_em(_prisma(raio * 0.45, raio * 0.36, alto_cima, lados), base + desvio + Vector3.UP * (alto - 4.0 + alto_cima * 0.5), giro, achatada)
 
-## Marcos perto do circuito, um de cada lado do infinito: um arco de pedra ao norte e
+## Marcos perto do circuito, um de cada lado do oval: um arco de pedra ao norte e
 ## duas torres de rocha ao sul. Quem está na pista sabe para onde está virado
 func _marcos():
 	# Arco: dois pilares inclinados e a laje em cima
-	var centro := Vector3(0.0, 0.0, -(PistaCorrida.A * 0.36 + 70.0))
+	var centro := Vector3(0.0, 0.0, -(PistaOval.MEIA_Z + 70.0))
 	var pilar := _prisma(7.0, 5.0, 34.0, 6)
 	for lado: float in [-1.0, 1.0]:
 		var m := MeshInstance3D.new()
@@ -214,7 +214,7 @@ func _marcos():
 	laje.size = Vector3(52.0, 9.0, 12.0)
 	_rocha_em(LowPoly.facetar(laje), centro + Vector3(0.0, 33.0, 0.0), 0.0)
 	# Torres gêmeas: altas e finas, viradas uma para a outra
-	var sul := Vector3(30.0, 0.0, PistaCorrida.A * 0.36 + 80.0)
+	var sul := Vector3(30.0, 0.0, PistaOval.MEIA_Z + 80.0)
 	_rocha_em(_prisma(11.0, 6.0, 70.0, 5), sul + Vector3(0.0, 33.0, 0.0), 0.4)
 	_rocha_em(_prisma(9.0, 4.5, 52.0, 5), sul + Vector3(-34.0, 24.0, 12.0), 1.3)
 
@@ -228,7 +228,7 @@ func _cactos():
 	var cores: Array[Color] = []
 	var feitos := 0
 	while feitos < 90:
-		var p := Vector2(rng.randf_range(-(PistaCorrida.A + 200.0), PistaCorrida.A + 200.0), rng.randf_range(-260.0, 260.0))
+		var p := Vector2(rng.randf_range(-(PistaOval.MEIA_X + 200.0), PistaOval.MEIA_X + 200.0), rng.randf_range(-(PistaOval.MEIA_Z + 200.0), PistaOval.MEIA_Z + 200.0))
 		if not _fora_da_pista(p, 25.0):
 			continue
 		feitos += 1
@@ -265,7 +265,7 @@ func _pedras():
 	var cores: Array[Color] = []
 	var feitas := 0
 	while feitas < 150:
-		var p := Vector2(rng.randf_range(-(PistaCorrida.A + 185.0), PistaCorrida.A + 185.0), rng.randf_range(-220.0, 220.0))
+		var p := Vector2(rng.randf_range(-(PistaOval.MEIA_X + 185.0), PistaOval.MEIA_X + 185.0), rng.randf_range(-(PistaOval.MEIA_Z + 160.0), PistaOval.MEIA_Z + 160.0))
 		if not _fora_da_pista(p, 14.0):
 			continue
 		feitas += 1
@@ -285,12 +285,12 @@ func _totens():
 	var tampas: Array[Transform3D] = []
 	var passo := 14
 	for i in range(0, PistaCorrida.AMOSTRAS, passo):
-		var inclinacao := pista.inclinacoes[i]
+		# Só nas curvas (pela curvatura: o oval quase não inclina)
+		var curva := pista.curvaturas[i]
 		var p := pista.pontos[i]
-		# Só nas curvas, e longe do viaduto do cruzamento
-		if absf(inclinacao) < 0.12 or Vector2(p.x, p.z).length() < 30.0:
+		if absf(curva) < 0.6 / PistaOval.RAIO:
 			continue
-		var fora := Vector3(pista.lados[i].x, 0.0, pista.lados[i].z).normalized() * -signf(inclinacao)
+		var fora := Vector3(pista.lados[i].x, 0.0, pista.lados[i].z).normalized() * -signf(curva)
 		var base := p + fora * (pista.largura * 0.5 + PistaCorrida.MURO_ESPESSURA + 3.5)
 		base.y = _chao_local(base.x, base.z)
 		var giro := Basis(Vector3.UP, atan2(fora.x, fora.z))

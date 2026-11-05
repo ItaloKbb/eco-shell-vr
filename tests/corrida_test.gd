@@ -76,6 +76,10 @@ func _testar():
 	assert(corrida.fase == Corrida.Fase.CORRENDO)
 	assert(not carro.segurado and not carro.freeze)
 	assert(corrida.volta == 1)
+	# Todos largam com metade do nitro (o grid não carrega o tanque de ninguém)
+	assert(absf(carro.nitro - carro.nitro_max * Corrida.NITRO_LARGADA) < 0.05, "Nitro do jogador na largada: %.2f" % carro.nitro)
+	for rival in deserto.rivais:
+		assert(absf(rival.nitro - CarroRival.TANQUE * Corrida.NITRO_LARGADA) < 0.05, "Nitro do rival %d na largada: %.2f" % [rival.numero, rival.nitro])
 	# O freio deve engatar a ré depois de parar e mover o carro para trás.
 	tecla(KEY_S, true)
 	for i in 120:

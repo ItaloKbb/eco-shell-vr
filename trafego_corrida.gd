@@ -84,6 +84,8 @@ func preparar():
 	for i in rivais.size():
 		var vaga := pista.grid_sd(vagas_rivais[i] if i < vagas_rivais.size() else i)
 		rivais[i].estacionar(vaga.x, vaga.y)
+		# Parados no grid não carregam (só andam depois da largada): largam com a metade
+		rivais[i].nitro = CarroRival.TANQUE * Corrida.NITRO_LARGADA
 		if carro:
 			carro.remove_collision_exception_with(rivais[i])
 

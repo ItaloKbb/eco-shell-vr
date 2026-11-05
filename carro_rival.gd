@@ -35,6 +35,10 @@ const CONSUMO_TURBO := 1.0
 const FATOR_TURBO := 2.5
 ## Quantos segundos de tanque cada turbo gasta no máximo
 const DURACAO_TURBO := 3.0
+## Camada física dos adversários (bit 4): o casco do jogador bate neles (máscara do
+## car.tscn), mas o raio das rodas (mascara_chao = 1) não. Na camada do chão a roda
+## "pisava" no adversário e o atrito do pneu contra um carro andando rodava o jogador
+const CAMADA := 8
 
 static var _malha: Mesh
 static var _tinta_base: ShaderMaterial
@@ -106,7 +110,7 @@ func _init(n: int = 0, perfil_: PerfilPiloto = null):
 	perfil = perfil_ if perfil_ else PerfilPiloto.new()
 	ia = IARival.new(self)
 	info.rival = self
-	collision_layer = 1
+	collision_layer = CAMADA
 	collision_mask = 0
 
 func _ready():
@@ -379,7 +383,7 @@ func _transparencia(no: Node, valor: float):
 func ativar(sim: bool):
 	visible = sim
 	process_mode = Node.PROCESS_MODE_INHERIT if sim else Node.PROCESS_MODE_DISABLED
-	collision_layer = 1 if sim else 0
+	collision_layer = CAMADA if sim else 0
 	for som in [_motor, _rolamento, _raspagem]:
 		if som:
 			som.stream_paused = not sim

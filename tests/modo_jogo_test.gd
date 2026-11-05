@@ -38,5 +38,29 @@ func _testar():
 	for peer in [9001, 9002, 9003]:
 		dispositivos.remover(peer)
 
+	# Notebooks clonados (mesmo id) conectados juntos não dividem o apelido
+	var guardados: Dictionary = dispositivos._apelidos.duplicate()
+	dispositivos._apelidos["clone-teste"] = "Notebook 1"
+	dispositivos.adicionar(9004, "10.0.0.4")
+	dispositivos.adicionar(9005, "10.0.0.5")
+	var primeiro: String = dispositivos.registrar(9004, {"tipo": "notebook", "unique_id": "clone-teste"})
+	var segundo: String = dispositivos.registrar(9005, {"tipo": "notebook", "unique_id": "clone-teste"})
+	if primeiro == segundo:
+		push_error("Dois aparelhos conectados com o mesmo apelido '%s'" % primeiro)
+		falhas += 1
+	for peer in [9004, 9005]:
+		dispositivos.remover(peer)
+	dispositivos._apelidos = guardados
+
+	# Nome digitado na espera: guardado como sugestão e apagado ao liberar
+	dispositivos.adicionar(9006, "10.0.0.6")
+	dispositivos.sugerir_nome(9006, " ANA ")
+	var sugerido: String = dispositivos.obter(9006).nome_sugerido
+	dispositivos.liberar(9006, "ANA")
+	if sugerido != "ANA" or dispositivos.obter(9006).nome_sugerido != "":
+		push_error("Sugestão de nome: '%s' / '%s'" % [sugerido, dispositivos.obter(9006).nome_sugerido])
+		falhas += 1
+	dispositivos.remover(9006)
+
 	print("modo_jogo_test: %s" % ("OK" if falhas == 0 else "%d falha(s)" % falhas))
 	quit(falhas)

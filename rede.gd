@@ -30,7 +30,7 @@ extends Node
 ## apertaram PRONTO, ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.5"
+const VERSAO := "1.6"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -40,8 +40,17 @@ const INTERVALO_RECONEXAO := 2.0
 ## Quanto o cliente espera o servidor tirar o avatar antes de ir para a corrida (s)
 const ESPERA_CONFIRMACAO := 2.0
 const MAX_EVENTOS := 2000
-## Cliente: id sorteado deste aparelho (ver _id_aparelho)
+## Cliente: id sorteado deste aparelho (ver _id_aparelho) e o último servidor em que
+## esteve (preferido quando há mais de um na rede)
 const ARQUIVO_APARELHO := "user://aparelho.cfg"
+## Servidor: o nome que ele anuncia (editável no painel; padrão: nome do PC)
+const ARQUIVO_SERVIDOR := "user://servidor.cfg"
+## Cliente: junta anúncios por esse tempo antes de escolher o servidor (s), e esquece um
+## servidor que parou de anunciar há mais que isso (s)
+const JANELA_DESCOBERTA := 2.0
+const ESQUECER_SERVIDOR := 5.0
+## Servidor: outro servidor relatado por um cliente vale por esse tempo (s)
+const VALIDADE_OUTRO_SERVIDOR := 12.0
 ## Cliente -> servidor: telemetria do carro (s). O servidor repassa cada pacote na hora,
 ## e quem recebe interpola entre eles (InterpoladorRede): 30 Hz deixa sempre duas
 ## amostras dentro do atraso de 0,1 s da interpolação
@@ -62,6 +71,8 @@ enum Modo { DESLIGADO, CLIENTE, SERVIDOR, ESPECTADOR }
 
 ## Cliente/espectador: conectou/caiu, foi liberado ou teve a sessão encerrada
 signal sessao_mudou
+## Mudou a lista de servidores na rede (cliente: os que ouve; servidor: os relatados)
+signal servidores_mudaram
 signal apelido_mudou(apelido: String)
 ## Servidor: uma linha nova no log de eventos
 signal evento(registro: Dictionary)
@@ -120,6 +131,18 @@ var _tempo_quadro := 0.0
 var _conectando := false
 var _confirmado := ""
 var _ip_manual := ""
+## Servidor: o próprio nome. Cliente: o nome do servidor em que está conectado
+var nome_servidor := ""
+## Cliente: servidores ouvidos na rede, ip -> {nome, porta, visto_em}
+var servidores := {}
+## Servidor: outros servidores que os clientes relataram, ip -> {nome, visto_em, por}
+var outros_servidores := {}
+var _ip_servidor := ""
+var _descobrindo_desde := -1.0
+var _relatado := ""
+## Cliente: servidores que recusaram a conexão há pouco (ip -> quando), pulados se houver outro
+var _falhas := {}
+var _tempo_relato := 0.0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -177,10 +200,27 @@ func iniciar_servidor() -> Error:
 	for ip in ips_locais():
 		var partes := ip.split(".")
 		_destinos_anuncio.append("%s.%s.%s.255" % [partes[0], partes[1], partes[2]])
+	var config := ConfigFile.new()
+	config.load(ARQUIVO_SERVIDOR)
+	nome_servidor = str(config.get_value("servidor", "nome", ""))
+	if nome_servidor.is_empty():
+		nome_servidor = OS.get_environment("COMPUTERNAME") if OS.get_environment("COMPUTERNAME") != "" else "SERVIDOR"
 	Ranking.carregar()
 	Ranking.ranking_mudou.connect(_ranking_mudou)
-	registrar_evento("servidor", "Escutando na porta %d (versão %s)" % [PORTA, VERSAO])
+	registrar_evento("servidor", "Escutando na porta %d (versão %s) como \"%s\"" % [PORTA, VERSAO, nome_servidor])
 	return OK
+
+## Servidor: troca o nome anunciado (e lembra dele)
+func definir_nome_servidor(nome: String):
+	nome = nome.strip_edges()
+	if nome.is_empty() or nome == nome_servidor:
+		return
+	nome_servidor = nome
+	var config := ConfigFile.new()
+	config.load(ARQUIVO_SERVIDOR)
+	config.set_value("servidor", "nome", nome)
+	config.save(ARQUIVO_SERVIDOR)
+	registrar_evento("servidor", "Nome do servidor: %s" % nome)
 
 func tempo_ligado() -> float:
 	return Time.get_ticks_msec() / 1000.0 - inicio_servidor
@@ -265,7 +305,7 @@ func _anunciar(delta: float):
 	if _tempo_anuncio > 0.0:
 		return
 	_tempo_anuncio = INTERVALO_ANUNCIO
-	var pacote := JSON.stringify({"jogo": JOGO, "porta": PORTA, "versao": VERSAO}).to_utf8_buffer()
+	var pacote := JSON.stringify({"jogo": JOGO, "porta": PORTA, "versao": VERSAO, "nome": nome_servidor}).to_utf8_buffer()
 	for destino in _destinos_anuncio:
 		_udp.set_dest_address(destino, PORTA_DESCOBERTA)
 		_udp.put_packet(pacote)
@@ -533,6 +573,7 @@ func registrar_tempo(tempo: float, pista: String):
 
 func _cliente(delta: float):
 	if conectado:
+		_relatar_servidores(delta)
 		if modo == Modo.CLIENTE:
 			_tempo_heartbeat -= delta
 			if _tempo_heartbeat <= 0.0:
@@ -548,14 +589,84 @@ func _cliente(delta: float):
 			_tempo_reconexao = INTERVALO_RECONEXAO
 			_conectar(_ip_manual, PORTA)
 		return
+	_ouvir_anuncios()
+	if servidores.is_empty():
+		_descobrindo_desde = -1.0
+		return
+	var agora := Time.get_ticks_msec() / 1000.0
+	if _descobrindo_desde < 0.0:
+		_descobrindo_desde = agora
+	# Espera um pouco para saber se há mais de um servidor antes de escolher
+	if agora - _descobrindo_desde < JANELA_DESCOBERTA:
+		return
+	var ip := _escolher_servidor()
+	_descobrindo_desde = -1.0
+	_conectar(ip, int(servidores[ip].porta))
+
+## Anúncios recebidos: atualiza a lista de servidores (e esquece os que sumiram)
+func _ouvir_anuncios():
+	var agora := Time.get_ticks_msec() / 1000.0
+	var mudou := false
 	while _udp.is_bound() and _udp.get_available_packet_count() > 0:
 		var pacote := _udp.get_packet()
 		var ip := _udp.get_packet_ip()
 		var dados: Variant = JSON.parse_string(pacote.get_string_from_utf8())
 		# A versão no anúncio deixa de fora um Quest com build antiga
 		if dados is Dictionary and dados.get("jogo") == JOGO and dados.get("versao") == VERSAO:
-			_conectar(ip, int(dados.get("porta", PORTA)))
-			return
+			if not servidores.has(ip):
+				mudou = true
+			servidores[ip] = {"nome": str(dados.get("nome", ip)), "porta": int(dados.get("porta", PORTA)), "visto_em": agora}
+	for ip in servidores.keys():
+		if agora - float(servidores[ip].visto_em) > ESQUECER_SERVIDOR and ip != _ip_servidor:
+			servidores.erase(ip)
+			mudou = true
+	if mudou:
+		if servidores.size() > 1:
+			print("Servidores na rede: %s" % ", ".join(servidores.keys().map(func(i): return "%s (%s)" % [servidores[i].nome, i])))
+		servidores_mudaram.emit()
+
+## Mais de um servidor: o último em que este aparelho esteve; senão o de menor IP (todos
+## os aparelhos sem preferência vão para o mesmo)
+func _escolher_servidor() -> String:
+	var config := ConfigFile.new()
+	config.load(ARQUIVO_APARELHO)
+	var preferido := str(config.get_value("aparelho", "servidor", ""))
+	var ips := servidores.keys()
+	ips.sort_custom(func(a, b): return _ip_numero(a) < _ip_numero(b))
+	var agora := Time.get_ticks_msec() / 1000.0
+	var acessiveis := ips.filter(func(ip): return agora - float(_falhas.get(ip, -100.0)) > 15.0)
+	if not acessiveis.is_empty():
+		ips = acessiveis
+	for ip in ips:
+		if preferido != "" and servidores[ip].nome == preferido:
+			return ip
+	return ips[0]
+
+static func _ip_numero(ip: String) -> int:
+	var n := 0
+	for parte in ip.split("."):
+		n = n * 256 + int(parte)
+	return n
+
+## Conectado: conta ao servidor quais outros servidores este aparelho ouve (o painel
+## do operador avisa que há mais de um servidor na rede)
+func _relatar_servidores(delta: float):
+	_ouvir_anuncios()
+	_tempo_relato -= delta
+	if _tempo_relato > 0.0:
+		return
+	_tempo_relato = 2.0
+	var outros := []
+	for ip in servidores:
+		if ip != _ip_servidor:
+			outros.append([ip, servidores[ip].nome])
+	var assinatura := str(outros)
+	if assinatura != _relatado or not outros.is_empty():
+		_relatado = assinatura
+		relatar_servidores.rpc_id(1, outros)
+
+func outros_servidores_vistos() -> int:
+	return servidores.keys().filter(func(ip): return ip != _ip_servidor).size()
 
 # --- Corrida em grupo (cliente) --------------------------------------------------------
 
@@ -594,6 +705,7 @@ func _enviar_telemetria(delta: float):
 		telemetria.rpc_id(1, dados)
 
 func _conectar(ip: String, porta: int):
+	_ip_servidor = ip
 	_enet = ENetMultiplayerPeer.new()
 	if _enet.create_client(ip, porta) != OK:
 		return
@@ -604,6 +716,14 @@ func _conectar(ip: String, porta: int):
 func _conectou():
 	_conectando = false
 	conectado = true
+	# Lembra o servidor (preferido da próxima vez, se houver mais de um na rede)
+	nome_servidor = str(servidores.get(_ip_servidor, {}).get("nome", _ip_servidor))
+	var lembrar := ConfigFile.new()
+	lembrar.load(ARQUIVO_APARELHO)
+	lembrar.set_value("aparelho", "servidor", nome_servidor)
+	lembrar.save(ARQUIVO_APARELHO)
+	_relatado = ""
+	_tempo_relato = 0.0
 	liberado = false
 	nome_jogador = ""
 	estado = "idle"
@@ -644,6 +764,7 @@ func _id_aparelho(notebook: bool) -> String:
 
 func _falhou():
 	_conectando = false
+	_falhas[_ip_servidor] = Time.get_ticks_msec() / 1000.0
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 
 func _caiu():
@@ -677,6 +798,32 @@ func _process(delta: float):
 			_cliente(delta)
 
 # --- Mensagens (mesmo script nos dois lados) ------------------------------------------
+
+## Cliente -> servidor: outros servidores que ele ouve na rede ([ip, nome])
+@rpc("any_peer", "call_remote", "reliable")
+func relatar_servidores(lista: Array):
+	if modo != Modo.SERVIDOR:
+		return
+	var peer := multiplayer.get_remote_sender_id()
+	var quem: String = Dispositivos.obter(peer).get("apelido", "telão" if espectadores.has(peer) else "#%d" % peer)
+	var agora := Time.get_ticks_msec() / 1000.0
+	for par in lista:
+		var ip := str(par[0])
+		if not outros_servidores.has(ip):
+			registrar_evento("erro", "Outro servidor na rede: %s (%s), visto por %s" % [str(par[1]), ip, quem])
+		outros_servidores[ip] = {"nome": str(par[1]), "visto_em": agora, "por": quem}
+	servidores_mudaram.emit()
+
+## Servidor: outros servidores relatados há pouco (some o que não é mais visto)
+func outros_servidores_ativos() -> Array:
+	var agora := Time.get_ticks_msec() / 1000.0
+	for ip in outros_servidores.keys():
+		if agora - float(outros_servidores[ip].visto_em) > VALIDADE_OUTRO_SERVIDOR:
+			outros_servidores.erase(ip)
+	var lista := []
+	for ip in outros_servidores:
+		lista.append({"ip": ip, "nome": outros_servidores[ip].nome, "por": outros_servidores[ip].por})
+	return lista
 
 @rpc("any_peer", "call_remote", "reliable")
 func registrar_dispositivo(info: Dictionary):

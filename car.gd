@@ -165,6 +165,15 @@ const ENTRE_EIXOS := 1.45
 @export var tranco_rival := 5.0
 ## Quanto uma batida com adversário pode mudar o giro do carro em volta de si (rad/s)
 @export var tranco_giro_rival := 0.2
+## Raspando no muro/barreira: desaceleração leve ao longo dele (m/s²) e quanto a guinada
+## pode mudar em relação a antes de encostar (rad/s). O casco não inclina: só desliza
+@export var atrito_raspagem := 2.5
+@export var tranco_giro_parede := 0.6
+## Controle de estabilidade (como o ESC): com as rodas no chão, fora do drift e do freio
+## de mão, a guinada além do que o volante pede (mais a folga) some com essa taxa (1/s).
+## Batida na traseira ou de lado não deixa o carro rodando 360°
+@export var estabilidade := 6.0
+@export var folga_estabilidade := 0.25
 @export var tempo_renascer := 3.0
 ## Lobby (mundo neon): segundos livres depois de sair da esfera; passado isso o casco
 ## entra em sobrecarga e perde a vida aos poucos, explodindo em `tempo_sobrecarga`.
@@ -334,6 +343,10 @@ var _preso_desde := Vector3.ZERO
 var _ultimo_destravar := -10.0
 ## Giro (guinada) máximo permitido agora, calculado no passo de física (ver _giro_max)
 var _ultimo_giro_max := 3.0
+## Guinada que o volante pede agora (rad/s, positivo = esquerda) e se o controle de
+## estabilidade age neste passo (ver _limitar_tombo_e_giro)
+var _giro_volante := 0.0
+var _estabilizar := false
 ## Segurar X para desistir: tempo segurando e se já soltou desde a última desistência
 var _tempo_x := 0.0
 var _x_solto := true
@@ -343,6 +356,11 @@ func _ready():
 	add_to_group("carro")
 	# Colisão com o mesmo formato do casco (envoltória convexa da malha gerada)
 	$Forma.shape = $Casco.mesh.create_convex_shape(true, true)
+	# Casco liso: no muro ele desliza em vez de agarrar (o agarrão inclinava o carro e
+	# freava de repente). As rodas não usam isto (a força delas é calculada em código)
+	physics_material_override = PhysicsMaterial.new()
+	physics_material_override.friction = 0.1
+	physics_material_override.bounce = 0.0
 	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	for r in rodas:
 		_ancoras.append(r.position + Vector3.UP * 0.1)
@@ -991,6 +1009,9 @@ func _andar_com_fisica(delta: float, acel: float, vira: float, sobe: float, frei
 
 	_no_ar = _no_ar + delta if rodas_no_chao == 0 else 0.0
 	_ultimo_giro_max = _giro_max()
+	# Geometria da direção: a guinada que o esterço atual faz nessa velocidade
+	_giro_volante = velocidade * tan(direcao) / ENTRE_EIXOS
+	_estabilizar = rodas_no_chao > 0 and not drift and not freio_mao
 	# No ar, como no GTA: analógico direito para a frente abaixa o nariz, para trás
 	# levanta; o esquerdo de lado gira o carro no eixo da frente. Sem comando, o nariz
 	# acompanha a trajetória sozinho (salto rápido), para pousar com as rodas
@@ -1333,10 +1354,15 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 		_vel_anterior = state.linear_velocity
 		return
 	var com_rival := false
+	# Parede: contato com normal deitada em relação ao teto (muro, barreira, quina)
+	var parede := Vector3.ZERO
+	var cima_atual := state.transform.basis.y
 	for i in state.get_contact_count():
 		var tocado := state.get_contact_collider_object(i)
 		if tocado is CarroRival:
 			com_rival = true
+		elif absf(state.get_contact_local_normal(i).normalized().dot(cima_atual)) < 0.5:
+			parede += state.get_contact_local_normal(i)
 		elif tocado is Node and tocado.is_in_group("barreira_abismo"):
 			_na_barreira = true
 		var forca := state.get_contact_impulse(i).length() / mass
@@ -1366,12 +1392,34 @@ func _integrate_forces(state: PhysicsDirectBodyState3D):
 		# do que era antes do contato, mesmo encostado vários passos seguidos
 		giro = clampf(giro, _giro_livre - tranco_giro_rival, _giro_livre + tranco_giro_rival)
 		state.angular_velocity = cima * giro + (w - w.project(cima)).limit_length(0.3)
+	elif parede != Vector3.ZERO:
+		_raspar(state, parede)
 	else:
 		_giro_livre = state.angular_velocity.dot(state.transform.basis.y)
 		_subida_livre = state.linear_velocity.y
 	if anti_capotagem and _trilho.is_empty() and not explodindo:
 		_limitar_tombo_e_giro(state)
 	_vel_anterior = state.linear_velocity
+
+## Raspando no muro: fluido, sem inclinar. O casco liso desliza pela parede; aqui o giro
+## de lado e de frente que o contato criaria é tirado (só a guinada fica, perto da de
+## antes de encostar), o carro não sobe pela parede e perde velocidade de leve ao longo
+## dela. Faíscas e som saem da `raspagem` (velocidade tangencial do contato)
+func _raspar(state: PhysicsDirectBodyState3D, normal: Vector3):
+	var cima := state.transform.basis.y
+	var w := state.angular_velocity
+	var giro := clampf(w.dot(cima), _giro_livre - tranco_giro_parede, _giro_livre + tranco_giro_parede)
+	state.angular_velocity = cima * giro
+	var v := state.linear_velocity
+	v.y = minf(v.y, maxf(_subida_livre, 0.3))
+	var fora := Vector3(normal.x, 0.0, normal.z)
+	if fora.length() > 0.01:
+		var ao_longo := v - v.project(fora.normalized())
+		ao_longo.y = 0.0
+		var rapidez := ao_longo.length()
+		if rapidez > 0.1:
+			v -= ao_longo / rapidez * minf(atrito_raspagem * state.step, rapidez)
+	state.linear_velocity = v
 
 ## Capotar e rodar de acidente são proibidos (tontura em VR). Corrige no próprio passo:
 ## - a inclinação de lado passa de rolagem_max ou a de frente de arfagem_max: o carro
@@ -1412,8 +1460,13 @@ func _limitar_tombo_e_giro(state: PhysicsDirectBodyState3D):
 	# Guinada: em volta do teto
 	var cima := state.transform.basis.y
 	var giro := w.dot(cima)
-	if absf(giro) > _ultimo_giro_max:
-		w += cima * (signf(giro) * _ultimo_giro_max - giro)
+	var novo := clampf(giro, -_ultimo_giro_max, _ultimo_giro_max)
+	if _estabilizar:
+		# Só o excesso além do que o volante pede some (no sentido do volante, com folga;
+		# girando contra ele, tudo): a curva normal não muda
+		var alvo := clampf(novo, minf(_giro_volante, 0.0) - folga_estabilidade, maxf(_giro_volante, 0.0) + folga_estabilidade)
+		novo = lerpf(novo, alvo, 1.0 - exp(-estabilidade * state.step))
+	w += cima * (novo - giro)
 	state.angular_velocity = w
 
 ## Guinada máxima (rad/s) que volante e pneu fazem nesta velocidade: o menor entre a

@@ -529,7 +529,12 @@ func _atualizar_texto():
 	_caixa_espera.visible = espera
 	_caixa_carga.visible = not escolha and not espera
 	if espera:
+		# Em qual servidor o aparelho entrou (e se a rede tem mais de um ligado)
 		_etapa.text = "EM ESPERA"
+		if Rede.nome_servidor != "":
+			_etapa.text += " · SERVIDOR %s" % Rede.nome_servidor.to_upper()
+		if Rede.outros_servidores_vistos() > 0:
+			_etapa.text += " · %d SERVIDORES NA REDE!" % (Rede.outros_servidores_vistos() + 1)
 		_rotulo_oculos.text = Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
 		_painel.definir_dicas(_dicas, [["L3/R3", "CENTRALIZAR"]] if _modo_vr else [])
 	elif escolha:
@@ -580,7 +585,7 @@ func _atualizar_texto():
 		if _modo_vr:
 			dicas_carga.append(["L3/R3", "CENTRALIZAR"])
 		_painel.definir_dicas(_dicas, dicas_carga)
-	_painel.redesenhar("%d|%s|%d|%s|%d|%d|%s" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle), Rede.apelido])
+	_painel.redesenhar("%d|%s|%d|%s|%d|%d|%s|%s|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle), Rede.apelido, Rede.nome_servidor, Rede.outros_servidores_vistos()])
 
 func _montar_som():
 	_som = AudioStreamPlayer.new()

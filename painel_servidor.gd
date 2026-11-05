@@ -45,6 +45,9 @@ var _liberar_peer := 0
 var _liberar_nome := ""
 var _tempo_refresco := 0.0
 var _auto: CheckButton
+## Nome que o servidor anuncia e o alerta de outro servidor na mesma rede
+var _nome_servidor: LineEdit
+var _alerta_servidores: PanelContainer
 var _auto_status: Label
 var _tempo_auto := 0.0
 
@@ -121,6 +124,26 @@ func _montar_cabecalho() -> Control:
 	marca.add_child(TemaEvento.rotulo("ECO SHELL VR", 28, TemaEvento.CIANO, true))
 	marca.add_child(TemaEvento.rotulo("SERVIDOR DO EVENTO", 13, TemaEvento.TEXTO_SUAVE, true))
 	caixa.add_child(marca)
+	# Nome anunciado: os aparelhos mostram em qual servidor entraram e preferem o último
+	var nome := VBoxContainer.new()
+	nome.alignment = BoxContainer.ALIGNMENT_CENTER
+	nome.add_theme_constant_override("separation", 2)
+	nome.add_child(TemaEvento.rotulo("NOME NA REDE", 11, TemaEvento.TEXTO_SUAVE, true))
+	_nome_servidor = LineEdit.new()
+	_nome_servidor.custom_minimum_size.x = 200
+	_nome_servidor.text = Rede.nome_servidor
+	_nome_servidor.tooltip_text = "Nome que este servidor anuncia na rede (Enter para salvar)"
+	_nome_servidor.text_submitted.connect(func(texto: String):
+		Rede.definir_nome_servidor(texto)
+		_nome_servidor.text = Rede.nome_servidor
+		_nome_servidor.release_focus())
+	nome.add_child(_nome_servidor)
+	caixa.add_child(nome)
+	# Outro servidor na mesma rede: os aparelhos podem estar indo para ele
+	_alerta_servidores = TemaEvento.pilula("", TemaEvento.ALERTA, 15)
+	_alerta_servidores.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_alerta_servidores.visible = false
+	caixa.add_child(_alerta_servidores)
 	var vao := Control.new()
 	vao.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	caixa.add_child(vao)
@@ -252,6 +275,18 @@ func _atualizar_cabecalho():
 	_indicadores.ligado.text = "%02d:%02d:%02d" % [ligado / 3600, (ligado / 60) % 60, ligado % 60]
 	var ativo := Rede.modo == Rede.Modo.SERVIDOR
 	TemaEvento.mudar_pilula(_anuncio, "●  ANUNCIANDO" if ativo else "●  PARADO", TemaEvento.QUENTE if ativo else TemaEvento.ALERTA)
+	if not _nome_servidor.has_focus() and _nome_servidor.text != Rede.nome_servidor:
+		_nome_servidor.text = Rede.nome_servidor
+	var outros := Rede.outros_servidores_ativos()
+	_alerta_servidores.visible = not outros.is_empty()
+	if not outros.is_empty():
+		var nomes := PackedStringArray()
+		for o in outros:
+			nomes.append("%s (%s)" % [o.nome, o.ip])
+		TemaEvento.mudar_pilula(_alerta_servidores, "ATENÇÃO: %d SERVIDORES NA REDE · %s" % [outros.size() + 1, ", ".join(nomes)], TemaEvento.ALERTA)
+		_alerta_servidores.tooltip_text = "Feche os outros servidores: cada aparelho entra no primeiro que achar.
+Visto por: %s" % ", ".join(outros.map(func(o): return str(o.por)))
+		_alerta_servidores.modulate.a = 0.6 + 0.4 * absf(sin(Time.get_ticks_msec() * 0.004))
 
 # --- Óculos -------------------------------------------------------------------------
 

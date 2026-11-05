@@ -181,7 +181,8 @@ func _process(delta: float):
 	_tocar("freio", (carro.freio * clampf(v / 5.0, 0.0, 1.0) * 0.3 if no_chao else 0.0), 0.8 + v / 30.0, delta)
 	var pode_raspar: bool = not carro.explodindo and not carro.em_ritual and not carro.em_transicao and not carro.segurado
 	var raspa := smoothstep(1.5, 8.0, carro.raspagem) if pode_raspar else 0.0
-	_tocar("raspagem", raspa * 0.65, 0.75 + minf(carro.raspagem / 14.0, 0.7), delta)
+	# Leve: raspar no muro é aviso, não batida
+	_tocar("raspagem", raspa * 0.35, 0.75 + minf(carro.raspagem / 14.0, 0.7), delta)
 	# Nitro ligado: zumbido elétrico e o assobio subindo com a velocidade, por baixo do motor
 	_tocar("zumbido", _energia * (0.22 + 0.3 * minf(rapidez, 1.0)), 1.0 + 0.04 * rapidez, delta)
 	_tocar("assobio", _energia * (0.1 + 0.35 * minf(rapidez, 1.0) + 0.15 * maxf(acel, 0.0)),

@@ -15,11 +15,18 @@ const LIMITE_HEARTBEAT := 10.0
 const LIMITE_TELEMETRIA := 2.0
 ## tipo do aparelho (enviado no registro) -> prefixo do apelido
 const PREFIXOS := {"oculos": "Óculos", "notebook": "Notebook"}
+## Nomes sorteados para os óculos na espera (até 6 letras: o número de 2 dígitos completa
+## os 8 do visor). Na VR não há teclado: o jogador só aperta A quando estiver pronto
+const NOMES_SORTEIO := ["COMETA", "FALCAO", "TURBO", "NEON", "FAISCA", "TROVAO", "ORION",
+	"VOLT", "PULSAR", "ZENITE", "ATLAS", "LINCE", "PUMA", "CONDOR", "JAGUAR", "VORTEX",
+	"NOVA", "RAIO", "FENIX", "TITA", "LASER", "ROBO", "ASTRO", "BOLIDE"]
 
 signal mudou
 
 ## peer -> {peer, ip, unique_id, tipo, modelo, aparelho, versao, apelido, jogador, liberado,
-## nome_sugerido (o que o jogador digitou no notebook enquanto espera), estado, bateria, fps, conectado_em, ultimo_heartbeat, telemetria, telemetria_em}
+## nome_sugerido (o que o jogador digitou no notebook enquanto espera; nos óculos, o nome
+## sorteado pelo servidor), nome_confirmado (deu Enter no nome no notebook / apertou A no
+## óculos: está pronto), sem_jogador (operador marcou que não tem ninguém nele: fora do auto launch), estado, bateria, fps, conectado_em, ultimo_heartbeat, telemetria, telemetria_em}
 ## (telemetria: car.gd telemetria(), a ~10 Hz enquanto liberado)
 var lista := {}
 ## unique_id -> apelido
@@ -35,7 +42,8 @@ func adicionar(peer: int, ip: String):
 	var agora := _agora()
 	lista[peer] = {
 		"peer": peer, "ip": ip, "unique_id": "", "tipo": "oculos", "modelo": "", "aparelho": "", "versao": "",
-		"apelido": "", "jogador": "", "nome_sugerido": "", "liberado": false, "estado": "idle",
+		"apelido": "", "jogador": "", "nome_sugerido": "", "nome_confirmado": false, "liberado": false, "estado": "idle",
+		"sem_jogador": false,
 		"bateria": -1, "fps": 0, "conectado_em": agora, "ultimo_heartbeat": agora,
 		"telemetria": {}, "telemetria_em": 0.0,
 	}
@@ -62,6 +70,7 @@ func registrar(peer: int, info: Dictionary) -> String:
 	d.aparelho = str(info.get("aparelho", ""))
 	d.versao = str(info.get("versao", ""))
 	d.bateria = int(info.get("bateria", -1))
+	garantir_nome(d)
 	if unico != "" and _apelidos.has(unico) and not _em_uso(_apelidos[unico], peer):
 		d.apelido = _apelidos[unico]
 	elif unico != "" and _apelidos.has(unico):
@@ -109,12 +118,34 @@ func telemetria(d: Dictionary) -> Dictionary:
 		return {}
 	return d.telemetria
 
-## Nome que o jogador digitou na espera (notebook); o operador ainda confirma ao liberar
-func sugerir_nome(peer: int, nome: String):
+## Nome que o jogador digitou na espera (notebook); o operador ainda confirma ao liberar.
+## O auto launch só usa o nome depois que o jogador deu Enter (`confirmado`).
+## Óculos: o nome é o sorteado pelo servidor; daqui só vem o "pronto" (apertou A)
+func sugerir_nome(peer: int, nome: String, confirmado := false):
 	var d := obter(peer)
 	if d.is_empty() or d.liberado:
 		return
+	if d.tipo == "oculos":
+		garantir_nome(d)
+		d.nome_confirmado = confirmado
+		if confirmado:
+			d.sem_jogador = false
+		mudou.emit()
+		return
 	d.nome_sugerido = nome.strip_edges()
+	d.nome_confirmado = confirmado and d.nome_sugerido != ""
+	# Alguém começou a digitar: tem jogador neste aparelho
+	if d.nome_sugerido != "":
+		d.sem_jogador = false
+	mudou.emit()
+
+## Operador: marca (ou desmarca) que o aparelho está sem jogador agora; o auto launch
+## o ignora em vez de esperar o nome dele
+func marcar_sem_jogador(peer: int, sem: bool):
+	var d := obter(peer)
+	if d.is_empty():
+		return
+	d.sem_jogador = sem
 	mudou.emit()
 
 func definir_estado(peer: int, estado: String):
@@ -130,6 +161,8 @@ func liberar(peer: int, jogador: String):
 		return
 	d.jogador = jogador
 	d.nome_sugerido = ""
+	d.nome_confirmado = false
+	d.sem_jogador = false
 	d.liberado = true
 	mudou.emit()
 
@@ -139,10 +172,32 @@ func encerrar(peer: int):
 		return
 	d.jogador = ""
 	d.nome_sugerido = ""
+	d.nome_confirmado = false
 	d.liberado = false
 	d.estado = "idle"
 	d.telemetria = {}
+	# Próxima pessoa no óculos: nome novo, esperando ela apertar A
+	garantir_nome(d)
 	mudou.emit()
+
+## Óculos na espera sem nome: sorteia um (não emite `mudou`: quem chama já emite)
+func garantir_nome(d: Dictionary):
+	if d.tipo == "oculos" and not d.liberado and str(d.nome_sugerido).strip_edges() == "":
+		d.nome_sugerido = _sortear_nome(d.peer)
+		d.nome_confirmado = false
+
+## Palavra + 2 dígitos, sem repetir quem está jogando nem outro óculos na espera
+func _sortear_nome(exceto: int) -> String:
+	var usados := {}
+	for outro in lista.values():
+		if outro.peer != exceto:
+			usados[str(outro.jogador)] = true
+			usados[str(outro.nome_sugerido)] = true
+	for tentativa in 50:
+		var nome := "%s%02d" % [NOMES_SORTEIO.pick_random(), randi_range(1, 99)]
+		if not usados.has(nome):
+			return nome
+	return "PILOTO%02d" % randi_range(1, 99)
 
 func sem_resposta(d: Dictionary) -> bool:
 	return _agora() - float(d.ultimo_heartbeat) > LIMITE_HEARTBEAT

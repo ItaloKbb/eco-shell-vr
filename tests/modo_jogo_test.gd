@@ -54,6 +54,7 @@ func _testar():
 
 	# Nome digitado na espera: guardado como sugestão e apagado ao liberar
 	dispositivos.adicionar(9006, "10.0.0.6")
+	dispositivos.registrar(9006, {"tipo": "notebook"})
 	dispositivos.sugerir_nome(9006, " ANA ")
 	var sugerido: String = dispositivos.obter(9006).nome_sugerido
 	dispositivos.liberar(9006, "ANA")
@@ -61,6 +62,21 @@ func _testar():
 		push_error("Sugestão de nome: '%s' / '%s'" % [sugerido, dispositivos.obter(9006).nome_sugerido])
 		falhas += 1
 	dispositivos.remover(9006)
+
+	# Óculos: nome sorteado na espera, A confirma, e um nome novo a cada sessão encerrada
+	dispositivos.adicionar(9007, "10.0.0.7")
+	dispositivos.registrar(9007, {"tipo": "oculos"})
+	var sorteado: String = dispositivos.obter(9007).nome_sugerido
+	dispositivos.sugerir_nome(9007, sorteado, true)
+	var pronto: bool = dispositivos.obter(9007).nome_confirmado
+	dispositivos.liberar(9007, sorteado)
+	dispositivos.encerrar(9007)
+	var novo: String = dispositivos.obter(9007).nome_sugerido
+	if sorteado.length() < 3 or sorteado.length() > 8 or not pronto or novo == "" \
+			or dispositivos.obter(9007).nome_confirmado:
+		push_error("Sorteio do óculos: '%s' pronto=%s, depois '%s'" % [sorteado, pronto, novo])
+		falhas += 1
+	dispositivos.remover(9007)
 
 	print("modo_jogo_test: %s" % ("OK" if falhas == 0 else "%d falha(s)" % falhas))
 	quit(falhas)

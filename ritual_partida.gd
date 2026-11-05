@@ -3,7 +3,9 @@ extends Node
 ## No evento (conectado ao servidor) a esfera fica em AGUARDANDO, mostrando o apelido
 ## do óculos, até o operador liberar; o nick vem do painel e pula a identificação.
 ## No notebook (fora da VR) o jogador já digita o próprio nome na espera, e ele aparece
-## no painel do operador como sugestão para a liberação.
+## no painel do operador como sugestão para a liberação. Na VR o servidor sorteia o nome
+## e o jogador aperta A quando estiver pronto; o auto launch só solta o grupo (óculos e
+## notebooks) quando todos estiverem prontos.
 ## Encerrar a sessão devolve o piloto à esfera, em espera para a próxima pessoa.
 enum Estado { ESCOLHA, CARGA, PARTIDA, MORTE, AGUARDANDO }
 const ARQUIVO := "user://piloto.cfg"
@@ -47,6 +49,7 @@ var _etapa: Label
 var _caixa_nick: HBoxContainer
 var _caixa_espera: VBoxContainer
 var _rotulo_oculos: Label
+var _aguarde: Label
 var _slots: Array[Label] = []
 var _estilos_slot: Array[StyleBoxFlat] = []
 var _caixa_carga: VBoxContainer
@@ -63,6 +66,8 @@ var _modo_vr := false
 var _usando_controle := false
 ## O nick atual foi digitado na espera (sobrevive a uma queda do servidor)
 var _nome_da_espera := false
+## Notebook na espera: o jogador deu Enter no nome (ver _digitar_na_espera)
+var _nome_confirmado := false
 var _fade_spawn: Transicao
 @onready var mapa = get_parent()
 @onready var carro = mapa.get_node("Carro")
@@ -79,6 +84,7 @@ func _ready():
 	carro.mao_direita.button_pressed.connect(_botao_vr)
 	Rede.sessao_mudou.connect(_sessao_mudou)
 	Rede.apelido_mudou.connect(func(_apelido: String): _atualizar_texto())
+	Rede.espera_mudou.connect(_atualizar_texto)
 	var config := ConfigFile.new()
 	if config.load(arquivo_perfil) == OK:
 		nick = _sanitizar(str(config.get_value("piloto", "nick", "PILOTO")))
@@ -199,6 +205,7 @@ func _limpar_nome_da_espera():
 	nick = ""
 	cursor = 0
 	_nome_da_espera = false
+	_nome_confirmado = false
 	if not _modo_vr:
 		Rede.enviar_nome_sugerido("")
 
@@ -221,7 +228,7 @@ func _sessao_mudou():
 		_informar_sessao()
 		# Reconectou com um nome já digitado: o servidor novo ainda não o conhece
 		if _digitando_na_espera() and not nick.is_empty():
-			Rede.enviar_nome_sugerido(nick)
+			Rede.enviar_nome_sugerido(nick, _nome_confirmado)
 	elif Rede.conectado and not Rede.liberado:
 		# Fora da esfera sem liberação (sessão encerrada): volta para a espera
 		_nova_vida()
@@ -273,11 +280,20 @@ func _input(event: InputEvent):
 		_atualizar_texto()
 		get_viewport().set_input_as_handled()
 
-## Teclado na espera: letras e ⌫ editam o nome, que vai para o painel a cada mudança
+## Teclado na espera: letras e ⌫ editam o nome, que vai para o painel a cada mudança;
+## Enter confirma (só então o auto launch libera este notebook). Mexer no nome depois
+## de confirmar desfaz a confirmação
 func _digitar_na_espera(event: InputEvent):
 	if not (event is InputEventKey and event.pressed):
 		return
 	var antes := nick
+	if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+		get_viewport().set_input_as_handled()
+		if not nick.strip_edges().is_empty() and not _nome_confirmado:
+			_nome_confirmado = true
+			Rede.enviar_nome_sugerido(nick.strip_edges(), true)
+			_atualizar_texto()
+		return
 	if event.keycode == KEY_BACKSPACE:
 		nick = nick.left(maxi(0, nick.length() - 1))
 	elif event.unicode >= 32 and event.unicode < 127 and nick.length() < 8:
@@ -289,6 +305,7 @@ func _digitar_na_espera(event: InputEvent):
 	get_viewport().set_input_as_handled()
 	if nick != antes:
 		_nome_da_espera = true
+		_nome_confirmado = false
 		Rede.enviar_nome_sugerido(nick.strip_edges())
 		_atualizar_texto()
 
@@ -298,6 +315,9 @@ func _botao_vr(nome: String):
 		return
 	if _pronto and estado == Estado.ESCOLHA and nome == "ax_button":
 		_confirmar()
+	elif _pronto and estado == Estado.AGUARDANDO and nome == "ax_button":
+		# Espera do evento: pronto com o nome sorteado
+		Rede.confirmar_pronto()
 
 func _visao_recentralizada():
 	if _modo_vr and is_instance_valid(_painel) and _painel.is_inside_tree():
@@ -489,9 +509,10 @@ func _montar_painel():
 	_rotulo_oculos = PainelHolografico.rotulo("", 64, Color.WHITE, true, 6)
 	_rotulo_oculos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_caixa_espera.add_child(_rotulo_oculos)
-	var aguarde := PainelHolografico.rotulo("AGUARDE A LIBERAÇÃO", 26, COR_CIANO, true, 6)
-	aguarde.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_caixa_espera.add_child(aguarde)
+	# Aviso de até duas linhas: "todos prontos, falta apenas você" + o botão
+	_aguarde = PainelHolografico.rotulo("AGUARDE A LIBERAÇÃO", 22, COR_CIANO, true, 4)
+	_aguarde.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caixa_espera.add_child(_aguarde)
 
 	_caixa_carga = VBoxContainer.new()
 	_caixa_carga.add_theme_constant_override("separation", 12)
@@ -530,18 +551,44 @@ func _atualizar_texto():
 	_caixa_carga.visible = not escolha and not espera
 	if espera:
 		# Em qual servidor o aparelho entrou (e se a rede tem mais de um ligado)
-		_etapa.text = "EM ESPERA"
+		var aparelho := Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
+		var sorteado := Rede.espera_nome.to_upper()
+		# Com nome sorteado ele vai em destaque e o apelido do óculos sobe para a etapa
+		_etapa.text = "%s · EM ESPERA" % aparelho if sorteado != "" else "EM ESPERA"
 		if Rede.nome_servidor != "":
 			_etapa.text += " · SERVIDOR %s" % Rede.nome_servidor.to_upper()
 		if Rede.outros_servidores_vistos() > 0:
 			_etapa.text += " · %d SERVIDORES NA REDE!" % (Rede.outros_servidores_vistos() + 1)
-		_rotulo_oculos.text = Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
-		_painel.definir_dicas(_dicas, [["L3/R3", "CENTRALIZAR"]] if _modo_vr else [])
+		_rotulo_oculos.text = sorteado if sorteado != "" else aparelho
+		var cor_aviso := COR_CIANO
+		if sorteado == "":
+			_aguarde.text = "AGUARDE A LIBERAÇÃO"
+		elif Rede.espera_pronto:
+			_aguarde.text = "PRONTO! AGUARDE A LARGADA" if Rede.espera_faltam == 0 \
+				else "PRONTO! AGUARDANDO %s" % _jogadores(Rede.espera_faltam)
+		elif Rede.espera_outros > 0 and Rede.espera_faltam == 0:
+			_aguarde.text = "TODOS PRONTOS, FALTA APENAS VOCÊ\nPRESSIONE A"
+			cor_aviso = COR_QUENTE
+		else:
+			_aguarde.text = "PRESSIONE A QUANDO ESTIVER PRONTO"
+		_aguarde.add_theme_color_override("font_color", cor_aviso)
+		var dicas_espera := []
+		if sorteado != "" and not Rede.espera_pronto:
+			dicas_espera.append(["A", "ESTOU PRONTO"])
+		if _modo_vr:
+			dicas_espera.append(["L3/R3", "CENTRALIZAR"])
+		_painel.definir_dicas(_dicas, dicas_espera)
 	elif escolha:
 		_etapa.text = "IDENTIFICAÇÃO"
 		if digitando:
 			var aparelho := Rede.apelido.to_upper() if Rede.apelido != "" else "CONECTADO"
-			_etapa.text = "%s · AGUARDE A LIBERAÇÃO" % aparelho
+			var aviso := "DÊ ENTER NO NOME"
+			if _nome_confirmado:
+				aviso = "AGUARDE A LIBERAÇÃO" if Rede.espera_faltam == 0 \
+					else "AGUARDANDO %s" % _jogadores(Rede.espera_faltam)
+			elif Rede.espera_outros > 0 and Rede.espera_faltam == 0:
+				aviso = "TODOS PRONTOS, FALTA VOCÊ: DÊ ENTER"
+			_etapa.text = "%s · %s" % [aparelho, aviso]
 		# Teclado: destaca onde a próxima letra entra; controle/VR: a letra em edição
 		var ativo := cursor if (_modo_vr or _usando_controle) and not digitando else mini(nick.length(), 7)
 		# Piscar só no monitor: na VR o painel só redesenha quando algo muda
@@ -560,7 +607,7 @@ func _atualizar_texto():
 				estilo.border_color = Color(COR_CIANO, 0.3)
 				estilo.set_border_width_all(2)
 		if digitando:
-			_painel.definir_dicas(_dicas, [["A-Z", "DIGITE SEU NOME"], ["⌫", "APAGAR"]])
+			_painel.definir_dicas(_dicas, [["A-Z", "DIGITE SEU NOME"], ["⌫", "APAGAR"], ["ENTER", "CONFIRMAR"]])
 		elif _modo_vr:
 			_painel.definir_dicas(_dicas, [["← →", "POSIÇÃO"], ["↑ ↓", "LETRA"], ["A", "CONFIRMAR"], ["L3/R3", "CENTRALIZAR"]])
 		elif _usando_controle:
@@ -585,7 +632,10 @@ func _atualizar_texto():
 		if _modo_vr:
 			dicas_carga.append(["L3/R3", "CENTRALIZAR"])
 		_painel.definir_dicas(_dicas, dicas_carga)
-	_painel.redesenhar("%d|%s|%d|%s|%d|%d|%s|%s|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle), Rede.apelido, Rede.nome_servidor, Rede.outros_servidores_vistos()])
+	_painel.redesenhar("%d|%s|%d|%s|%d|%d|%s|%s|%d|%d|%s|%d|%d|%d" % [estado, nick, cursor, _porcento.text, int(_soltou), int(_usando_controle), Rede.apelido, Rede.nome_servidor, Rede.outros_servidores_vistos(), int(_nome_confirmado), Rede.espera_nome, int(Rede.espera_pronto), Rede.espera_faltam, Rede.espera_outros])
+
+static func _jogadores(n: int) -> String:
+	return "1 JOGADOR" if n == 1 else "%d JOGADORES" % n
 
 func _montar_som():
 	_som = AudioStreamPlayer.new()

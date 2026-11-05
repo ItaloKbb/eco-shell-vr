@@ -25,7 +25,7 @@ const CONTROLES := {
 		["W / ↑", "ACELERAR"], ["S / ↓", "FREIO / RÉ"],
 		["A D", "ESTERÇAR"], ["E", "NITRO"],
 		["W + S", "DRIFT"], ["ESPAÇO", "FREIO DE MÃO"],
-		["R", "DESVIRAR"], ["ESC", "SOLTAR MOUSE"],
+		["R", "DESVIRAR"], ["SEGURE X", "DESISTIR"],
 	],
 }
 const NOMES := {Dispositivo.VR: "META QUEST", Dispositivo.CONTROLE: "GAMEPAD", Dispositivo.TECLADO: "TECLADO"}

@@ -30,7 +30,7 @@ extends Node
 ## apertaram PRONTO, ou TEMPO_PRONTO depois. Sozinho (ou sem servidor) a corrida é a de sempre.
 
 const JOGO := "tron_senai"
-const VERSAO := "1.6"
+const VERSAO := "1.8"
 const PORTA := 7000
 const PORTA_DESCOBERTA := 7001
 const MAX_JOGADORES := 32
@@ -71,6 +71,8 @@ enum Modo { DESLIGADO, CLIENTE, SERVIDOR, ESPECTADOR }
 
 ## Cliente/espectador: conectou/caiu, foi liberado ou teve a sessão encerrada
 signal sessao_mudou
+## Cliente na espera: mudou o nome sorteado, o "pronto" ou quantos ainda faltam
+signal espera_mudou
 ## Mudou a lista de servidores na rede (cliente: os que ouve; servidor: os relatados)
 signal servidores_mudaram
 signal apelido_mudou(apelido: String)
@@ -100,6 +102,12 @@ var conectado := false
 var liberado := false
 var nome_jogador := ""
 var apelido := ""
+## Cliente na espera (vem do servidor): nome sorteado (só óculos), se já disse que está
+## pronto, quantos outros na espera ainda não estão e quantos outros há na espera
+var espera_nome := ""
+var espera_pronto := false
+var espera_faltam := 0
+var espera_outros := 0
 var estado := "idle"
 ## Sala da corrida em grupo em que este Quest está (vazio = nenhuma)
 var sala := {}
@@ -207,6 +215,7 @@ func iniciar_servidor() -> Error:
 		nome_servidor = OS.get_environment("COMPUTERNAME") if OS.get_environment("COMPUTERNAME") != "" else "SERVIDOR"
 	Ranking.carregar()
 	Ranking.ranking_mudou.connect(_ranking_mudou)
+	Dispositivos.mudou.connect(_avisar_espera)
 	registrar_evento("servidor", "Escutando na porta %d (versão %s) como \"%s\"" % [PORTA, VERSAO, nome_servidor])
 	return OK
 
@@ -240,6 +249,9 @@ func liberar(peer: int, nome: String):
 	if d.is_empty() or nome.is_empty():
 		return
 	Dispositivos.liberar(peer, nome)
+	d.erase("espera_enviada")
+	# Ao chegar ao lobby, entra num grupo que ainda está no grid (ver mudar_estado)
+	d["puxar_sala"] = true
 	liberar_jogador.rpc_id(peer, nome)
 	_atualizar_avatar(peer, true)
 	registrar_evento("sessao", "%s liberado para %s" % [d.apelido, nome])
@@ -251,6 +263,7 @@ func encerrar(peer: int):
 		return
 	var jogador: String = d.jogador
 	var estado_anterior: String = d.estado
+	d.erase("espera_enviada")
 	Dispositivos.encerrar(peer)
 	_atualizar_avatar(peer)
 	encerrar_sessao.rpc_id(peer)
@@ -272,6 +285,40 @@ func desconectar(peer: int):
 		return
 	registrar_evento("conexao", "%s desconectado pelo operador" % Dispositivos.obter(peer).get("apelido", str(peer)))
 	_enet.disconnect_peer(peer)
+
+## Na espera para o auto launch: conectado, registrado, respondendo, sem sessão e não
+## marcado "Vazio"
+static func na_espera(d: Dictionary) -> bool:
+	return d.apelido != "" and not Dispositivos.sem_resposta(d) and not d.liberado \
+		and d.estado == "idle" and not d.get("sem_jogador", false)
+
+## Servidor: conta a cada aparelho na espera o nome sorteado (óculos), se ele já está
+## pronto e quantos dos outros ainda não estão (o óculos mostra "falta apenas você").
+## Só manda quando algo mudou para aquele aparelho
+func _avisar_espera():
+	if modo != Modo.SERVIDOR:
+		return
+	var espera := []
+	for d in Dispositivos.lista.values():
+		if d.apelido != "" and not d.liberado:
+			Dispositivos.garantir_nome(d)
+		if na_espera(d):
+			espera.append(d)
+	for d in Dispositivos.lista.values():
+		if d.apelido == "" or d.liberado:
+			continue
+		var outros := 0
+		var faltam := 0
+		for outro in espera:
+			if outro.peer != d.peer:
+				outros += 1
+				if not outro.nome_confirmado:
+					faltam += 1
+		var nome: String = d.nome_sugerido if d.tipo == "oculos" else ""
+		var info := [nome, bool(d.nome_confirmado), faltam, outros]
+		if d.get("espera_enviada", []) != info:
+			d["espera_enviada"] = info
+			situacao_espera.rpc_id(d.peer, nome, bool(d.nome_confirmado), faltam, outros)
 
 func registrar_evento(tipo: String, texto: String):
 	var registro := {"data": Time.get_date_string_from_system(), "hora": Time.get_time_string_from_system(),
@@ -423,12 +470,23 @@ func _abrir_sala(destino: String, participantes: Array):
 	for peer in participantes:
 		entrar_sala.rpc_id(peer, _info_sala(s))
 
-## Sala ainda no grid (sem largada) para o destino, com vaga sobrando para um jogador
+## Sala ainda no grid (sem largada) para o destino, com vaga sobrando para um jogador.
+## Destino vazio: qualquer uma
 func _sala_aberta(destino: String) -> Dictionary:
 	for s in salas.values():
-		if s.destino == destino and not s.largou and s.participantes.size() < VAGAS:
+		if (destino == "" or s.destino == destino) and not s.largou and s.participantes.size() < VAGAS:
 			return s
 	return {}
+
+## Auto launch: o peer está numa corrida que já largou (ou sozinho, sem grupo para
+## entrar). No lobby ou num grupo ainda no grid não conta: quem for liberado agora
+## ainda se junta a eles
+func em_corrida_largada(peer: int) -> bool:
+	var d := Dispositivos.obter(peer)
+	if d.is_empty() or d.estado != "correndo":
+		return false
+	var s := sala_de(peer)
+	return s.is_empty() or s.largou
 
 ## Jogador chegando a uma sala aberta: fica com a vaga mais de trás que nenhum jogador
 ## ocupa e um adversário da IA sai do grid para manter VAGAS carros
@@ -561,10 +619,19 @@ func terminar_sessao():
 	nome_jogador = ""
 	pedir_encerramento.rpc_id(1)
 
-## Espera (notebook): o nome que o jogador digitou aparece no painel do operador
-func enviar_nome_sugerido(nome: String):
+## Espera (notebook): o nome que o jogador digitou aparece no painel do operador.
+## `confirmado`: o jogador apertou Enter (só então o auto launch usa o nome)
+func enviar_nome_sugerido(nome: String, confirmado := false):
 	if conectado and not liberado and modo == Modo.CLIENTE:
-		sugerir_nome.rpc_id(1, nome)
+		sugerir_nome.rpc_id(1, nome, confirmado)
+
+## Óculos na espera: o jogador apertou A (está pronto com o nome sorteado)
+func confirmar_pronto():
+	if not conectado or liberado or modo != Modo.CLIENTE or espera_nome.is_empty() or espera_pronto:
+		return
+	espera_pronto = true
+	sugerir_nome.rpc_id(1, espera_nome, true)
+	espera_mudou.emit()
 
 ## Fim da corrida: só conta para o ranking com o Quest liberado pelo operador
 func registrar_tempo(tempo: float, pista: String):
@@ -726,6 +793,7 @@ func _conectou():
 	_tempo_relato = 0.0
 	liberado = false
 	nome_jogador = ""
+	_limpar_espera()
 	estado = "idle"
 	_tempo_heartbeat = INTERVALO_HEARTBEAT
 	if modo == Modo.ESPECTADOR:
@@ -772,6 +840,7 @@ func _caiu():
 	conectado = false
 	liberado = false
 	nome_jogador = ""
+	_limpar_espera()
 	sala = {}
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	for avatar in _jogadores.get_children():
@@ -841,11 +910,11 @@ func registrar_dispositivo(info: Dictionary):
 	registrar_evento("dispositivo", "%s registrado: %s" % [novo, info.get("aparelho", "?")])
 
 @rpc("any_peer", "call_remote", "reliable")
-func sugerir_nome(nome: String):
+func sugerir_nome(nome: String, confirmado: bool):
 	if modo != Modo.SERVIDOR:
 		return
 	pacotes_recebidos += 1
-	Dispositivos.sugerir_nome(multiplayer.get_remote_sender_id(), nome.left(32))
+	Dispositivos.sugerir_nome(multiplayer.get_remote_sender_id(), nome.left(32), confirmado)
 
 ## O Quest acabou a vida do piloto (explodiu ou terminou a corrida): encerra como o
 ## operador faria, voltando para idle
@@ -1006,6 +1075,15 @@ func mudar_estado(novo: String):
 	if novo != "correndo":
 		_sair_da_sala(peer)
 	Dispositivos.definir_estado(peer, novo)
+	# Acabou de ser liberado e chegou ao lobby (ainda na esfera): se um grupo está no
+	# grid esperando a largada, entra nele no lugar de um adversário da IA
+	var puxar: bool = d.get("puxar_sala", false)
+	if novo != "idle":
+		d.erase("puxar_sala")
+	if puxar and novo == "lobby" and sala_de(peer).is_empty():
+		var aberta := _sala_aberta("")
+		if not aberta.is_empty():
+			_entrar_na_sala(aberta, peer)
 	_atualizar_avatar(peer)
 	# Um frame para o despawn sair antes da confirmação
 	await get_tree().process_frame
@@ -1044,7 +1122,23 @@ func atualizar_ranking(lista: Array):
 func liberar_jogador(nome: String):
 	liberado = true
 	nome_jogador = nome
+	_limpar_espera()
 	sessao_mudou.emit()
+
+## Servidor -> aparelho na espera (ver _avisar_espera)
+@rpc("authority", "call_remote", "reliable")
+func situacao_espera(nome: String, pronto: bool, faltam: int, outros: int):
+	espera_nome = nome
+	espera_pronto = pronto
+	espera_faltam = faltam
+	espera_outros = outros
+	espera_mudou.emit()
+
+func _limpar_espera():
+	espera_nome = ""
+	espera_pronto = false
+	espera_faltam = 0
+	espera_outros = 0
 
 @rpc("authority", "call_remote", "reliable")
 func encerrar_sessao():

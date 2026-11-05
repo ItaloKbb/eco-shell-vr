@@ -288,6 +288,8 @@ var _vida_na_sobrecarga := VIDA_MAX
 var _fov := 75.0
 var _olhar := Vector2.ZERO
 var _olhar_repouso := Vector2.ZERO
+## Posição local da câmera do monitor no cockpit (fixa: ver _nivelar_visao)
+var _posicao_camera := Vector3.ZERO
 var _energia_visual := 0.0
 var _esperando_chao := false
 var _botao_preso := false
@@ -376,6 +378,7 @@ func _ready():
 	freeze = true
 	_esperando_chao = true
 	_fov = camera.fov
+	_posicao_camera = camera.position
 	_olhar = Vector2(camera.rotation.x, camera.rotation.y)
 	_olhar_repouso = _olhar
 	mao_esquerda.button_pressed.connect(_botao_esquerdo)
@@ -654,7 +657,11 @@ func _nivelar_visao():
 		var origem := $OrigemXR as XROrigin3D
 		origem.global_transform = Transform3D(base, global_transform * ANCORA_CABECA_LOCAL - base * _cabeca_ref)
 	else:
-		camera.global_basis = base * Basis.from_euler(Vector3(_olhar.x, _olhar.y, 0.0))
+		# Escreve a pose LOCAL com a posição fixa do cockpit: usar global_basis relia a
+		# posição global e a regravava pelo inverso do carro a cada frame, e o erro de
+		# arredondamento acumulava até a câmera sair do carro aos poucos
+		var rotacao := global_basis.inverse() * base * Basis.from_euler(Vector3(_olhar.x, _olhar.y, 0.0))
+		camera.transform = Transform3D(rotacao, _posicao_camera)
 
 func _input(event):
 	if not _ativo():
@@ -761,7 +768,9 @@ func _mais_inclinado(a: float, b: float) -> float:
 
 ## X apertado agora (Xbox, ou o X do controle esquerdo do Quest)
 func _segurando_x() -> bool:
-	var x := _ativo() and botao_controle(JOY_BUTTON_X)
+	# Teclado (notebook sem controle): a tecla X ou Backspace
+	var x := _ativo() and (botao_controle(JOY_BUTTON_X) or Input.is_key_pressed(KEY_X) \
+		or Input.is_key_pressed(KEY_BACKSPACE))
 	if get_viewport().use_xr:
 		x = x or mao_esquerda.is_button_pressed("ax_button")
 	return x

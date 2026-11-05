@@ -99,7 +99,9 @@ static func _janela_pc(tamanho: Vector2i, titulo: String):
 	if xr and xr.is_initialized():
 		xr.uninitialize()
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	var tela := DisplayServer.screen_get_usable_rect()
+	# Notebook com tela menor que a janela pedida: cabe na área útil (sem a barra de tarefas)
+	tamanho = tamanho.min(tela.size - Vector2i(0, 40))
 	DisplayServer.window_set_size(tamanho)
 	DisplayServer.window_set_title(titulo)
-	var tela := DisplayServer.screen_get_usable_rect()
 	DisplayServer.window_set_position(tela.position + (tela.size - tamanho) / 2)

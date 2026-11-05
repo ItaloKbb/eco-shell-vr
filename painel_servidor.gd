@@ -5,9 +5,16 @@ extends Control
 ## bateria, ping e as ações do operador: liberar com o nome do jogador, encerrar sessão,
 ## apelido, desconectar), ranking geral com pódio e log de eventos.
 ## AUTO LAUNCH (no cabeçalho, lembrado entre sessões): a cada INTERVALO_AUTO s confere se
-## a pista está livre (ninguém liberado, no lobby ou correndo). Livre, e com todos os
-## óculos em espera já com nome (o que o operador digitou no cartão ou o que o próprio
-## jogador escreveu no aparelho), libera todos de uma vez. Falta nome de alguém: espera.
+## a pista está livre (nenhuma corrida já largada; quem está no lobby ou num grupo ainda
+## no grid não segura: os liberados se juntam a eles). Livre, e com todos os aparelhos
+## em espera já com nome (o que o operador digitou no cartão ou o que o jogador
+## confirmou com Enter no notebook), libera todos de uma vez. Falta nome de alguém: espera.
+## FILA RÁPIDA (junto do auto launch): o servidor sorteia um nome para cada óculos na
+## espera (ver Dispositivos.garantir_nome); o jogador aperta A quando estiver pronto e sai
+## com esse nome no mesmo lote dos notebooks. O lote só sai quando todos estão prontos, e
+## o óculos mostra "todos prontos, falta apenas você". Os dois começam ligados ao abrir.
+## Aparelho marcado "Vazio" (sem jogador) no card fica fora do auto launch: nem segura a
+## fila nem é liberado.
 ## Toda a lógica fica em Rede, Dispositivos e Ranking; aqui só se mostra e se aciona.
 
 const CORES_EVENTO := {
@@ -16,11 +23,10 @@ const CORES_EVENTO := {
 }
 ## Quanto tempo o tempo novo fica destacado no ranking (s)
 const TEMPO_DESTAQUE := 8.0
-const LARGURA_CARTAO := 460.0
-const ALTURA_BAIXO := 220.0
-## Auto launch: de quanto em quanto tempo confere (s) e onde guarda se está ligado
+const LARGURA_CARTAO := 420.0
+const ALTURA_BAIXO := 170.0
+## Auto launch: de quanto em quanto tempo confere (s)
 const INTERVALO_AUTO := 3.0
-const ARQUIVO_PAINEL := "user://painel_servidor.cfg"
 
 var _ip: Label
 var _anuncio: PanelContainer
@@ -45,6 +51,7 @@ var _liberar_peer := 0
 var _liberar_nome := ""
 var _tempo_refresco := 0.0
 var _auto: CheckButton
+var _rapida: CheckButton
 ## Nome que o servidor anuncia e o alerta de outro servidor na mesma rede
 var _nome_servidor: LineEdit
 var _alerta_servidores: PanelContainer
@@ -52,6 +59,9 @@ var _auto_status: Label
 var _tempo_auto := 0.0
 
 func _ready():
+	# O projeto escala a tela a partir de 1152x648 (bom para o jogo); no painel isso só
+	# ampliava tudo e escondia os cards. Aqui vale o pixel real da janela
+	get_tree().root.content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = TemaEvento.criar()
 	var fundo := ColorRect.new()
@@ -69,14 +79,19 @@ func _ready():
 
 	raiz.add_child(_montar_cabecalho())
 	raiz.add_child(_montar_indicadores())
-	# Os cards ficam com o que sobra; ranking e log numa faixa de altura fixa embaixo
+	# Cards em cima, ranking e log embaixo; o operador arrasta a divisa entre os dois
+	var divisao := VSplitContainer.new()
+	divisao.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	raiz.add_child(divisao)
 	var oculos := _secao("APARELHOS CONECTADOS", _montar_cartoes())
 	oculos.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	raiz.add_child(oculos)
+	oculos.size_flags_stretch_ratio = 2.6
+	divisao.add_child(oculos)
 	var baixo := HBoxContainer.new()
 	baixo.custom_minimum_size.y = ALTURA_BAIXO
+	baixo.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	baixo.add_theme_constant_override("separation", 14)
-	raiz.add_child(baixo)
+	divisao.add_child(baixo)
 	var ranking := _secao("RANKING GERAL · MELHOR TEMPO DE CADA JOGADOR", _montar_ranking())
 	ranking.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	baixo.add_child(ranking)
@@ -142,6 +157,9 @@ func _montar_cabecalho() -> Control:
 	# Outro servidor na mesma rede: os aparelhos podem estar indo para ele
 	_alerta_servidores = TemaEvento.pilula("", TemaEvento.ALERTA, 15)
 	_alerta_servidores.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# Texto longo (vários servidores) corta com reticências em vez de alargar a tela
+	_alerta_servidores.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	(_alerta_servidores.get_child(0) as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_alerta_servidores.visible = false
 	caixa.add_child(_alerta_servidores)
 	var vao := Control.new()
@@ -169,28 +187,41 @@ func _montar_auto_launch() -> Control:
 	var coluna := VBoxContainer.new()
 	coluna.alignment = BoxContainer.ALIGNMENT_CENTER
 	coluna.add_theme_constant_override("separation", 0)
+	var chaves := HBoxContainer.new()
+	chaves.alignment = BoxContainer.ALIGNMENT_END
+	chaves.add_theme_constant_override("separation", 4)
+	coluna.add_child(chaves)
+	# Os dois começam ligados toda vez que o servidor abre; desligar vale só para a sessão
 	_auto = CheckButton.new()
 	_auto.text = "AUTO LAUNCH"
-	_auto.tooltip_text = "Com a pista livre (ninguém no lobby nem correndo), libera sozinho\ntodos os óculos em espera, desde que todos já tenham nome."
-	var config := ConfigFile.new()
-	if config.load(ARQUIVO_PAINEL) == OK:
-		_auto.button_pressed = bool(config.get_value("painel", "auto_launch", false))
+	_auto.tooltip_text = "Sem corrida largada, libera sozinho todos os aparelhos em espera\nquando todos estiverem prontos (notebook: Enter no nome; óculos: A)."
+	_auto.button_pressed = true
 	_auto.toggled.connect(func(ligado: bool):
-		var arquivo := ConfigFile.new()
-		arquivo.load(ARQUIVO_PAINEL)
-		arquivo.set_value("painel", "auto_launch", ligado)
-		arquivo.save(ARQUIVO_PAINEL)
 		Rede.registrar_evento("servidor", "Auto launch %s" % ("ligado" if ligado else "desligado"))
 		_tempo_auto = 0.0)
-	coluna.add_child(_auto)
+	chaves.add_child(_auto)
+	_rapida = CheckButton.new()
+	_rapida.text = "FILA RÁPIDA"
+	_rapida.tooltip_text = "Óculos saem com o nome sorteado assim que o jogador aperta A,\njunto com os notebooks. Desligada: o operador digita o nome do óculos."
+	_rapida.button_pressed = true
+	_rapida.toggled.connect(func(ligado: bool):
+		Rede.registrar_evento("servidor", "Fila rápida %s" % ("ligada" if ligado else "desligada"))
+		_tempo_auto = 0.0)
+	chaves.add_child(_rapida)
+	# Largura fixa: um status longo (vários nomes) corta com reticências em vez de
+	# empurrar o painel para fora da janela; o texto inteiro fica na dica
 	_auto_status = TemaEvento.rotulo("", 12, TemaEvento.TEXTO_SUAVE, true)
 	_auto_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_auto_status.custom_minimum_size.x = 260
+	_auto_status.custom_minimum_size.x = 300
+	_auto_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_auto_status.mouse_filter = Control.MOUSE_FILTER_PASS
 	coluna.add_child(_auto_status)
 	return coluna
 
-## Pista livre e todos em espera com nome: libera todos. Óculos sem resposta (sem
-## heartbeat) ou ainda registrando não contam nem seguram os outros
+## Sem corrida largada e todos em espera prontos: libera todos de uma vez. Aparelhos sem
+## resposta (sem heartbeat), ainda registrando ou marcados "Vazio" não contam nem seguram
+## os outros. Notebook: pronto com Enter no nome. Óculos (fila rápida): pronto com A, e
+## sai com o nome sorteado; sem fila rápida, espera o operador digitar o nome no card
 func _verificar_auto_launch():
 	if _auto == null:
 		return
@@ -199,27 +230,40 @@ func _verificar_auto_launch():
 		return
 	var ocupados := 0
 	var prontos := []
-	var sem_nome := PackedStringArray()
+	var faltam := PackedStringArray()
 	for peer in Dispositivos.lista:
 		var d: Dictionary = Dispositivos.lista[peer]
 		if d.apelido == "" or Dispositivos.sem_resposta(d):
 			continue
-		if d.liberado or d.estado == "lobby" or d.estado == "correndo":
+		# Só uma corrida que já largou segura a fila: no lobby ou com o grupo ainda no
+		# grid, quem estiver na espera é liberado e se junta a eles
+		if Rede.em_corrida_largada(peer):
 			ocupados += 1
 			continue
-		var nome: String = _cartoes[peer].nome_para_liberar() if _cartoes.has(peer) else str(d.get("nome_sugerido", "")).strip_edges()
+		if not Rede.na_espera(d):
+			continue
+		var nome := ""
+		var cartao: CartaoDispositivo = _cartoes.get(peer)
+		if cartao and cartao.nome_digitado() != "":
+			# O operador digitou o nome: vale sem esperar o jogador
+			nome = cartao.nome_digitado()
+		elif d.nome_confirmado and (d.tipo != "oculos" or _rapida.button_pressed):
+			nome = str(d.nome_sugerido).strip_edges()
 		if nome == "":
-			sem_nome.append(d.apelido)
+			var falta := "NOME"
+			if d.tipo == "oculos":
+				falta = "APERTAR A" if _rapida.button_pressed else "NOME NO CARD"
+			faltam.append("%s (%s)" % [d.apelido, falta])
 		else:
 			prontos.append([peer, nome])
 	if ocupados > 0:
-		_status_auto("PISTA OCUPADA · %d JOGANDO" % ocupados, TemaEvento.QUENTE)
+		_status_auto("CORRIDA EM ANDAMENTO · %d CORRENDO" % ocupados, TemaEvento.QUENTE)
 		return
-	if not sem_nome.is_empty():
-		_status_auto("AGUARDANDO NOME: %s" % ", ".join(sem_nome), TemaEvento.QUENTE)
+	if not faltam.is_empty():
+		_status_auto("AGUARDANDO: %s" % ", ".join(faltam), TemaEvento.QUENTE)
 		return
 	if prontos.is_empty():
-		_status_auto("NENHUM ÓCULOS EM ESPERA", TemaEvento.TEXTO_SUAVE)
+		_status_auto("NINGUÉM EM ESPERA", TemaEvento.TEXTO_SUAVE)
 		return
 	var nomes := PackedStringArray()
 	for par in prontos:
@@ -230,6 +274,7 @@ func _verificar_auto_launch():
 
 func _status_auto(texto: String, cor: Color):
 	_auto_status.text = texto
+	_auto_status.tooltip_text = texto
 	_auto_status.add_theme_color_override("font_color", cor)
 
 func _montar_indicadores() -> Control:
@@ -359,7 +404,7 @@ func _aguardando(exceto: int) -> Array:
 	var peers := []
 	for outro in Dispositivos.lista:
 		var d: Dictionary = Dispositivos.lista[outro]
-		if outro != exceto and not d.liberado and d.apelido != "":
+		if outro != exceto and not d.liberado and d.apelido != "" and not d.get("sem_jogador", false):
 			peers.append(outro)
 	return peers
 
@@ -574,6 +619,7 @@ class CartaoDispositivo extends PanelContainer:
 	var _nome: LineEdit
 	var _liberar: Button
 	var _encerrar: Button
+	var _sem_jogador: Button
 	var _liberado_antes := false
 	## Último nome digitado pelo jogador (notebook) que foi posto no campo
 	var _sugestao_antes := ""
@@ -653,6 +699,9 @@ class CartaoDispositivo extends PanelContainer:
 		_liberar.theme_type_variation = "BotaoPrimario"
 		_encerrar = _botao(acoes, "Idle", func(): Rede.encerrar(peer))
 		_encerrar.tooltip_text = "Encerra a sessão e devolve o jogador à espera no Quest"
+		_sem_jogador = _botao(acoes, "Vazio", func(): Dispositivos.marcar_sem_jogador(peer, _sem_jogador.button_pressed))
+		_sem_jogador.toggle_mode = true
+		_sem_jogador.tooltip_text = "Sem jogador neste aparelho agora: o auto launch não espera o nome dele\nnem o libera. Desmarca sozinho quando alguém digita o nome no notebook ou aperta A no óculos."
 		var apelido := _botao(acoes, "Apelido", func(): pediu_apelido.emit(peer))
 		apelido.tooltip_text = "Renomear este aparelho"
 		var desconectar := _botao(acoes, "✕", func(): Rede.desconectar(peer))
@@ -677,6 +726,12 @@ class CartaoDispositivo extends PanelContainer:
 		else:
 			pediu_liberar.emit(peer, nome)
 
+	## Auto launch: o nome que o operador escreveu no campo (diferente do que veio do
+	## aparelho, digitado no notebook ou sorteado no óculos); vazio se não escreveu
+	func nome_digitado() -> String:
+		var nome := _nome.text.strip_edges()
+		return nome if nome != "" and _nome.text != _sugestao_antes else ""
+
 	## O que o operador digitou; vazio, o nome que o jogador digitou no notebook
 	func nome_para_liberar() -> String:
 		var nome := _nome.text.strip_edges()
@@ -697,8 +752,21 @@ class CartaoDispositivo extends PanelContainer:
 		_titulo.text = d.apelido if d.apelido != "" else "Registrando…"
 		_peer.text = "#%d" % peer
 		TemaEvento.mudar_pilula(_estado, d.estado.to_upper(), cor_estado)
-		_jogador.text = d.jogador if d.liberado else ("Aguardando liberação · digitou \"%s\"" % d.nome_sugerido if d.nome_sugerido != "" else "Aguardando liberação")
+		var sem: bool = d.get("sem_jogador", false)
+		if d.liberado:
+			_jogador.text = d.jogador
+		elif sem:
+			_jogador.text = "Vazio · fora do auto launch"
+		elif d.nome_sugerido != "" and d.tipo == "oculos":
+			_jogador.text = "%s \"%s\"" % ["Pronto (A)" if d.get("nome_confirmado", false) else "Sorteado · falta apertar A", d.nome_sugerido]
+		elif d.nome_sugerido != "":
+			_jogador.text = "%s \"%s\"" % ["Confirmou" if d.get("nome_confirmado", false) else "Digitando", d.nome_sugerido]
+		else:
+			_jogador.text = "Aguardando liberação"
 		_jogador.add_theme_color_override("font_color", Color.WHITE if d.liberado else TemaEvento.TEXTO_SUAVE)
+		_sem_jogador.set_pressed_no_signal(sem)
+		_sem_jogador.disabled = d.liberado
+		modulate.a = 0.55 if sem and not d.liberado else 1.0
 		_aparelho.text = "%s · %s" % [d.ip, d.aparelho if d.aparelho != "" else "registrando"]
 		_mostrar_telemetria(Dispositivos.telemetria(d))
 

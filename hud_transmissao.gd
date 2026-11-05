@@ -9,12 +9,19 @@ extends CanvasLayer
 ##   cartela do circuito e as luzes de largada (LuzesLargada);
 ## - fim: título do pódio e o placar "RANKING DO EVENTO" em tela cheia;
 ## - espera: painel central sem ninguém jogando, faixa no alto com gente no lobby.
-## Tudo no TemaEvento. Medidas pensadas para 1920x1080 (o telão abre em tela cheia).
+## Tudo no TemaEvento. Medidas numa base de 1920x1080 que o espectador escala para a
+## resolução real da TV (content_scale), com margem de segurança nas bordas (overscan).
+## Compacto como numa transmissão de TV: torre até ~420 px de altura no alto à direita,
+## e embaixo, numa faixa de ALTURA_BAIXO, minimapa, terço inferior e velocidade lado a
+## lado, sem se cruzar.
 
-const LARGURA_TERCO := 760.0
-const ALTURA_FAIXA := 92.0
-const MARGEM := 28.0
-const LADO_MAPA := 300.0
+const LARGURA_TERCO := 560.0
+const ALTURA_FAIXA := 70.0
+const MARGEM := 44.0
+const LADO_MAPA := 200.0
+## Altura do terço inferior e do quadro da velocidade (px) e a distância da borda de baixo
+const ALTURA_BAIXO := 112.0
+const BORDA_BAIXO := 36.0
 ## Azul institucional do SENAI (marca em texto)
 const AZUL_SENAI := Color("1e6ad2")
 
@@ -85,7 +92,8 @@ func _init():
 	_montar_placar()
 	luzes = LuzesLargada.new()
 	luzes.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	luzes.position = Vector2(-LuzesLargada.TAMANHO.x * 0.5, 120.0)
+	luzes.scale = Vector2(0.7, 0.7)
+	luzes.position = Vector2(-LuzesLargada.TAMANHO.x * 0.35, 100.0)
 	_raiz.add_child(luzes)
 	_montar_vinheta()
 	# Corte: tela preta que revela, e uma faixa ciano varrendo por cima (wipe)
@@ -117,24 +125,24 @@ func _init():
 func _montar_marca():
 	var topo := HBoxContainer.new()
 	topo.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	topo.position = Vector2(MARGEM, 22.0)
-	topo.add_theme_constant_override("separation", 14)
+	topo.position = Vector2(MARGEM, 30.0)
+	topo.add_theme_constant_override("separation", 10)
 	_raiz.add_child(topo)
-	topo.add_child(_marca_senai(26))
-	var eco := TemaEvento.rotulo("ECO SHELL VR", 24, Color.WHITE, true)
+	topo.add_child(_marca_senai(19))
+	var eco := TemaEvento.rotulo("ECO SHELL VR", 18, Color.WHITE, true)
 	topo.add_child(eco)
-	_ao_vivo = TemaEvento.pilula("●  AO VIVO", TemaEvento.ALERTA, 16)
+	_ao_vivo = TemaEvento.pilula("●  AO VIVO", TemaEvento.ALERTA, 12)
 	_ao_vivo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	topo.add_child(_ao_vivo)
-	_angulo = TemaEvento.rotulo("", 15, TemaEvento.TEXTO_SUAVE, true)
+	_angulo = TemaEvento.rotulo("", 12, TemaEvento.TEXTO_SUAVE, true)
 	topo.add_child(_angulo)
 
 ## "SENAI" em branco num bloco azul institucional
 func _marca_senai(tamanho: int) -> PanelContainer:
 	var bloco := PanelContainer.new()
 	var caixa := TemaEvento.estilo(AZUL_SENAI, Color.TRANSPARENT, 0, 4, 0.0)
-	caixa.content_margin_left = 14
-	caixa.content_margin_right = 14
+	caixa.content_margin_left = 10
+	caixa.content_margin_right = 10
 	caixa.content_margin_top = 2
 	caixa.content_margin_bottom = 2
 	bloco.add_theme_stylebox_override("panel", caixa)
@@ -145,22 +153,22 @@ func _marca_senai(tamanho: int) -> PanelContainer:
 func _montar_torre_e_mapa():
 	torre = TorreClassificacao.new()
 	torre.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	torre.position = Vector2(-MARGEM - TorreClassificacao.LARGURA, 22.0)
+	torre.position = Vector2(-MARGEM - TorreClassificacao.LARGURA, 30.0)
 	torre.visible = false
 	_raiz.add_child(torre)
 	_painel_mapa = PanelContainer.new()
-	_painel_mapa.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 10.0))
+	_painel_mapa.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 6.0))
 	_painel_mapa.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_painel_mapa.offset_left = MARGEM
-	_painel_mapa.offset_right = MARGEM + LADO_MAPA + 20.0
-	_painel_mapa.offset_bottom = -26.0
-	_painel_mapa.offset_top = -26.0 - LADO_MAPA - 20.0
+	_painel_mapa.offset_right = MARGEM + LADO_MAPA + 12.0
+	_painel_mapa.offset_bottom = -BORDA_BAIXO
+	_painel_mapa.offset_top = -BORDA_BAIXO - LADO_MAPA - 12.0
 	_painel_mapa.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_painel_mapa.visible = false
 	_raiz.add_child(_painel_mapa)
 	minimapa = MapaHud.new()
 	minimapa.custom_minimum_size = Vector2(LADO_MAPA, LADO_MAPA)
-	minimapa.escala_traco = 1.5
+	minimapa.escala_traco = 1.0
 	minimapa.rumo = Vector2.ZERO
 	minimapa.cor = TemaEvento.CIANO
 	minimapa.cor_piloto = Color.WHITE
@@ -170,63 +178,66 @@ func _montar_terco():
 	# Terço inferior: posição grande, nome, ★, onde está e a vida. Fica à direita do
 	# minimapa; a velocidade num quadro no canto direito
 	_terco = PanelContainer.new()
-	_terco.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO))
+	_terco.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 12.0))
 	_terco.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_terco.offset_left = MARGEM + LADO_MAPA + 40.0
+	_terco.offset_left = MARGEM + LADO_MAPA + 28.0
 	_terco.offset_right = _terco.offset_left + LARGURA_TERCO
-	_terco.offset_bottom = -26
-	_terco.offset_top = -168
+	_terco.offset_bottom = -BORDA_BAIXO
+	_terco.offset_top = -BORDA_BAIXO - ALTURA_BAIXO
 	_terco.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_raiz.add_child(_terco)
 	var linha := HBoxContainer.new()
-	linha.add_theme_constant_override("separation", 18)
+	linha.add_theme_constant_override("separation", 12)
 	_terco.add_child(linha)
-	_pos_terco = TemaEvento.rotulo("", 64, Color.WHITE, true, true)
-	_pos_terco.custom_minimum_size.x = 96
+	_pos_terco = TemaEvento.rotulo("", 42, Color.WHITE, true, true)
+	_pos_terco.custom_minimum_size.x = 64
 	_pos_terco.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	linha.add_child(_pos_terco)
 	var esquerda := VBoxContainer.new()
-	esquerda.add_theme_constant_override("separation", 6)
+	esquerda.add_theme_constant_override("separation", 2)
 	esquerda.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	linha.add_child(esquerda)
 	var cabeca := HBoxContainer.new()
-	cabeca.add_theme_constant_override("separation", 12)
+	cabeca.add_theme_constant_override("separation", 8)
 	esquerda.add_child(cabeca)
-	_nome = TemaEvento.rotulo("", 44, Color.WHITE, true)
+	_nome = TemaEvento.rotulo("", 28, Color.WHITE, true)
+	_nome.clip_text = true
+	_nome.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cabeca.add_child(_nome)
-	_estrela_terco = TemaEvento.rotulo("★", 34, TemaEvento.OURO, true)
+	_estrela_terco = TemaEvento.rotulo("★", 22, TemaEvento.OURO, true)
 	cabeca.add_child(_estrela_terco)
-	_situacao = TemaEvento.pilula("", TemaEvento.CIANO, 15)
+	_situacao = TemaEvento.pilula("", TemaEvento.CIANO, 11)
 	_situacao.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	cabeca.add_child(_situacao)
-	_local = TemaEvento.rotulo("", 21, TemaEvento.CIANO, true)
+	_local = TemaEvento.rotulo("", 14, TemaEvento.CIANO, true)
+	_local.clip_text = true
 	esquerda.add_child(_local)
 	var linha_vida := HBoxContainer.new()
-	linha_vida.add_theme_constant_override("separation", 12)
+	linha_vida.add_theme_constant_override("separation", 8)
 	esquerda.add_child(linha_vida)
-	linha_vida.add_child(TemaEvento.rotulo("VIDA", 14, TemaEvento.TEXTO_SUAVE, true))
+	linha_vida.add_child(TemaEvento.rotulo("VIDA", 11, TemaEvento.TEXTO_SUAVE, true))
 	_vida = HBoxContainer.new()
-	_vida.add_theme_constant_override("separation", 4)
+	_vida.add_theme_constant_override("separation", 3)
 	linha_vida.add_child(_vida)
-	_vida_texto = TemaEvento.rotulo("", 14, TemaEvento.TEXTO_SUAVE, false, true)
+	_vida_texto = TemaEvento.rotulo("", 11, TemaEvento.TEXTO_SUAVE, false, true)
 	linha_vida.add_child(_vida_texto)
 	_painel_vel = PanelContainer.new()
-	_painel_vel.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO))
+	_painel_vel.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 12.0))
 	_painel_vel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_painel_vel.offset_left = -MARGEM - 270
+	_painel_vel.offset_left = -MARGEM - 180
 	_painel_vel.offset_right = -MARGEM
-	_painel_vel.offset_bottom = -26
-	_painel_vel.offset_top = -168
+	_painel_vel.offset_bottom = -BORDA_BAIXO
+	_painel_vel.offset_top = -BORDA_BAIXO - ALTURA_BAIXO
 	_painel_vel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_painel_vel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_raiz.add_child(_painel_vel)
 	var direita := VBoxContainer.new()
 	direita.alignment = BoxContainer.ALIGNMENT_CENTER
 	_painel_vel.add_child(direita)
-	_velocidade = TemaEvento.rotulo("0", 76, Color.WHITE, true, true)
+	_velocidade = TemaEvento.rotulo("0", 48, Color.WHITE, true, true)
 	_velocidade.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	direita.add_child(_velocidade)
-	var unidade := TemaEvento.rotulo("KM/H", 16, TemaEvento.CIANO, true)
+	var unidade := TemaEvento.rotulo("KM/H", 12, TemaEvento.CIANO, true)
 	unidade.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	direita.add_child(unidade)
 	# Tempo da tomada: filete embaixo do terço que enche até a próxima troca
@@ -234,18 +245,18 @@ func _montar_terco():
 	_progresso.color = Color(TemaEvento.CIANO, 0.8)
 	_progresso.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_progresso.offset_left = _terco.offset_left
-	_progresso.offset_top = -27
-	_progresso.offset_bottom = -24
+	_progresso.offset_top = -BORDA_BAIXO + 1
+	_progresso.offset_bottom = -BORDA_BAIXO + 4
 	_raiz.add_child(_progresso)
 
 func _montar_cartela():
 	# Cartela da abertura: o circuito, o formato e quem está no grid, acima da faixa de baixo
 	_cartela = PanelContainer.new()
-	_cartela.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.QUENTE, 24.0))
+	_cartela.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.QUENTE, 16.0))
 	_cartela.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_cartela.offset_left = MARGEM
-	_cartela.offset_bottom = -ALTURA_FAIXA - 24
-	_cartela.offset_top = _cartela.offset_bottom - 200
+	_cartela.offset_bottom = -ALTURA_FAIXA - 20
+	_cartela.offset_top = _cartela.offset_bottom - 140
 	_cartela.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_raiz.add_child(_cartela)
 	var coluna := VBoxContainer.new()
@@ -254,15 +265,15 @@ func _montar_cartela():
 	var cabeca := HBoxContainer.new()
 	cabeca.add_theme_constant_override("separation", 14)
 	coluna.add_child(cabeca)
-	cabeca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX  ·  A CORRIDA VAI COMEÇAR", 16, TemaEvento.QUENTE, true))
-	_cartela_estado = TemaEvento.pilula("", TemaEvento.QUENTE, 13)
+	cabeca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX  ·  A CORRIDA VAI COMEÇAR", 12, TemaEvento.QUENTE, true))
+	_cartela_estado = TemaEvento.pilula("", TemaEvento.QUENTE, 11)
 	_cartela_estado.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	cabeca.add_child(_cartela_estado)
-	_cartela_titulo = TemaEvento.rotulo("", 64, Color.WHITE, true)
+	_cartela_titulo = TemaEvento.rotulo("", 44, Color.WHITE, true)
 	coluna.add_child(_cartela_titulo)
-	_cartela_info = TemaEvento.rotulo("", 22, TemaEvento.CIANO, true)
+	_cartela_info = TemaEvento.rotulo("", 16, TemaEvento.CIANO, true)
 	coluna.add_child(_cartela_info)
-	_cartela_grid = TemaEvento.rotulo("", 16, TemaEvento.TEXTO_SUAVE, true)
+	_cartela_grid = TemaEvento.rotulo("", 12, TemaEvento.TEXTO_SUAVE, true)
 	coluna.add_child(_cartela_grid)
 	_cartela.visible = false
 
@@ -273,8 +284,8 @@ func _montar_espera():
 	centro.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(centro)
 	_espera = PanelContainer.new()
-	_espera.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 34.0))
-	_espera.custom_minimum_size.x = 720
+	_espera.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 26.0))
+	_espera.custom_minimum_size.x = 600
 	centro.add_child(_espera)
 	var coluna := VBoxContainer.new()
 	coluna.add_theme_constant_override("separation", 14)
@@ -282,13 +293,13 @@ func _montar_espera():
 	var marca := HBoxContainer.new()
 	marca.alignment = BoxContainer.ALIGNMENT_CENTER
 	marca.add_theme_constant_override("separation", 12)
-	marca.add_child(_marca_senai(22))
-	marca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX", 22, TemaEvento.QUENTE, true))
+	marca.add_child(_marca_senai(18))
+	marca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX", 18, TemaEvento.QUENTE, true))
 	coluna.add_child(marca)
-	_espera_titulo = TemaEvento.rotulo("", 34, Color.WHITE, true)
+	_espera_titulo = TemaEvento.rotulo("", 28, Color.WHITE, true)
 	_espera_titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(_espera_titulo)
-	var chamada := TemaEvento.rotulo("COLOQUE O ÓCULOS E VENHA CORRER!", 18, TemaEvento.CIANO, true)
+	var chamada := TemaEvento.rotulo("COLOQUE O ÓCULOS E VENHA CORRER!", 15, TemaEvento.CIANO, true)
 	chamada.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(chamada)
 	_espera_ranking = VBoxContainer.new()
@@ -296,31 +307,31 @@ func _montar_espera():
 	coluna.add_child(_espera_ranking)
 	# Com gente andando no lobby: só uma faixa no alto, centrada
 	_faixa_espera = PanelContainer.new()
-	_faixa_espera.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.QUENTE, 14.0))
+	_faixa_espera.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.QUENTE, 10.0))
 	_faixa_espera.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_faixa_espera.offset_top = 86
-	_faixa_espera.offset_left = -330
-	_faixa_espera.offset_right = 330
-	_faixa_espera.add_child(TemaEvento.rotulo("AGUARDANDO A PRÓXIMA CORRIDA  ·  ENTRE NUM PORTAL!", 18, Color.WHITE, true))
+	_faixa_espera.offset_top = 30
+	_faixa_espera.offset_left = -260
+	_faixa_espera.offset_right = 260
+	_faixa_espera.add_child(TemaEvento.rotulo("AGUARDANDO A PRÓXIMA CORRIDA  ·  ENTRE NUM PORTAL!", 14, Color.WHITE, true))
 	(_faixa_espera.get_child(0) as Label).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faixa_espera.visible = false
 	_raiz.add_child(_faixa_espera)
 
 func _montar_podio():
 	_podio = PanelContainer.new()
-	_podio.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.OURO, 22.0))
+	_podio.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.OURO, 14.0))
 	_podio.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_podio.offset_top = 90
-	_podio.offset_left = -420
-	_podio.offset_right = 420
+	_podio.offset_top = 70
+	_podio.offset_left = -320
+	_podio.offset_right = 320
 	_raiz.add_child(_podio)
 	var coluna := VBoxContainer.new()
 	coluna.alignment = BoxContainer.ALIGNMENT_CENTER
 	_podio.add_child(coluna)
-	_podio_titulo = TemaEvento.rotulo("", 46, Color.WHITE, true)
+	_podio_titulo = TemaEvento.rotulo("", 32, Color.WHITE, true)
 	_podio_titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(_podio_titulo)
-	_podio_vencedor = TemaEvento.rotulo("", 24, TemaEvento.OURO, true)
+	_podio_vencedor = TemaEvento.rotulo("", 18, TemaEvento.OURO, true)
 	_podio_vencedor.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(_podio_vencedor)
 	_podio.visible = false
@@ -339,19 +350,19 @@ func _montar_placar():
 	centro.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_placar.add_child(centro)
 	var painel := PanelContainer.new()
-	painel.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 36.0))
-	painel.custom_minimum_size.x = 980
+	painel.add_theme_stylebox_override("panel", _caixa_vidro(TemaEvento.CIANO, 26.0))
+	painel.custom_minimum_size.x = 760
 	centro.add_child(painel)
 	var coluna := VBoxContainer.new()
 	coluna.add_theme_constant_override("separation", 10)
 	painel.add_child(coluna)
 	var marca := HBoxContainer.new()
 	marca.add_theme_constant_override("separation", 12)
-	marca.add_child(_marca_senai(24))
-	marca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX", 24, TemaEvento.QUENTE, true))
+	marca.add_child(_marca_senai(18))
+	marca.add_child(TemaEvento.rotulo("ECO SHELL GRAND PRIX", 18, TemaEvento.QUENTE, true))
 	coluna.add_child(marca)
-	coluna.add_child(TemaEvento.rotulo("RANKING DO EVENTO", 54, Color.WHITE, true))
-	coluna.add_child(TemaEvento.rotulo("MELHORES TEMPOS DE CADA PILOTO", 18, TemaEvento.CIANO, true))
+	coluna.add_child(TemaEvento.rotulo("RANKING DO EVENTO", 40, Color.WHITE, true))
+	coluna.add_child(TemaEvento.rotulo("MELHORES TEMPOS DE CADA PILOTO", 14, TemaEvento.CIANO, true))
 	_placar_linhas = VBoxContainer.new()
 	_placar_linhas.add_theme_constant_override("separation", 4)
 	coluna.add_child(_placar_linhas)
@@ -387,16 +398,16 @@ func _montar_vinheta():
 	var apresenta := HBoxContainer.new()
 	apresenta.alignment = BoxContainer.ALIGNMENT_CENTER
 	apresenta.add_theme_constant_override("separation", 12)
-	apresenta.add_child(_marca_senai(28))
-	apresenta.add_child(TemaEvento.rotulo("APRESENTA", 28, Color.WHITE, true))
+	apresenta.add_child(_marca_senai(22))
+	apresenta.add_child(TemaEvento.rotulo("APRESENTA", 22, Color.WHITE, true))
 	coluna.add_child(apresenta)
-	var titulo := TemaEvento.rotulo("ECO SHELL GRAND PRIX", 96, Color.WHITE, true)
+	var titulo := TemaEvento.rotulo("ECO SHELL GRAND PRIX", 72, Color.WHITE, true)
 	titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(titulo)
-	_vinheta_pista = TemaEvento.rotulo("", 52, TemaEvento.QUENTE, true)
+	_vinheta_pista = TemaEvento.rotulo("", 40, TemaEvento.QUENTE, true)
 	_vinheta_pista.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(_vinheta_pista)
-	_vinheta_formato = TemaEvento.rotulo("", 22, TemaEvento.CIANO, true)
+	_vinheta_formato = TemaEvento.rotulo("", 17, TemaEvento.CIANO, true)
 	_vinheta_formato.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coluna.add_child(_vinheta_formato)
 	_vinheta.visible = false
@@ -584,7 +595,7 @@ func _mostrar_vida(vida: int, vida_max: int):
 			filho.queue_free()
 		for i in vida_max:
 			var segmento := ColorRect.new()
-			segmento.custom_minimum_size = Vector2(26, 14)
+			segmento.custom_minimum_size = Vector2(16, 9)
 			_vida.add_child(segmento)
 	var cor := TemaEvento.cor_nivel(float(vida) / maxf(vida_max, 1))
 	for i in _vida.get_child_count():
@@ -598,10 +609,10 @@ func mostrar_podio(pista: String, vencedor: String, real: bool):
 	_podio_vencedor.text = "VENCEDOR:  %s%s" % ["★ " if real else "", vencedor.to_upper()]
 	_podio.visible = true
 	_podio.modulate.a = 0.0
-	_podio.offset_top = 40
+	_podio.offset_top = 30
 	var t := create_tween().set_parallel()
 	t.tween_property(_podio, "modulate:a", 1.0, 0.5).set_delay(0.6)
-	t.tween_property(_podio, "offset_top", 90.0, 0.6).set_delay(0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(_podio, "offset_top", 70.0, 0.6).set_delay(0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 func esconder_podio():
 	_podio.visible = false
@@ -626,25 +637,25 @@ func mostrar_ranking_final(destaques: Array):
 		conteudo.add_theme_constant_override("separation", 18)
 		linha.add_child(conteudo)
 		var cor: Color = medalhas[i] if i < 3 else Color.WHITE
-		var pos := TemaEvento.rotulo("%d" % (i + 1), 30, cor, true, true)
-		pos.custom_minimum_size.x = 56
+		var pos := TemaEvento.rotulo("%d" % (i + 1), 22, cor, true, true)
+		pos.custom_minimum_size.x = 40
 		pos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		conteudo.add_child(pos)
-		var nome := TemaEvento.rotulo("★ " + str(r.get("nome", "")).to_upper(), 28, Color.WHITE, true)
+		var nome := TemaEvento.rotulo("★ " + str(r.get("nome", "")).to_upper(), 20, Color.WHITE, true)
 		nome.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		conteudo.add_child(nome)
 		if novo:
-			conteudo.add_child(TemaEvento.pilula("NOVO", TemaEvento.VERDE, 14))
-		conteudo.add_child(TemaEvento.rotulo(str(r.get("pista", "")).to_upper(), 18, TemaEvento.TEXTO_SUAVE, true))
-		var tempo := TemaEvento.rotulo(Ranking.formatar_tempo(float(r.get("tempo", 0.0))), 30, cor, true, true)
-		tempo.custom_minimum_size.x = 170
+			conteudo.add_child(TemaEvento.pilula("NOVO", TemaEvento.VERDE, 11))
+		conteudo.add_child(TemaEvento.rotulo(str(r.get("pista", "")).to_upper(), 13, TemaEvento.TEXTO_SUAVE, true))
+		var tempo := TemaEvento.rotulo(Ranking.formatar_tempo(float(r.get("tempo", 0.0))), 22, cor, true, true)
+		tempo.custom_minimum_size.x = 120
 		tempo.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		conteudo.add_child(tempo)
 		_placar_linhas.add_child(linha)
 		linha.modulate.a = 0.0
 		t.tween_property(linha, "modulate:a", 1.0, 0.35).set_delay(0.3 + 0.08 * i)
 	if Ranking.top.is_empty():
-		_placar_linhas.add_child(TemaEvento.rotulo("NENHUM TEMPO AINDA: SEJA O PRIMEIRO!", 26, TemaEvento.CIANO, true))
+		_placar_linhas.add_child(TemaEvento.rotulo("NENHUM TEMPO AINDA: SEJA O PRIMEIRO!", 20, TemaEvento.CIANO, true))
 	_placar.visible = true
 	_placar.modulate.a = 0.0
 	t.tween_property(_placar, "modulate:a", 1.0, 0.4)

@@ -7,9 +7,9 @@ extends Control
 ## (cada linha é guardada pelo nome), então a ultrapassagem aparece na torre.
 ## atualizar() recebe as linhas já ordenadas: [{nome, real, cor, intervalo, foco}].
 
-const LARGURA := 380.0
-const ALTURA_CABECA := 78.0
-const ALTURA_LINHA := 36.0
+const LARGURA := 290.0
+const ALTURA_CABECA := 58.0
+const ALTURA_LINHA := 27.0
 const MAX_LINHAS := 12
 const DESLIZE := 0.35
 
@@ -28,13 +28,14 @@ func _init():
 	cabeca.add_theme_stylebox_override("panel", _caixa(Color(0.01, 0.02, 0.05, 0.92), TemaEvento.CIANO, 3))
 	cabeca.size = Vector2(LARGURA, ALTURA_CABECA - 6.0)
 	add_child(cabeca)
-	_cabeca_titulo = TemaEvento.rotulo("", 15, TemaEvento.CIANO, true)
-	_cabeca_titulo.position = Vector2(16.0, 8.0)
-	_cabeca_titulo.size = Vector2(LARGURA - 32.0, 20.0)
+	_cabeca_titulo = TemaEvento.rotulo("", 11, TemaEvento.CIANO, true)
+	_cabeca_titulo.position = Vector2(12.0, 6.0)
+	_cabeca_titulo.size = Vector2(LARGURA - 24.0, 16.0)
+	_cabeca_titulo.clip_text = true
 	cabeca.add_child(_cabeca_titulo)
-	_cabeca_volta = TemaEvento.rotulo("", 28, Color.WHITE, true, true)
-	_cabeca_volta.position = Vector2(16.0, 28.0)
-	_cabeca_volta.size = Vector2(LARGURA - 32.0, 36.0)
+	_cabeca_volta = TemaEvento.rotulo("", 20, Color.WHITE, true, true)
+	_cabeca_volta.position = Vector2(12.0, 22.0)
+	_cabeca_volta.size = Vector2(LARGURA - 24.0, 26.0)
 	cabeca.add_child(_cabeca_volta)
 	_fundo_corpo = Panel.new()
 	_fundo_corpo.add_theme_stylebox_override("panel", _caixa(Color(0.01, 0.02, 0.05, 0.8), Color.TRANSPARENT, 0))
@@ -102,32 +103,32 @@ func _nova_linha() -> Dictionary:
 	raiz.size = Vector2(LARGURA, ALTURA_LINHA)
 	raiz.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_corpo.add_child(raiz)
-	var pos := TemaEvento.rotulo("", 20, Color.WHITE, true, true)
+	var pos := TemaEvento.rotulo("", 15, Color.WHITE, true, true)
 	pos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pos.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pos.position = Vector2(4.0, 0.0)
-	pos.size = Vector2(38.0, ALTURA_LINHA)
+	pos.position = Vector2(2.0, 0.0)
+	pos.size = Vector2(28.0, ALTURA_LINHA)
 	raiz.add_child(pos)
 	var barra := ColorRect.new()
-	barra.position = Vector2(46.0, 7.0)
-	barra.size = Vector2(5.0, ALTURA_LINHA - 14.0)
+	barra.position = Vector2(34.0, 6.0)
+	barra.size = Vector2(4.0, ALTURA_LINHA - 12.0)
 	raiz.add_child(barra)
-	var nome := TemaEvento.rotulo("", 19, Color.WHITE, true)
+	var nome := TemaEvento.rotulo("", 14, Color.WHITE, true)
 	nome.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	nome.position = Vector2(62.0, 0.0)
-	nome.size = Vector2(190.0, ALTURA_LINHA)
+	nome.position = Vector2(46.0, 0.0)
+	nome.size = Vector2(140.0, ALTURA_LINHA)
 	nome.clip_text = true
 	raiz.add_child(nome)
-	var estrela := TemaEvento.rotulo("★", 18, TemaEvento.OURO, true)
+	var estrela := TemaEvento.rotulo("★", 13, TemaEvento.OURO, true)
 	estrela.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	estrela.position = Vector2(252.0, 0.0)
-	estrela.size = Vector2(22.0, ALTURA_LINHA)
+	estrela.position = Vector2(188.0, 0.0)
+	estrela.size = Vector2(16.0, ALTURA_LINHA)
 	raiz.add_child(estrela)
-	var intervalo := TemaEvento.rotulo("", 16, TemaEvento.TEXTO_SUAVE, false, true)
+	var intervalo := TemaEvento.rotulo("", 12, TemaEvento.TEXTO_SUAVE, false, true)
 	intervalo.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	intervalo.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	intervalo.position = Vector2(270.0, 0.0)
-	intervalo.size = Vector2(LARGURA - 284.0, ALTURA_LINHA)
+	intervalo.position = Vector2(204.0, 0.0)
+	intervalo.size = Vector2(LARGURA - 214.0, ALTURA_LINHA)
 	raiz.add_child(intervalo)
 	return {"raiz": raiz, "pos": pos, "barra": barra, "nome": nome, "estrela": estrela,
 		"intervalo": intervalo, "fundo": fundo, "alvo": 0.0}

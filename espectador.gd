@@ -115,6 +115,13 @@ var _orbita := 0.0
 var _hud: HudTransmissao
 
 func _ready():
+	# HUD numa base fixa de 1920x1080, escalada para a resolução real da TV (a TV pode ser
+	# 1366x768, 1280x720 ou estar com escala do Windows): mesma proporção em qualquer tela.
+	# Só a 2D escala; o 3D continua na resolução nativa
+	var janela := get_tree().root
+	janela.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	janela.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	janela.content_scale_size = Vector2i(1920, 1080)
 	_ambiente_neon = preload("res://ambiente_neon.tres").duplicate()
 	# Câmeras altas: a névoa do cockpit (42 m) apagaria o chão inteiro
 	_ambiente_neon.fog_depth_end = 160.0
